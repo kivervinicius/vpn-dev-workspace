@@ -4,6 +4,17 @@ set -Eeuo pipefail
 readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly README_FILE="${ROOT_DIR}/README.md"
 readonly SWITCH_FILE="${ROOT_DIR}/scripts/vpn-switch"
+readonly EXAMPLE_FILE="${ROOT_DIR}/examples/uso-basico.md"
+
+[[ -f "$EXAMPLE_FILE" ]] || {
+  echo "Erro: exemplo de uso ausente: $EXAMPLE_FILE" >&2
+  exit 1
+}
+
+grep -Fq 'examples/uso-basico.md' "$README_FILE" || {
+  echo "Erro: exemplo de uso não está vinculado ao README." >&2
+  exit 1
+}
 
 for profile_file in "${ROOT_DIR}"/profiles/*.yml; do
   profile="$(basename "$profile_file" .yml)"

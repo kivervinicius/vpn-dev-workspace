@@ -124,6 +124,8 @@ Perfis customizados podem exigir endpoint IP, certificados, chaves, endereços, 
 
 ## Uso
 
+Para um passo a passo completo, consulte o [exemplo de uso básico](examples/uso-basico.md).
+
 Inicie um perfil explicitamente:
 
 ```bash
