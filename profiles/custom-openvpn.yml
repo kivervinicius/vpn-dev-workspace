@@ -1,0 +1,21 @@
+services:
+  vpn:
+    environment:
+      VPN_SERVICE_PROVIDER: custom
+      VPN_TYPE: openvpn
+      OPENVPN_CUSTOM_CONFIG: /gluetun/custom.conf
+      OPENVPN_USER_FILE: /run/secrets/openvpn_user
+      OPENVPN_PASSWORD_FILE: /run/secrets/openvpn_password
+    volumes:
+      - ${CUSTOM_OPENVPN_CONFIG_FILE:?CUSTOM_OPENVPN_CONFIG_FILE is required}:/gluetun/custom.conf:ro
+    secrets:
+      - source: custom_openvpn_user
+        target: openvpn_user
+      - source: custom_openvpn_password
+        target: openvpn_password
+
+secrets:
+  custom_openvpn_user:
+    file: ${CUSTOM_OPENVPN_USER_FILE:?CUSTOM_OPENVPN_USER_FILE is required}
+  custom_openvpn_password:
+    file: ${CUSTOM_OPENVPN_PASSWORD_FILE:?CUSTOM_OPENVPN_PASSWORD_FILE is required}

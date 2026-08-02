@@ -1,0 +1,20 @@
+services:
+  vpn:
+    environment:
+      VPN_SERVICE_PROVIDER: nordvpn
+      VPN_TYPE: openvpn
+      OPENVPN_USER_FILE: /run/secrets/openvpn_user
+      OPENVPN_PASSWORD_FILE: /run/secrets/openvpn_password
+      SERVER_COUNTRIES: ${VPN_COUNTRY:-United States}
+      OPENVPN_PROTOCOL: ${OPENVPN_PROTOCOL:-udp}
+    secrets:
+      - source: nordvpn_user
+        target: openvpn_user
+      - source: nordvpn_password
+        target: openvpn_password
+
+secrets:
+  nordvpn_user:
+    file: ${NORDVPN_USER_FILE:?NORDVPN_USER_FILE is required}
+  nordvpn_password:
+    file: ${NORDVPN_PASSWORD_FILE:?NORDVPN_PASSWORD_FILE is required}

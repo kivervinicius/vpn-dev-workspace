@@ -1,0 +1,14 @@
+services:
+  vpn:
+    environment:
+      VPN_SERVICE_PROVIDER: mullvad
+      VPN_TYPE: wireguard
+      WIREGUARD_PRIVATE_KEY_FILE: /run/secrets/wireguard_private_key
+      SERVER_COUNTRIES: ${VPN_COUNTRY:-Sweden}
+    secrets:
+      - source: mullvad_wireguard_private_key
+        target: wireguard_private_key
+
+secrets:
+  mullvad_wireguard_private_key:
+    file: ${MULLVAD_WIREGUARD_PRIVATE_KEY_FILE:?MULLVAD_WIREGUARD_PRIVATE_KEY_FILE is required}

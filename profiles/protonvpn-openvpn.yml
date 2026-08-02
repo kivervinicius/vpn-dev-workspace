@@ -1,0 +1,20 @@
+services:
+  vpn:
+    environment:
+      VPN_SERVICE_PROVIDER: protonvpn
+      VPN_TYPE: openvpn
+      OPENVPN_USER_FILE: /run/secrets/openvpn_user
+      OPENVPN_PASSWORD_FILE: /run/secrets/openvpn_password
+      SERVER_COUNTRIES: ${VPN_COUNTRY:-Netherlands}
+      OPENVPN_PROTOCOL: ${OPENVPN_PROTOCOL:-udp}
+    secrets:
+      - source: protonvpn_user
+        target: openvpn_user
+      - source: protonvpn_password
+        target: openvpn_password
+
+secrets:
+  protonvpn_user:
+    file: ${PROTONVPN_USER_FILE:?PROTONVPN_USER_FILE is required}
+  protonvpn_password:
+    file: ${PROTONVPN_PASSWORD_FILE:?PROTONVPN_PASSWORD_FILE is required}

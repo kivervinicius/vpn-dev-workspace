@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly README_FILE="${ROOT_DIR}/README.md"
+readonly SWITCH_FILE="${ROOT_DIR}/scripts/vpn-switch"
+
+for profile_file in "${ROOT_DIR}"/profiles/*.yml; do
+  profile="$(basename "$profile_file" .yml)"
+  grep -Fq "$profile" "$README_FILE" || {
+    echo "Erro: perfil sem documentação no README: $profile" >&2
+    exit 1
+  }
+  grep -Fq "$profile" "$SWITCH_FILE" || {
+    echo "Erro: perfil não permitido pelo vpn-switch: $profile" >&2
+    exit 1
+  }
+done
+
+grep -Fq 'vpn-reconnect' "$README_FILE" || {
+  echo "Erro: vpn-reconnect não está documentado." >&2
+  exit 1
+}
+
+if grep -Eq 'mudarip|/usr/local/bin/mudarip' "$README_FILE" "$ROOT_DIR/docker-compose.yml"; then
+  echo "Erro: comando legado mudarip ainda está documentado ou configurado." >&2
+  exit 1
+fi
+
+if grep -Eq '^[[:space:]]*-[[:space:]]*~/(\.config$|\.local$|\.cache$)' "$ROOT_DIR/docker-compose.yml"; then
+  echo "Erro: mount pessoal genérico detectado no Compose." >&2
+  exit 1
+fi
+
+echo "Documentação e perfis consistentes."

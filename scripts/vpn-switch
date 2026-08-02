@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly COMPOSE_FILE="${ROOT_DIR}/docker-compose.yml"
+
+usage() {
+  echo "Uso: vpn-switch <nordvpn-openvpn|nordvpn-wireguard|protonvpn-openvpn|protonvpn-wireguard|surfshark-openvpn|mullvad-wireguard|custom-openvpn|custom-wireguard>" >&2
+  exit 2
+}
+
+profile="${1:-}"
+[[ -n "$profile" ]] || usage
+
+case "$profile" in
+  nordvpn-openvpn|nordvpn-wireguard|protonvpn-openvpn|protonvpn-wireguard|surfshark-openvpn|mullvad-wireguard|custom-openvpn|custom-wireguard) ;;
+  *) echo "Erro: perfil não permitido: $profile" >&2; usage ;;
+esac
+
+readonly PROFILE_FILE="${ROOT_DIR}/profiles/${profile}.yml"
+[[ -f "$PROFILE_FILE" ]] || { echo "Erro: perfil ausente: $PROFILE_FILE" >&2; exit 1; }
+
+compose=(docker compose -f "$COMPOSE_FILE" -f "$PROFILE_FILE")
+echo "Validando perfil ${profile}..."
+"${compose[@]}" config --quiet
+echo "Parando o perfil atual..."
+"${compose[@]}" down --remove-orphans
+echo "Subindo o perfil ${profile}..."
+"${compose[@]}" up -d --build --remove-orphans
+
+vpn_container="$("${compose[@]}" ps -q vpn)"
+[[ -n "$vpn_container" ]] || {
+  echo "Erro: o contêiner VPN não foi criado." >&2
+  "${compose[@]}" logs --tail=80 vpn >&2 || true
+  exit 1
+}
+
+for _ in {1..60}; do
+  health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}starting{{end}}' "$vpn_container" 2>/dev/null || true)"
+  case "$health" in
+    healthy) echo "Perfil ${profile} conectado."; exit 0 ;;
+    unhealthy) echo "Erro: o perfil ${profile} falhou no healthcheck." >&2; "${compose[@]}" logs --tail=80 vpn >&2; exit 1 ;;
+  esac
+  sleep 2
+done
+
+echo "Erro: tempo limite aguardando o healthcheck do perfil ${profile}." >&2
+"${compose[@]}" logs --tail=80 vpn >&2
+exit 1

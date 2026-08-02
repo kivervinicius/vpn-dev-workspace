@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly API_URL="http://127.0.0.1:8000"
+readonly API_KEY_FILE="${GLUETUN_API_KEY_FILE:-/run/secrets/gluetun_api_key}"
+
+[[ -r "$API_KEY_FILE" ]] || { echo "Erro: segredo da API ausente: $API_KEY_FILE" >&2; exit 1; }
+api_key="$(tr -d '\r\n' < "$API_KEY_FILE")"
+[[ -n "$api_key" ]] || { echo "Erro: chave da API vazia." >&2; exit 1; }
+
+api_request() {
+  curl --fail --silent --show-error --retry 3 \
+    -H "X-API-Key: ${api_key}" "$@"
+}
+
+echo "Reconectando o perfil VPN atual..."
+api_request -X PUT -H "Content-Type: application/json" \
+  -d '{"status":"stopped"}' "${API_URL}/v1/vpn/status"
+sleep 3
+api_request -X PUT -H "Content-Type: application/json" \
+  -d '{"status":"running"}' "${API_URL}/v1/vpn/status"
+echo "VPN reconectada. IP público atual:"
+api_request "${API_URL}/v1/publicip/ip"
+echo

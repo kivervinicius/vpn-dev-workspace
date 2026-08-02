@@ -1,0 +1,7 @@
+services:
+  vpn:
+    environment:
+      VPN_SERVICE_PROVIDER: custom
+      VPN_TYPE: wireguard
+    volumes:
+      - ${CUSTOM_WIREGUARD_CONFIG_FILE:?CUSTOM_WIREGUARD_CONFIG_FILE is required}:/gluetun/wireguard/wg0.conf:ro

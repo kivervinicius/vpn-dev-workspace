@@ -1,25 +1,26 @@
 services:
-  # Container da NordVPN usando Gluetun.
+  # Container VPN usando Gluetun. O perfil selecionado fornece o provedor.
   vpn:
     image: qmcgaw/gluetun:v3.40.0
+    entrypoint: ["/usr/local/bin/vpn-entrypoint.sh"]
     cap_add:
       - NET_ADMIN
     devices:
       - /dev/net/tun:/dev/net/tun
     environment:
-      VPN_SERVICE_PROVIDER: nordvpn
-      VPN_TYPE: openvpn
-      OPENVPN_USER: ${NORDVPN_USER:?NORDVPN_USER is required}
-      OPENVPN_PASSWORD: ${NORDVPN_PASSWORD:?NORDVPN_PASSWORD is required}
-      SERVER_COUNTRIES: ${VPN_COUNTRY:-United States}
-      HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE: >-
-        {"auth":"apikey","apikey":"${GLUETUN_API_KEY:?GLUETUN_API_KEY is required}"}
+      VPN_SERVICE_PROVIDER: ${VPN_SERVICE_PROVIDER:-nordvpn}
+      VPN_TYPE: ${VPN_TYPE:-openvpn}
+      GLUETUN_API_KEY_FILE: /run/secrets/gluetun_api_key
     ports:
       # Disponíveis apenas no computador local por padrão.
       - "${HOST_BIND_ADDRESS:-127.0.0.1}:3000:3000"
       - "${HOST_BIND_ADDRESS:-127.0.0.1}:4200:4200"
       - "${HOST_BIND_ADDRESS:-127.0.0.1}:5173:5173"
       - "${HOST_BIND_ADDRESS:-127.0.0.1}:8080:8080"
+    secrets:
+      - gluetun_api_key
+    volumes:
+      - ./scripts/vpn-entrypoint.sh:/usr/local/bin/vpn-entrypoint.sh:ro
     restart: unless-stopped
 
   # Ambiente de terminal construído a partir do Dockerfile.
@@ -28,17 +29,24 @@ services:
     network_mode: "service:vpn"
     command: tail -f /dev/null
     environment:
-      GLUETUN_API_KEY: ${GLUETUN_API_KEY:?GLUETUN_API_KEY is required}
+      GLUETUN_API_KEY_FILE: /run/secrets/gluetun_api_key
     volumes:
-      - ./:/workspace
-      - ~/.opencode:/root/.opencode
-      - ~/.config/opencode:/root/.config/opencode
-      - ~/.local/share/opencode:/root/.local/share/opencode
-      - ~/.local/state/opencode:/root/.local/state/opencode
-      - ~/.cache/opencode:/root/.cache/opencode
-      - ./scripts/mudarip.sh:/usr/local/bin/mudarip:ro
-
+      - ${WORKSPACE_DIR:-.}:/workspace
+      # Todo o estado canônico do OpenCode; nenhuma pasta pessoal genérica.
+      - ${OPENCODE_INSTALL_DIR:-~/.opencode}:/root/.opencode
+      - ${OPENCODE_CONFIG_DIR:-~/.config/opencode}:/root/.config/opencode
+      - ${OPENCODE_DATA_DIR:-~/.local/share/opencode}:/root/.local/share/opencode
+      - ${OPENCODE_STATE_DIR:-~/.local/state/opencode}:/root/.local/state/opencode
+      - ${OPENCODE_CACHE_DIR:-~/.cache/opencode}:/root/.cache/opencode
+      - ./scripts/vpn-status:/usr/local/bin/vpn-status:ro
+      - ./scripts/vpn-reconnect:/usr/local/bin/vpn-reconnect:ro
     working_dir: /workspace
     depends_on:
       - vpn
+    secrets:
+      - gluetun_api_key
     restart: unless-stopped
+
+secrets:
+  gluetun_api_key:
+    file: ${GLUETUN_API_KEY_FILE:?GLUETUN_API_KEY_FILE is required}

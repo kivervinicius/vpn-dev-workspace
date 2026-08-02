@@ -1,5 +1,6 @@
 # Environment variables (senhas e dados sensíveis)
 .env
+.secrets/
 
 # Sessões locais que não devem ir pro Git caso copiem para dentro
 .opencode/

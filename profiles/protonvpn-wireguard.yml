@@ -1,0 +1,14 @@
+services:
+  vpn:
+    environment:
+      VPN_SERVICE_PROVIDER: protonvpn
+      VPN_TYPE: wireguard
+      WIREGUARD_PRIVATE_KEY_FILE: /run/secrets/wireguard_private_key
+      SERVER_COUNTRIES: ${VPN_COUNTRY:-Netherlands}
+    secrets:
+      - source: protonvpn_wireguard_private_key
+        target: wireguard_private_key
+
+secrets:
+  protonvpn_wireguard_private_key:
+    file: ${PROTONVPN_WIREGUARD_PRIVATE_KEY_FILE:?PROTONVPN_WIREGUARD_PRIVATE_KEY_FILE is required}

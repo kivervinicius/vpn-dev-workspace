@@ -1,0 +1,20 @@
+services:
+  vpn:
+    environment:
+      VPN_SERVICE_PROVIDER: surfshark
+      VPN_TYPE: openvpn
+      OPENVPN_USER_FILE: /run/secrets/openvpn_user
+      OPENVPN_PASSWORD_FILE: /run/secrets/openvpn_password
+      SERVER_COUNTRIES: ${VPN_COUNTRY:-Netherlands}
+      OPENVPN_PROTOCOL: ${OPENVPN_PROTOCOL:-udp}
+    secrets:
+      - source: surfshark_user
+        target: openvpn_user
+      - source: surfshark_password
+        target: openvpn_password
+
+secrets:
+  surfshark_user:
+    file: ${SURFSHARK_USER_FILE:?SURFSHARK_USER_FILE is required}
+  surfshark_password:
+    file: ${SURFSHARK_PASSWORD_FILE:?SURFSHARK_PASSWORD_FILE is required}

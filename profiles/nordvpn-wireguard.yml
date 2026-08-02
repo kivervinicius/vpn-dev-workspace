@@ -1,0 +1,14 @@
+services:
+  vpn:
+    environment:
+      VPN_SERVICE_PROVIDER: nordvpn
+      VPN_TYPE: wireguard
+      WIREGUARD_PRIVATE_KEY_FILE: /run/secrets/wireguard_private_key
+      SERVER_COUNTRIES: ${VPN_COUNTRY:-United States}
+    secrets:
+      - source: nordvpn_wireguard_private_key
+        target: wireguard_private_key
+
+secrets:
+  nordvpn_wireguard_private_key:
+    file: ${NORDVPN_WIREGUARD_PRIVATE_KEY_FILE:?NORDVPN_WIREGUARD_PRIVATE_KEY_FILE is required}
