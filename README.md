@@ -136,6 +136,14 @@ O serviço `terminal` não possui uma rede independente: seu tráfego passa pelo
 - A imagem instala NVM e OpenCode a partir de instaladores externos. Para ambientes de alta confiança, revise os instaladores, fixe versões e valide checksums antes de usar.
 - Não coloque credenciais em issues, logs, screenshots, commits ou mensagens de erro. Se uma credencial for exposta, revogue-a e gere outra imediatamente.
 
+## Aviso de uso e responsabilidade
+
+Este projeto é disponibilizado para fins educacionais e de desenvolvimento. O usuário é o único responsável por configurar, operar e utilizar o ambiente de acordo com as leis, contratos, políticas de rede e termos de serviço aplicáveis.
+
+Os mantenedores não assumem responsabilidade por danos, perdas, indisponibilidade, bloqueios de conta, vazamento de dados ou qualquer consequência decorrente do uso, configuração ou mau uso deste projeto. Não há garantia de anonimato, privacidade absoluta, disponibilidade da VPN ou ausência de vazamentos em todos os ambientes.
+
+É proibido utilizar este projeto para atividades ilegais, invasão, fraude, abuso de serviços, evasão de controles de acesso ou qualquer finalidade que viole direitos de terceiros. Consulte o [disclaimer completo](DISCLAIMER.md) antes de utilizar ou redistribuir o projeto.
+
 ## Troubleshooting
 
 ### `NORDVPN_USER is required` ou `GLUETUN_API_KEY is required`
@@ -189,4 +197,4 @@ docker build -t vpn-dev-workspace:review .
 
 ## Licença
 
-Nenhuma licença foi definida ainda. Escolha e adicione uma licença antes de conceder permissões formais de reutilização ou distribuição do projeto.
+Este projeto está disponível sob a [Licença MIT](LICENSE). Consulte também o [disclaimer de uso](DISCLAIMER.md).
