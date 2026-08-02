@@ -1,0 +1,15 @@
+# Environment variables (senhas e dados sensíveis)
+.env
+
+# Sessões locais que não devem ir pro Git caso copiem para dentro
+.opencode/
+.config/
+.local/
+.cache/
+
+# Dependências
+node_modules/
+
+# Arquivos locais e artefatos de ferramentas
+.DS_Store
+*.log

@@ -1,0 +1,44 @@
+services:
+  # Container da NordVPN usando Gluetun.
+  vpn:
+    image: qmcgaw/gluetun:v3.40.0
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      VPN_SERVICE_PROVIDER: nordvpn
+      VPN_TYPE: openvpn
+      OPENVPN_USER: ${NORDVPN_USER:?NORDVPN_USER is required}
+      OPENVPN_PASSWORD: ${NORDVPN_PASSWORD:?NORDVPN_PASSWORD is required}
+      SERVER_COUNTRIES: ${VPN_COUNTRY:-United States}
+      HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE: >-
+        {"auth":"apikey","apikey":"${GLUETUN_API_KEY:?GLUETUN_API_KEY is required}"}
+    ports:
+      # Disponíveis apenas no computador local por padrão.
+      - "${HOST_BIND_ADDRESS:-127.0.0.1}:3000:3000"
+      - "${HOST_BIND_ADDRESS:-127.0.0.1}:4200:4200"
+      - "${HOST_BIND_ADDRESS:-127.0.0.1}:5173:5173"
+      - "${HOST_BIND_ADDRESS:-127.0.0.1}:8080:8080"
+    restart: unless-stopped
+
+  # Ambiente de terminal construído a partir do Dockerfile.
+  terminal:
+    build: .
+    network_mode: "service:vpn"
+    command: tail -f /dev/null
+    environment:
+      GLUETUN_API_KEY: ${GLUETUN_API_KEY:?GLUETUN_API_KEY is required}
+    volumes:
+      - ./:/workspace
+      - ~/.opencode:/root/.opencode
+      - ~/.config/opencode:/root/.config/opencode
+      - ~/.local/share/opencode:/root/.local/share/opencode
+      - ~/.local/state/opencode:/root/.local/state/opencode
+      - ~/.cache/opencode:/root/.cache/opencode
+      - ./scripts/mudarip.sh:/usr/local/bin/mudarip:ro
+
+    working_dir: /workspace
+    depends_on:
+      - vpn
+    restart: unless-stopped
