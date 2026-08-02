@@ -124,7 +124,7 @@ Perfis customizados podem exigir endpoint IP, certificados, chaves, endereços, 
 
 ## Uso
 
-Para um passo a passo completo, consulte o [exemplo de uso básico](examples/uso-basico.md).
+Para começar pelo fluxo guiado, consulte o [exemplo de uso básico](examples/uso-basico.md). Ele também aponta de volta para a configuração completa deste README.
 
 Inicie um perfil explicitamente:
 

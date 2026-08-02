@@ -2,6 +2,29 @@
 
 Este exemplo inicia o ambiente usando NordVPN com OpenVPN. Os mesmos comandos podem ser adaptados para outro perfil disponível em `profiles/`.
 
+> **Comece aqui:** se você ainda não clonou o projeto, siga primeiro a seção [Configuração do README principal](../README.md#configuração). Depois retorne a este exemplo para iniciar o ambiente.
+
+## Visão rápida
+
+O fluxo completo é:
+
+1. instalar Docker Engine e Docker Compose;
+2. clonar o repositório;
+3. criar `.env` e os arquivos de segredo;
+4. iniciar um perfil com `vpn-switch`;
+5. entrar no terminal de desenvolvimento.
+
+Se Docker já estiver instalado e o repositório clonado, comece pela etapa 1 abaixo.
+
+## Pré-requisitos
+
+- Linux com Docker Engine e Docker Compose Plugin;
+- `/dev/net/tun` disponível;
+- credenciais de serviço da NordVPN;
+- permissão para executar Docker.
+
+Para outros provedores, consulte os [exemplos de perfis no README](../README.md#exemplos-de-provedores).
+
 ## 1. Preparar os arquivos locais
 
 Na raiz do projeto:
