@@ -1,7 +1,7 @@
 services:
   # Container VPN usando Gluetun. O perfil selecionado fornece o provedor.
   vpn:
-    image: qmcgaw/gluetun:v3.40.0
+    image: qmcgaw/gluetun:latest
     entrypoint: ["/usr/local/bin/vpn-entrypoint.sh"]
     cap_add:
       - NET_ADMIN
@@ -16,7 +16,6 @@ services:
       - "${HOST_BIND_ADDRESS:-127.0.0.1}:3000:3000"
       - "${HOST_BIND_ADDRESS:-127.0.0.1}:4200:4200"
       - "${HOST_BIND_ADDRESS:-127.0.0.1}:5173:5173"
-      - "${HOST_BIND_ADDRESS:-127.0.0.1}:8080:8080"
     secrets:
       - gluetun_api_key
     volumes:
@@ -30,8 +29,10 @@ services:
     command: tail -f /dev/null
     environment:
       GLUETUN_API_KEY_FILE: /run/secrets/gluetun_api_key
+      ALSA_CONFIG_PATH: /dev/null
     volumes:
-      - ${WORKSPACE_DIR:-.}:/workspace
+      - /home/desenvolvedor:/home/desenvolvedor
+      - ${WORKSPACE_DIR:-/projetos}:/projetos
       # Todo o estado canônico do OpenCode; nenhuma pasta pessoal genérica.
       - ${OPENCODE_INSTALL_DIR:-~/.opencode}:/root/.opencode
       - ${OPENCODE_CONFIG_DIR:-~/.config/opencode}:/root/.config/opencode
@@ -40,7 +41,7 @@ services:
       - ${OPENCODE_CACHE_DIR:-~/.cache/opencode}:/root/.cache/opencode
       - ./scripts/vpn-status:/usr/local/bin/vpn-status:ro
       - ./scripts/vpn-reconnect:/usr/local/bin/vpn-reconnect:ro
-    working_dir: /workspace
+    working_dir: /projetos
     depends_on:
       - vpn
     secrets:
