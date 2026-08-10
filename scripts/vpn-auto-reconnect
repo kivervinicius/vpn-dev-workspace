@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly STATE_FILE=/tmp/vpn-auto-reconnect.state
+readonly RECONNECT_INTERVAL_SECONDS="${VPN_RECONNECT_INTERVAL_SECONDS:-3600}"
+readonly RETRY_SECONDS="${VPN_RECONNECT_RETRY_SECONDS:-30}"
+
+validate_interval() {
+  local name="$1" value="$2"
+  [[ "$value" =~ ^[1-9][0-9]*$ ]] || {
+    echo "Erro: ${name} deve ser um número inteiro positivo." >&2
+    exit 2
+  }
+}
+
+set_state() {
+  printf '%s\n' "$1" > "$STATE_FILE"
+}
+
+recover_until_healthy() {
+  while true; do
+    set_state recovering
+    echo "Reconectando a VPN para recuperar um IP público..."
+
+    if /usr/local/bin/vpn-reconnect; then
+      set_state healthy
+      echo "VPN saudável: IP público confirmado."
+      return 0
+    fi
+
+    set_state degraded
+    echo "VPN sem IP público; nova tentativa em ${RETRY_SECONDS}s." >&2
+    sleep "$RETRY_SECONDS"
+  done
+}
+
+validate_interval VPN_RECONNECT_INTERVAL_SECONDS "$RECONNECT_INTERVAL_SECONDS"
+validate_interval VPN_RECONNECT_RETRY_SECONDS "$RETRY_SECONDS"
+
+set_state starting
+if /usr/local/bin/vpn-status >/dev/null 2>&1; then
+  set_state healthy
+  echo "VPN saudável; manutenção automática a cada ${RECONNECT_INTERVAL_SECONDS}s."
+else
+  recover_until_healthy
+fi
+
+while true; do
+  sleep "$RECONNECT_INTERVAL_SECONDS"
+  recover_until_healthy
+done

@@ -1,7 +1,9 @@
 services:
-  # Container VPN usando Gluetun. O perfil selecionado fornece o provedor.
+  # O Gluetun é a única superfície de rede publicada pelo ambiente.
   vpn:
-    image: qmcgaw/gluetun:latest
+    # Só é iniciado pelo vpn-switch, que combina este arquivo com um perfil de provedor.
+    profiles: ["vpn"]
+    image: qmcgaw/gluetun:v3.40.0@sha256:2b42bfa046757145a5155acece417b65b4443c8033fb88661a8e9dcf7fda5a00
     entrypoint: ["/usr/local/bin/vpn-entrypoint.sh"]
     cap_add:
       - NET_ADMIN
@@ -12,40 +14,65 @@ services:
       VPN_TYPE: ${VPN_TYPE:-openvpn}
       GLUETUN_API_KEY_FILE: /run/secrets/gluetun_api_key
     ports:
-      # Disponíveis apenas no computador local por padrão.
-      - "${HOST_BIND_ADDRESS:-127.0.0.1}:3000:3000"
-      - "${HOST_BIND_ADDRESS:-127.0.0.1}:4200:4200"
-      - "${HOST_BIND_ADDRESS:-127.0.0.1}:5173:5173"
+      # A faixa é publicada apenas no endereço configurado do host.
+      - "${HOST_BIND_ADDRESS:-127.0.0.1}:${VPN_PORT_RANGE:-10000-10100}:${VPN_PORT_RANGE:-10000-10100}"
     secrets:
       - gluetun_api_key
     volumes:
       - ./scripts/vpn-entrypoint.sh:/usr/local/bin/vpn-entrypoint.sh:ro
     restart: unless-stopped
 
-  # Ambiente de terminal construído a partir do Dockerfile.
+  # Extensão direta do usuário do host, com toda a home disponível pelo túnel VPN.
   terminal:
+    profiles: ["vpn"]
     build: .
     network_mode: "service:vpn"
     command: tail -f /dev/null
     environment:
-      GLUETUN_API_KEY_FILE: /run/secrets/gluetun_api_key
       ALSA_CONFIG_PATH: /dev/null
+      GLUETUN_API_KEY_FILE: /run/secrets/gluetun_api_key
+      # Preserva caminhos absolutos, configurações e ferramentas da home do host.
+      HOME: ${HOST_HOME_DIR:-${HOME}}
+      SHELL: /usr/bin/zsh
     volumes:
-      - /home/desenvolvedor:/home/desenvolvedor
-      - ${WORKSPACE_DIR:-/projetos}:/projetos
-      # Todo o estado canônico do OpenCode; nenhuma pasta pessoal genérica.
-      - ${OPENCODE_INSTALL_DIR:-~/.opencode}:/root/.opencode
-      - ${OPENCODE_CONFIG_DIR:-~/.config/opencode}:/root/.config/opencode
-      - ${OPENCODE_DATA_DIR:-~/.local/share/opencode}:/root/.local/share/opencode
-      - ${OPENCODE_STATE_DIR:-~/.local/state/opencode}:/root/.local/state/opencode
-      - ${OPENCODE_CACHE_DIR:-~/.cache/opencode}:/root/.cache/opencode
+      # O mesmo caminho nos dois lados permite reutilizar referências absolutas.
+      - ${HOST_HOME_DIR:-${HOME}}:${HOST_HOME_DIR:-${HOME}}
+      - ${WORKSPACE_DIR:-/projetos}:${WORKSPACE_DIR:-/projetos}
       - ./scripts/vpn-status:/usr/local/bin/vpn-status:ro
       - ./scripts/vpn-reconnect:/usr/local/bin/vpn-reconnect:ro
-    working_dir: /projetos
+    working_dir: ${WORKSPACE_DIR:-/projetos}
     depends_on:
-      - vpn
+      vpn:
+        condition: service_healthy
     secrets:
       - gluetun_api_key
+    restart: unless-stopped
+
+  # Recupera a conectividade VPN periodicamente, sem acesso ao socket Docker.
+  vpn-auto-reconnect:
+    profiles: ["vpn"]
+    build: .
+    network_mode: "service:vpn"
+    command: ["/usr/local/bin/vpn-auto-reconnect"]
+    environment:
+      GLUETUN_API_KEY_FILE: /run/secrets/gluetun_api_key
+      VPN_RECONNECT_INTERVAL_SECONDS: ${VPN_RECONNECT_INTERVAL_SECONDS:-3600}
+      VPN_RECONNECT_RETRY_SECONDS: ${VPN_RECONNECT_RETRY_SECONDS:-30}
+    volumes:
+      - ./scripts/vpn-status:/usr/local/bin/vpn-status:ro
+      - ./scripts/vpn-reconnect:/usr/local/bin/vpn-reconnect:ro
+      - ./scripts/vpn-auto-reconnect:/usr/local/bin/vpn-auto-reconnect:ro
+    depends_on:
+      vpn:
+        condition: service_healthy
+    secrets:
+      - gluetun_api_key
+    healthcheck:
+      test: ["CMD-SHELL", "test \"$$(cat /tmp/vpn-auto-reconnect.state 2>/dev/null)\" = healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 2
+      start_period: 2m
     restart: unless-stopped
 
 secrets:

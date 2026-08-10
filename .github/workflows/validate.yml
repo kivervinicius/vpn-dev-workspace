@@ -1,0 +1,25 @@
+name: Validate
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install --yes shellcheck
+      - name: Validate shell scripts
+        run: shellcheck scripts/*
+      - name: Validate documentation
+        run: ./scripts/verify-docs
+      - name: Validate Compose profiles
+        run: ./scripts/verify-compose
+      - name: Build terminal image
+        run: docker build --pull=false .

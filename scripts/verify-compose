@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly COMPOSE_FILE="${ROOT_DIR}/docker-compose.yml"
+readonly PLACEHOLDER=/dev/null
+
+compose_env=(
+  env
+  "GLUETUN_API_KEY_FILE=${PLACEHOLDER}"
+  "NORDVPN_USER_FILE=${PLACEHOLDER}"
+  "NORDVPN_PASSWORD_FILE=${PLACEHOLDER}"
+  "NORDVPN_WIREGUARD_PRIVATE_KEY_FILE=${PLACEHOLDER}"
+  "PROTONVPN_USER_FILE=${PLACEHOLDER}"
+  "PROTONVPN_PASSWORD_FILE=${PLACEHOLDER}"
+  "PROTONVPN_WIREGUARD_PRIVATE_KEY_FILE=${PLACEHOLDER}"
+  "SURFSHARK_USER_FILE=${PLACEHOLDER}"
+  "SURFSHARK_PASSWORD_FILE=${PLACEHOLDER}"
+  "MULLVAD_WIREGUARD_PRIVATE_KEY_FILE=${PLACEHOLDER}"
+  "CUSTOM_OPENVPN_CONFIG_FILE=${PLACEHOLDER}"
+  "CUSTOM_OPENVPN_USER_FILE=${PLACEHOLDER}"
+  "CUSTOM_OPENVPN_PASSWORD_FILE=${PLACEHOLDER}"
+  "CUSTOM_WIREGUARD_CONFIG_FILE=${PLACEHOLDER}"
+)
+
+for profile_file in "${ROOT_DIR}"/profiles/*.yml; do
+  profile="$(basename "$profile_file" .yml)"
+  echo "Validando perfil ${profile}..."
+  "${compose_env[@]}" docker compose --profile vpn -f "$COMPOSE_FILE" -f "$profile_file" config --quiet
+done
+
+echo "Todos os perfis Compose são válidos."

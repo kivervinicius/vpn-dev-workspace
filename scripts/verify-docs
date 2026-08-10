@@ -16,6 +16,56 @@ grep -Fq 'examples/uso-basico.md' "$README_FILE" || {
   exit 1
 }
 
+grep -Fq 'VPN_PORT_RANGE' "$README_FILE" || {
+  echo "Erro: faixa de portas não está documentada no README." >&2
+  exit 1
+}
+
+grep -Fq 'vpn-auto-reconnect' "$README_FILE" || {
+  echo "Erro: manutenção automática não está documentada no README." >&2
+  exit 1
+}
+
+grep -Fq 'OpenVPN settings: user is empty' "$README_FILE" || {
+  echo "Erro: diagnóstico de credenciais de perfil não está documentado no README." >&2
+  exit 1
+}
+
+grep -Fq 'docker compose up' "$README_FILE" || {
+  echo "Erro: restrição de inicialização sem perfil não está documentada no README." >&2
+  exit 1
+}
+
+grep -Fq ' exec terminal zsh' "$README_FILE" || {
+  echo "Erro: terminal Zsh não está documentado no README." >&2
+  exit 1
+}
+
+grep -Fq '## Objetivo' "$README_FILE" || {
+  echo "Erro: objetivo do projeto não está documentado no README." >&2
+  exit 1
+}
+
+grep -Fq 'extensão direta do ambiente do host' "$README_FILE" || {
+  echo "Erro: objetivo de extensão direta do host não está documentado." >&2
+  exit 1
+}
+
+grep -Fq 'HOST_HOME_DIR' "$README_FILE" || {
+  echo "Erro: montagem da home do host não está documentada." >&2
+  exit 1
+}
+
+grep -Fq 'network_mode: "service:vpn"' "$ROOT_DIR/docker-compose.yml" || {
+  echo "Erro: terminal não está associado à rede do serviço VPN." >&2
+  exit 1
+}
+
+grep -Fq 'preservando home, workspace, ferramentas' "$ROOT_DIR/DEV/SPECS/ACTIVE.md" || {
+  echo "Erro: especificação ativa não reflete o objetivo do terminal." >&2
+  exit 1
+}
+
 for profile_file in "${ROOT_DIR}"/profiles/*.yml; do
   profile="$(basename "$profile_file" .yml)"
   grep -Fq "$profile" "$README_FILE" || {

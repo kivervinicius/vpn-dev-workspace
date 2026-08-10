@@ -4,6 +4,64 @@ set -Eeuo pipefail
 readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly COMPOSE_FILE="${ROOT_DIR}/docker-compose.yml"
 
+read_compose_value() {
+  local name="$1" default_value="$2" value=""
+
+  if [[ -n "${!name+x}" ]]; then
+    printf '%s\n' "${!name}"
+    return
+  fi
+
+  if [[ -f "${ROOT_DIR}/.env" ]]; then
+    value="$(awk -v prefix="${name}=" 'index($0, prefix) == 1 { print substr($0, length(prefix) + 1); exit }' "${ROOT_DIR}/.env")"
+  fi
+
+  printf '%s\n' "${value:-$default_value}"
+}
+
+port_is_published_by_current_project() {
+  local port="$1" container_id
+  local project_name="${COMPOSE_PROJECT_NAME:-$(basename "$ROOT_DIR")}"
+
+  while IFS= read -r container_id; do
+    docker port "$container_id" 2>/dev/null | grep -Eq ":${port}$" && return 0
+  done < <(docker ps -q --filter "label=com.docker.compose.project=${project_name}")
+
+  return 1
+}
+
+validate_port_range() {
+  local port_range="$1" start_port end_port port
+  local -a conflicts=()
+
+  if [[ "$port_range" =~ ^([1-9][0-9]{0,4})-([1-9][0-9]{0,4})$ ]]; then
+    start_port="${BASH_REMATCH[1]}"
+    end_port="${BASH_REMATCH[2]}"
+  elif [[ "$port_range" =~ ^[1-9][0-9]{0,4}$ ]]; then
+    start_port="$port_range"
+    end_port="$port_range"
+  else
+    echo "Erro: VPN_PORT_RANGE deve ser uma porta ou faixa, por exemplo 10000-10100." >&2
+    exit 2
+  fi
+
+  if (( start_port > end_port || end_port > 65535 )); then
+    echo "Erro: VPN_PORT_RANGE está fora do intervalo válido de portas." >&2
+    exit 2
+  fi
+
+  for ((port = start_port; port <= end_port; port++)); do
+    if ss -H -ltn "sport = :${port}" | grep -q . && ! port_is_published_by_current_project "$port"; then
+      conflicts+=("$port")
+    fi
+  done
+
+  if ((${#conflicts[@]} > 0)); then
+    echo "Erro: portas ocupadas no host: ${conflicts[*]}. Escolha outra VPN_PORT_RANGE." >&2
+    exit 1
+  fi
+}
+
 usage() {
   echo "Uso: vpn-switch <nordvpn-openvpn|nordvpn-wireguard|protonvpn-openvpn|protonvpn-wireguard|surfshark-openvpn|mullvad-wireguard|custom-openvpn|custom-wireguard>" >&2
   exit 2
@@ -20,9 +78,17 @@ esac
 readonly PROFILE_FILE="${ROOT_DIR}/profiles/${profile}.yml"
 [[ -f "$PROFILE_FILE" ]] || { echo "Erro: perfil ausente: $PROFILE_FILE" >&2; exit 1; }
 
-compose=(docker compose -f "$COMPOSE_FILE" -f "$PROFILE_FILE")
+compose=(docker compose --profile vpn -f "$COMPOSE_FILE" -f "$PROFILE_FILE")
 echo "Validando perfil ${profile}..."
 "${compose[@]}" config --quiet
+
+host_bind_address="$(read_compose_value HOST_BIND_ADDRESS 127.0.0.1)"
+[[ "$host_bind_address" != "0.0.0.0" && "$host_bind_address" != "::" ]] || {
+  echo "Erro: use o IP específico da interface LAN em HOST_BIND_ADDRESS, não um bind público." >&2
+  exit 2
+}
+validate_port_range "$(read_compose_value VPN_PORT_RANGE 10000-10100)"
+
 echo "Parando o perfil atual..."
 "${compose[@]}" down --remove-orphans
 echo "Subindo o perfil ${profile}..."

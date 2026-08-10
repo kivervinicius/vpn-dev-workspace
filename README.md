@@ -1,77 +1,142 @@
 # VPN Dev Workspace
 
-Um ambiente local de desenvolvimento baseado em Docker que roteia todo o tráfego do seu terminal (onde rodam os seus projetos) por um provedor de VPN (NordVPN, ProtonVPN, etc.) usando o [Gluetun](https://github.com/qdm12/gluetun).
+Ambiente local de desenvolvimento em Docker que força o tráfego do terminal por uma VPN operada pelo [Gluetun](https://github.com/qdm12/gluetun). O terminal compartilha a rede do serviço VPN; se o túnel falhar, o kill switch do Gluetun bloqueia a saída.
 
----
+> Use somente provedores, contas e redes para os quais você tem autorização. A manutenção automática existe para recuperar conectividade, não para ocultar atividade ou contornar políticas.
 
-## ⚡ TL;DR (Resumo Rápido)
+## Objetivo
 
-1. **Configuração**: Copie o arquivo de exemplo `cp .env.example .env`.
-2. **Credenciais**: Grave o seu usuário e senha de serviço da VPN nos arquivos `.secrets/nordvpn_user` e `.secrets/nordvpn_password` (crie a pasta se não existir).
-3. **Iniciando a VPN**: 
+Oferecer um terminal conectado à VPN que seja uma extensão direta do ambiente do host. Ele reutiliza a home, o workspace, as configurações e as ferramentas do usuário nos mesmos caminhos, incluindo o OpenCode, sem permitir que o tráfego de rede do terminal contorne o Gluetun.
+
+## Configuração
+
+1. Copie o exemplo: `cp .env.example .env`.
+2. Crie os arquivos de segredo indicados em `.env` dentro de `.secrets/` e proteja-os com `chmod 600 .secrets/*`.
+3. Escolha um perfil e inicie-o:
+
    ```bash
    ./scripts/vpn-switch nordvpn-openvpn
    ```
-4. **Abrindo o Terminal**:
+
+   Não execute `docker compose up` diretamente: ele não seleciona um provedor nem seus arquivos de segredo. Use sempre `vpn-switch <perfil>`.
+
+4. Abra o terminal Zsh:
+
    ```bash
-   docker compose -f docker-compose.yml -f profiles/nordvpn-openvpn.yml exec terminal bash
+   docker compose -f docker-compose.yml -f profiles/nordvpn-openvpn.yml exec terminal zsh
    ```
-5. **Comandos Úteis (Dentro do Terminal)**:
-   - `vpn-status` → Verifica se a VPN está conectada e mostra o IP público.
-   - `vpn-reconnect` → Reinicia a conexão para trocar de servidor/IP (Substitui o antigo `mudarip`).
 
----
+O usuário do terminal não é root e o Zsh é seu shell de login padrão. A home do usuário do host é montada integralmente no mesmo caminho, portanto configurações, ferramentas, credenciais locais e arquivos do host ficam disponíveis no terminal pelo túnel VPN. Confirme o OpenCode ativo com `command -v opencode` e `opencode --version`.
 
-## Recursos e Diferenciais
-- **Zero Vazamentos (Kill Switch)**: O firewall do Gluetun bloqueia automaticamente o acesso caso o túnel caia.
-- **Isolamento de Áudio**: O contêiner é configurado com `ALSA_CONFIG_PATH=/dev/null`, evitando que ferramentas baseadas em Node/Electron spamem erros de placa de som no seu terminal.
-- **Portas Dinâmicas**: Portas (3000, 4200, 5173, etc.) ficam disponíveis localmente e não entram em conflito com a VPN.
-- **Estado do OpenCode**: A instalação do `opencode` não é apagada. O cache, configurações e dados são preservados porque a sua pasta `~/.config/opencode` e afins são montadas para dentro do Docker.
+Para um guia passo a passo, consulte [o exemplo de uso básico](examples/uso-basico.md).
 
-## Estrutura Segura de Secrets
-Nenhuma credencial fica solta no código! Em vez disso, a arquitetura utiliza a pasta `.secrets/` (que é ignorada pelo git). 
+### Como os perfis carregam credenciais
 
-- `.secrets/gluetun_api_key`: Uma chave gerada por você (pode usar `head -c 32 /dev/urandom | base64 | tr -dc A-Za-z0-9 > .secrets/gluetun_api_key`). Ela blinda a API local da sua VPN.
-- `.secrets/nordvpn_user`: Apenas o seu usuário da aba "Service Credentials" da NordVPN.
-- `.secrets/nordvpn_password`: Apenas a sua senha de serviço.
+O arquivo `docker-compose.yml` contém apenas a infraestrutura comum. Cada arquivo em `profiles/` acrescenta um provedor e mapeia seus arquivos locais de segredo para o Gluetun. Por isso, o comando abaixo é a única forma suportada de iniciar o ambiente:
 
-## Troubleshoot (Solução de Problemas Comuns)
-
-### 1. `Bind for 0.0.0.0:8000 failed` (Conflito de Portas)
-Se a subida do contêiner falhar avisando que uma porta já está em uso, significa que você já tem aplicativos como Nginx (`80`), Portainer (`8000`) ou aplicações Spring Boot (`8080`) rodando na máquina real.
-**Solução:** 
-Basta abrir o arquivo `docker-compose.yml` base e remover ou alterar o mapeamento da porta conflituosa na sessão de `ports` do serviço `vpn`.
-
-### 2. `TLS Error: TLS key negotiation failed to occur within 20 seconds`
-O log do Gluetun apresentou esse erro? Isso geralmente ocorre quando a sua rede local/provedor bloqueia a porta padrão (UDP) do OpenVPN. 
-**Solução:**
-Abra o seu arquivo `.env` e force a VPN a se comunicar via TCP incluindo:
-```ini
-OPENVPN_PROTOCOL=tcp
-```
-Reinicie a conexão (`./scripts/vpn-switch nordvpn-openvpn`) e o handshake ocorrerá com sucesso.
-
-### 3. A VPN parou de responder do nada
-Basta acessar o terminal principal e mandar o sinal de reconexão. Não é necessário reiniciar o Docker:
 ```bash
+./scripts/vpn-switch <perfil>
+```
+
+Por exemplo, `./scripts/vpn-switch nordvpn-openvpn` carrega `profiles/nordvpn-openvpn.yml`, que usa `NORDVPN_USER_FILE` e `NORDVPN_PASSWORD_FILE` definidos em `.env`. Os valores nunca são impressos, copiados para o Git ou passados como argumentos de linha de comando.
+
+Os serviços usam o perfil Compose interno `vpn`; uma execução direta de `docker compose up` não os inicia. Isso evita iniciar uma VPN com o provedor, porém sem o perfil e sem suas credenciais.
+
+### Diagnóstico de credenciais ausentes
+
+Se o log disser `OpenVPN settings: user is empty`, os arquivos de segredo não foram associados ao contêiner — isso não significa que a credencial foi apagada. Confirme a presença sem mostrar o conteúdo:
+
+```bash
+test -s .secrets/nordvpn_user && test -s .secrets/nordvpn_password && echo 'Segredos NordVPN disponíveis'
+```
+
+Em seguida, inicie novamente pelo seletor:
+
+```bash
+./scripts/vpn-switch nordvpn-openvpn
+```
+
+Para outro provedor, troque o argumento pelo perfil correto e use os respectivos caminhos `*_FILE` de `.env`. Após a inicialização, confirme a conexão com `vpn-status` dentro do terminal ou com `docker compose -f docker-compose.yml -f profiles/<perfil>.yml ps` no host. Se os arquivos não existirem ou estiverem vazios, recrie somente os arquivos indicados pelo provedor; não coloque valores de credencial diretamente em `.env`.
+
+## Portas de desenvolvimento
+
+O serviço `vpn` publica a faixa TCP configurada por `VPN_PORT_RANGE` (padrão `10000-10100`). Projete aplicações expostas para escutar uma porta dentro dessa faixa.
+
+- Por padrão, `HOST_BIND_ADDRESS=127.0.0.1`, acessível somente na máquina host.
+- Para acesso pela LAN, informe o IP específico da interface local, por exemplo `HOST_BIND_ADDRESS=192.168.1.20`.
+- Não use `0.0.0.0` ou `::`: eles expõem a faixa em todas as interfaces, inclusive onde um firewall pode não protegê-la.
+- Antes de parar o ambiente, `vpn-switch` verifica conflitos TCP da faixa. A verificação reduz conflitos, mas o Docker ainda é a autoridade final para o bind de portas.
+
+## Manutenção da VPN
+
+O serviço interno `vpn-auto-reconnect` valida o IP público pelo endpoint local do Gluetun. Ele executa uma reconexão a cada hora e, se não houver IP público válido depois disso, repete a tentativa a cada 30 segundos até recuperar conectividade.
+
+As variáveis são configuráveis em `.env`:
+
+```ini
+VPN_RECONNECT_INTERVAL_SECONDS=3600
+VPN_RECONNECT_RETRY_SECONDS=30
+```
+
+Para consultar ou solicitar uma reconexão manual dentro do terminal:
+
+```bash
+vpn-status
 vpn-reconnect
 ```
 
----
+Os logs do serviço podem ser acompanhados no host:
 
-## Estrutura do Docker
+```bash
+docker compose -f docker-compose.yml -f profiles/nordvpn-openvpn.yml logs -f vpn-auto-reconnect
+```
+
+## Exemplos de provedores
+
+| Perfil | Descrição |
+|---|---|
+| `nordvpn-openvpn` | NordVPN por OpenVPN |
+| `nordvpn-wireguard` | NordVPN por WireGuard |
+| `protonvpn-openvpn` | Proton VPN por OpenVPN |
+| `protonvpn-wireguard` | Proton VPN por WireGuard |
+| `surfshark-openvpn` | Surfshark por OpenVPN |
+| `mullvad-wireguard` | Mullvad por WireGuard |
+| `custom-openvpn` | Arquivo e credenciais OpenVPN próprios |
+| `custom-wireguard` | Arquivo WireGuard próprio |
+
+Troque o argumento de `vpn-switch` e o arquivo de perfil nos comandos Compose pelo perfil desejado. Os caminhos de segredo e configurações customizadas estão descritos em `.env.example`.
+
+## Estrutura
 
 ```text
 host
-├── serviço vpn (Gluetun + NET_ADMIN)
-│   └── Portas mapeadas de desenvolvimento web.
-└── serviço terminal (Ubuntu + Node.js + OpenCode)
-    └── Executa em network_mode: "service:vpn"
-        (Todo o tráfego do terminal passa obrigatoriamente pelo Gluetun)
+├── vpn (Gluetun + NET_ADMIN)
+│   └── faixa TCP publicada no endereço configurado do host
+├── terminal (usuário developer + Zsh + home do host)
+│   └── network_mode: service:vpn
+└── vpn-auto-reconnect
+    └── verifica o IP público e recupera conectividade
 ```
 
-## Como fechar tudo e limpar o ambiente?
-Ao terminar o trabalho do dia, você pode desligar o ambiente e apagar as redes temporárias com:
+O contêiner de terminal é uma extensão direta do usuário do host: ele monta a home completa no mesmo caminho e o workspace no mesmo caminho. Isso preserva referências absolutas e permite usar as mesmas configurações e ferramentas, inclusive os dados do OpenCode. A imagem fixa o OpenCode na mesma versão do host no momento da atualização; ao atualizar o OpenCode do host, atualize também `OPENCODE_VERSION` e os checksums verificados do `Dockerfile`.
+
+Por padrão, a home montada é a do usuário que executa o Compose. Para selecionar explicitamente o diretório, defina `HOST_HOME_DIR` com um caminho absoluto em `.env`:
+
+```ini
+HOST_HOME_DIR=/home/desenvolvedor
+```
+
+Esse mount concede ao terminal acesso de leitura e escrita a toda a home indicada. Use somente a sua própria home e inicie o ambiente por `vpn-switch`, para manter a saída de rede protegida pela VPN.
+
+## Verificação local
+
+```bash
+./scripts/verify-docs
+./scripts/verify-compose
+```
+
+## Encerrar o ambiente
+
 ```bash
 docker compose -f docker-compose.yml -f profiles/nordvpn-openvpn.yml down --remove-orphans
 ```
