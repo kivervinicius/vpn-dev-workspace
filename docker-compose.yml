@@ -20,6 +20,13 @@ services:
       - gluetun_api_key
     volumes:
       - ./scripts/vpn-entrypoint.sh:/usr/local/bin/vpn-entrypoint.sh:ro
+    healthcheck:
+      # OpenVPN TCP e troca de servidor passam dos 10s padrão da imagem.
+      test: ["CMD-SHELL", "/gluetun-entrypoint healthcheck"]
+      interval: 5s
+      timeout: 5s
+      retries: 6
+      start_period: 50s
     restart: unless-stopped
 
   # Extensão direta do usuário do host, com toda a home disponível pelo túnel VPN.
