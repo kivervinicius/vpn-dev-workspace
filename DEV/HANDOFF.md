@@ -4,7 +4,7 @@ This file should stay small. Refresh it after substantive work or run `orquestra
 
 ## Snapshot
 
-- Updated: 2026-08-10
+- Updated: 2026-08-19
 - Read order: `INDEX.md` -> `HANDOFF.md` -> `CONTEXT.md` -> `SPECS/ACTIVE.md`
 - Active spec: `SPECS/ACTIVE.md`
 - Verification source: `VERIFY.md`
@@ -12,13 +12,15 @@ This file should stay small. Refresh it after substantive work or run `orquestra
 
 ## Latest Work
 
-- Entry: objetivo documental consolidado.
-- Spec: `SPECS/ACTIVE.md`.
-- Changed: README, exemplo, especificação, arquitetura, decisões e verificador descrevem e protegem o contrato de terminal como extensão direta do host pela VPN.
-- Verified: sintaxe do verificador, `verify-docs`, `verify-compose` e `git diff --check`; `VERIFY.md`.
-- Risks: o terminal tem leitura e escrita em toda a home montada; a API do Gluetun v3.40 ainda avisa que duas rotas locais usam a política padrão de autenticação.
-- Next context: inicie por `./scripts/vpn-switch <perfil>`; ao atualizar o OpenCode do host, atualize também a versão e os checksums da imagem, preservando o contrato documentado.
+- Entry: runbook dos passos práticos (Desktop/Web pela VPN).
+- Spec: `SPECS/ACTIVE.md` (status: implemented-and-runtime-validated).
+- Changed: `DEV/RUNBOOKS/opencode-desktop-vpn.md` criado; README com seção "Conectar o Desktop App (passo a passo)"; `DEV/INDEX.md` atualizado.
+- Verified: `verify-docs`, `bash -n`, `git diff --check`.
+- Risks: Desktop do host e servidor do container precisam da mesma versão (tela branca se divergirem); atualização do Desktop é manual via `.deb` (sem apt repo).
+- Next context: conectar o Desktop App em `http://127.0.0.1:10001` (`vpn-opencode serve`, login `opencode` + senha de `.secrets/opencode_gui_password`); manter `VPN_SERVER_HOSTNAMES` preenchido se a rotação aleatória reincidir; ShellCheck na CI.
 
 ## Recent Entries
 
+- 2026-08-19 — rede interna (LAN/DNS), paridade de home (UID/GID, ssh-agent, /run/user) e `vpn-opencode` implementados; validação de runtime pendente.
+- 2026-08-19 — aumento de poderes: IP pós-reconexão, saúde, dashboard, rotação e Gluetun v3.41.3.
 - 2026-08-10 — implementação e validação concluídas.

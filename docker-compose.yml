@@ -3,16 +3,27 @@ services:
   vpn:
     # Só é iniciado pelo vpn-switch, que combina este arquivo com um perfil de provedor.
     profiles: ["vpn"]
-    image: qmcgaw/gluetun:v3.40.0@sha256:2b42bfa046757145a5155acece417b65b4443c8033fb88661a8e9dcf7fda5a00
+    image: qmcgaw/gluetun:v3.41.3@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027
     entrypoint: ["/usr/local/bin/vpn-entrypoint.sh"]
     cap_add:
       - NET_ADMIN
     devices:
       - /dev/net/tun:/dev/net/tun
+    dns:
+      # Resolução dentro do túnel pelo servidor DNS embutido do Gluetun.
+      - 127.0.0.1
     environment:
       VPN_SERVICE_PROVIDER: ${VPN_SERVICE_PROVIDER:-nordvpn}
       VPN_TYPE: ${VPN_TYPE:-openvpn}
       GLUETUN_API_KEY_FILE: /run/secrets/gluetun_api_key
+      # Acesso à rede interna do host (opt-in): sub-redes permitidas fora do túnel.
+      FIREWALL_OUTBOUND_SUBNETS: ${FIREWALL_SUBNETS:-}
+      # Resolução de nomes internos (ex: *.omega): quando INTERNAL_DNS estiver
+      # definido, deixe INTERNAL_DNS_RESOLVERS vazio para não dividir as consultas
+      # entre upstreams. Veja .env.example.
+      DNS_UPSTREAM_RESOLVERS: ${INTERNAL_DNS_RESOLVERS:-cloudflare}
+      DNS_UPSTREAM_PLAIN_ADDRESSES: ${INTERNAL_DNS:-}
+      DNS_REBINDING_PROTECTION_EXEMPT_HOSTNAMES: ${INTERNAL_DNS_EXEMPT_HOSTNAMES:-}
     ports:
       # A faixa é publicada apenas no endereço configurado do host.
       - "${HOST_BIND_ADDRESS:-127.0.0.1}:${VPN_PORT_RANGE:-10000-10100}:${VPN_PORT_RANGE:-10000-10100}"
@@ -32,7 +43,12 @@ services:
   # Extensão direta do usuário do host, com toda a home disponível pelo túnel VPN.
   terminal:
     profiles: ["vpn"]
-    build: .
+    build:
+      context: .
+      args:
+        # Paridade de permissões com o usuário do host (evita "no access").
+        HOST_UID: ${HOST_UID:-1000}
+        HOST_GID: ${HOST_GID:-1000}
     network_mode: "service:vpn"
     command: tail -f /dev/null
     environment:
@@ -40,13 +56,29 @@ services:
       GLUETUN_API_KEY_FILE: /run/secrets/gluetun_api_key
       # Preserva caminhos absolutos, configurações e ferramentas da home do host.
       HOME: ${HOST_HOME_DIR:-${HOME}}
+      PATH: ${HOST_HOME_DIR:-/home/desenvolvedor}/.opencode/bin:${HOST_HOME_DIR:-/home/desenvolvedor}/.local/bin:${HOST_HOME_DIR:-/home/desenvolvedor}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       SHELL: /usr/bin/zsh
+      # Rotação automática de servidor (opt-in; ver .env.example).
+      VPN_ROTATE_SERVERS: ${VPN_ROTATE_SERVERS:-false}
+      VPN_SERVER_HOSTNAMES: ${VPN_SERVER_HOSTNAMES:-}
+      VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE: ${VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE:-3}
+      # Sessão SSH do host, quando existir (senão /dev/null, inofensivo).
+      SSH_AUTH_SOCK: /run/vpn-ssh-agent.sock
     volumes:
       # O mesmo caminho nos dois lados permite reutilizar referências absolutas.
       - ${HOST_HOME_DIR:-${HOME}}:${HOST_HOME_DIR:-${HOME}}
       - ${WORKSPACE_DIR:-/projetos}:${WORKSPACE_DIR:-/projetos}
+      # Agente SSH e sessão do usuário do host (keyring/dbus), quando existirem.
+      - ${SSH_AUTH_SOCK:-/dev/null}:/run/vpn-ssh-agent.sock:ro
+      - ${RUN_USER_DIR:-/dev/null}:${RUN_USER_DIR:-/dev/null}:ro
       - ./scripts/vpn-status:/usr/local/bin/vpn-status:ro
       - ./scripts/vpn-reconnect:/usr/local/bin/vpn-reconnect:ro
+      - ./scripts/vpn-check:/usr/local/bin/vpn-check:ro
+      - ./scripts/vpn-top:/usr/local/bin/vpn-top:ro
+      - ./scripts/vpn-server-rotate:/usr/local/bin/vpn-server-rotate:ro
+      - ./scripts/vpn-opencode:/usr/local/bin/vpn-opencode:ro
+      # Senha do painel web do OpenCode (basic auth), quando existir arquivo.
+      - ${OPENCODE_GUI_PASSWORD_FILE:-/dev/null}:/run/secrets/opencode_gui_password:ro
     working_dir: ${WORKSPACE_DIR:-/projetos}
     depends_on:
       vpn:
@@ -65,9 +97,15 @@ services:
       GLUETUN_API_KEY_FILE: /run/secrets/gluetun_api_key
       VPN_RECONNECT_INTERVAL_SECONDS: ${VPN_RECONNECT_INTERVAL_SECONDS:-3600}
       VPN_RECONNECT_RETRY_SECONDS: ${VPN_RECONNECT_RETRY_SECONDS:-30}
+      # Rotação automática de servidor (opt-in; ver .env.example).
+      VPN_ROTATE_SERVERS: ${VPN_ROTATE_SERVERS:-false}
+      VPN_SERVER_HOSTNAMES: ${VPN_SERVER_HOSTNAMES:-}
+      VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE: ${VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE:-3}
     volumes:
       - ./scripts/vpn-status:/usr/local/bin/vpn-status:ro
       - ./scripts/vpn-reconnect:/usr/local/bin/vpn-reconnect:ro
+      - ./scripts/vpn-check:/usr/local/bin/vpn-check:ro
+      - ./scripts/vpn-server-rotate:/usr/local/bin/vpn-server-rotate:ro
       - ./scripts/vpn-auto-reconnect:/usr/local/bin/vpn-auto-reconnect:ro
     depends_on:
       vpn:

@@ -5,6 +5,7 @@ services:
       VPN_TYPE: wireguard
       WIREGUARD_PRIVATE_KEY_FILE: /run/secrets/wireguard_private_key
       SERVER_COUNTRIES: ${VPN_COUNTRY:-United States}
+      SERVER_HOSTNAMES: ${VPN_SERVER_HOSTNAMES:-}
     secrets:
       - source: nordvpn_wireguard_private_key
         target: wireguard_private_key

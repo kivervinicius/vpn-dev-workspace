@@ -4,6 +4,9 @@ set -Eeuo pipefail
 readonly STATE_FILE=/tmp/vpn-auto-reconnect.state
 readonly RECONNECT_INTERVAL_SECONDS="${VPN_RECONNECT_INTERVAL_SECONDS:-3600}"
 readonly RETRY_SECONDS="${VPN_RECONNECT_RETRY_SECONDS:-30}"
+readonly ROTATE_ENABLED="${VPN_ROTATE_SERVERS:-false}"
+readonly ATTEMPTS_BEFORE_ROTATE="${VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE:-3}"
+consecutive_failures=0
 
 validate_interval() {
   local name="$1" value="$2"
@@ -17,28 +20,48 @@ set_state() {
   printf '%s\n' "$1" > "$STATE_FILE"
 }
 
+is_healthy() {
+  /usr/local/bin/vpn-check >/dev/null 2>&1
+}
+
 recover_until_healthy() {
   while true; do
     set_state recovering
-    echo "Reconectando a VPN para recuperar um IP público..."
+    echo "Reconectando a VPN para recuperar a conectividade..."
 
     if /usr/local/bin/vpn-reconnect; then
       set_state healthy
+      consecutive_failures=0
       echo "VPN saudável: IP público confirmado."
       return 0
     fi
 
+    consecutive_failures=$((consecutive_failures + 1))
     set_state degraded
-    echo "VPN sem IP público; nova tentativa em ${RETRY_SECONDS}s." >&2
+    echo "VPN sem IP público; tentativa ${consecutive_failures} falhou." >&2
+
+    if [[ "$ROTATE_ENABLED" == "true" ]] && ((consecutive_failures >= ATTEMPTS_BEFORE_ROTATE)); then
+      echo "Trocando de servidor após ${consecutive_failures} falhas consecutivas..." >&2
+      if /usr/local/bin/vpn-server-rotate; then
+        set_state healthy
+        consecutive_failures=0
+        echo "VPN saudável após a troca de servidor: IP público confirmado."
+        return 0
+      fi
+      echo "Falha ao trocar de servidor; mantendo o atual." >&2
+    fi
+
+    echo "Nova tentativa em ${RETRY_SECONDS}s." >&2
     sleep "$RETRY_SECONDS"
   done
 }
 
 validate_interval VPN_RECONNECT_INTERVAL_SECONDS "$RECONNECT_INTERVAL_SECONDS"
 validate_interval VPN_RECONNECT_RETRY_SECONDS "$RETRY_SECONDS"
+validate_interval VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE "$ATTEMPTS_BEFORE_ROTATE"
 
 set_state starting
-if /usr/local/bin/vpn-status >/dev/null 2>&1; then
+if is_healthy; then
   set_state healthy
   echo "VPN saudável; manutenção automática a cada ${RECONNECT_INTERVAL_SECONDS}s."
 else
@@ -47,5 +70,7 @@ fi
 
 while true; do
   sleep "$RECONNECT_INTERVAL_SECONDS"
-  recover_until_healthy
+  if ! is_healthy; then
+    recover_until_healthy
+  fi
 done

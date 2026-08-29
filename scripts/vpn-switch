@@ -89,6 +89,31 @@ host_bind_address="$(read_compose_value HOST_BIND_ADDRESS 127.0.0.1)"
 }
 validate_port_range "$(read_compose_value VPN_PORT_RANGE 10000-10100)"
 
+# Acesso à rede interna do host (opt-in): quando FIREWALL_SUBNETS não está
+# definido no ambiente nem no .env, injeta a sub-rede da interface que possui a
+# rota padrão do host (a LAN local). Extras/config explícitos continuam válidos.
+firewall_subnets="$(read_compose_value FIREWALL_SUBNETS "")"
+if [[ -z "$firewall_subnets" ]]; then
+  lan_interface="$(ip route show default 2>/dev/null | awk '/^default/ {print $5; exit}')"
+  if [[ -n "$lan_interface" ]]; then
+    lan_subnet="$(ip -o -4 addr show dev "$lan_interface" 2>/dev/null | awk '{print $4; exit}')"
+  fi
+  if [[ -n "${lan_subnet:-}" ]]; then
+    export FIREWALL_SUBNETS="$lan_subnet"
+    echo "Rede interna liberada no firewall: ${lan_subnet} (interface ${lan_interface})."
+  else
+    echo "Aviso: não foi possível detectar a sub-rede da LAN; rede interna bloqueada." >&2
+  fi
+fi
+
+# DNS interno: com INTERNAL_DNS ativo e DNS_UPSTREAM_RESOLVERS ainda preenchido,
+# o Gluetun divide as consultas entre upstreams e nomes internos falham.
+internal_dns="$(read_compose_value INTERNAL_DNS "")"
+internal_dns_resolvers="$(read_compose_value INTERNAL_DNS_RESOLVERS cloudflare)"
+if [[ -n "$internal_dns" && -n "$internal_dns_resolvers" ]]; then
+  echo "Aviso: INTERNAL_DNS ativo com INTERNAL_DNS_RESOLVERS=${internal_dns_resolvers}; deixe INTERNAL_DNS_RESOLVERS vazio no .env, senão a resolução de nomes internos fica aleatória." >&2
+fi
+
 echo "Parando o perfil atual..."
 "${compose[@]}" down --remove-orphans
 echo "Subindo o perfil ${profile}..."

@@ -6,6 +6,7 @@ services:
       OPENVPN_USER_FILE: /run/secrets/openvpn_user
       OPENVPN_PASSWORD_FILE: /run/secrets/openvpn_password
       SERVER_COUNTRIES: ${VPN_COUNTRY:-United States}
+      SERVER_HOSTNAMES: ${VPN_SERVER_HOSTNAMES:-}
       OPENVPN_PROTOCOL: ${OPENVPN_PROTOCOL:-udp}
     secrets:
       - source: nordvpn_user

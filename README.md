@@ -6,7 +6,7 @@ Ambiente local de desenvolvimento em Docker que força o tráfego do terminal po
 
 ## Objetivo
 
-Oferecer um terminal conectado à VPN que seja uma extensão direta do ambiente do host. Ele reutiliza a home, o workspace, as configurações e as ferramentas do usuário nos mesmos caminhos, incluindo o OpenCode, sem permitir que o tráfego de rede do terminal contorne o Gluetun.
+Oferecer um terminal conectado à VPN que seja uma extensão direta do ambiente do host. Ele reutiliza a home, o workspace, as configurações e as ferramentas do usuário nos mesmos caminhos, incluindo o OpenCode, sem permitir que o tráfego de rede do terminal contorne o Gluetun. As consultas de DNS também passam pelo servidor DNS embutido do Gluetun (`127.0.0.1`), evitando vazamento pelo resolver do host.
 
 ## Configuração
 
@@ -69,7 +69,7 @@ O serviço `vpn` publica a faixa TCP configurada por `VPN_PORT_RANGE` (padrão `
 
 ## Manutenção da VPN
 
-O serviço interno `vpn-auto-reconnect` valida o IP público pelo endpoint local do Gluetun. Ele executa uma reconexão a cada hora e, se não houver IP público válido depois disso, repete a tentativa a cada 30 segundos até recuperar conectividade.
+O serviço interno `vpn-auto-reconnect` valida a saúde do ambiente (túnel ativo, IP público obtido e DNS do túnel funcionando) e executa uma reconexão a cada hora. Se não houver IP público válido depois disso, repete a tentativa a cada 30 segundos até recuperar conectividade.
 
 As variáveis são configuráveis em `.env`:
 
@@ -78,12 +78,93 @@ VPN_RECONNECT_INTERVAL_SECONDS=3600
 VPN_RECONNECT_RETRY_SECONDS=30
 ```
 
-Para consultar ou solicitar uma reconexão manual dentro do terminal:
+Para consultar, validar ou solicitar uma reconexão manual dentro do terminal:
 
 ```bash
-vpn-status
-vpn-reconnect
+vpn-status          # status, perfil, servidor e IP público
+vpn-check           # saúde do túnel, DNS e checagem básica de vazamento de DNS
+vpn-reconnect       # reconecta e aguarda o IP público voltar
+vpn-top             # painel de status (serviços, túnel, DNS e auto-reconexão)
+vpn-server-rotate   # troca de servidor pelo controle do Gluetun
 ```
+
+O `vpn-reconnect` aguarda o IP público do Gluetun após a reconexão (o endpoint só o publica segundos depois de o túnel subir) e imprime o IP quando disponível; se o IP não voltar, encerra com erro para o `vpn-auto-reconnect` retentar.
+
+## Acesso à rede interna do host (opt-in)
+
+Por padrão, o kill switch do Gluetun bloqueia todo o tráfego fora do túnel. Para permitir alcance à rede interna do host (ex: servidores `.omega`, NAS, impressoras):
+
+```ini
+# Sub-redes extras permitidas fora do túnel (a LAN do host é detectada sozinha).
+FIREWALL_SUBNETS=192.168.1.0/24,10.0.0.0/24
+# DNS interno da LAN (resolução pública E interna passa por ele; deixe
+# INTERNAL_DNS_RESOLVERS vazio nesse modo).
+INTERNAL_DNS=192.168.1.1:53
+INTERNAL_DNS_RESOLVERS=
+# Hostnames internos liberados da proteção contra rebinding. Sem curingas:
+# o Gluetun rejeita "*.omega.local"; liste os nomes explícitos.
+INTERNAL_DNS_EXEMPT_HOSTNAMES=dev.go.omega.local,dev.mt.omega.local
+```
+
+- Sem `FIREWALL_SUBNETS`, o `vpn-switch` injeta a sub-rede da interface com a rota padrão do host (a LAN local).
+- Quando `INTERNAL_DNS` aponta para um servidor fora da sub-rede da LAN (ex: DNS em outra VLAN), inclua também a sub-rede dele em `FIREWALL_SUBNETS`, senão as consultas são bloqueadas pelo firewall do túnel.
+- Com `INTERNAL_DNS`, o servidor DNS embutido do Gluetun usa esse upstream em texto puro; sem ele, mantém o padrão DoT (Cloudflare).
+- `INTERNAL_DNS_EXEMPT_HOSTNAMES` é obrigatório para nomes internos: sem ele o Gluetun descarta respostas que apontam para IPs privados (proteção contra rebinding). Curingas não são aceitos (`*.omega` é rejeitado) — liste os nomes explícitos, separados por vírgula.
+- O `vpn-check` testa `INTERNAL_TEST_HOST` (nome ou IP) quando configurado.
+- Não inclua a faixa privada do túnel em `FIREWALL_SUBNETS`.
+
+### Paridade com a home do host
+
+O terminal herda o UID/GID do usuário do host (`HOST_UID`/`HOST_GID`, padrão `1000`) e, quando as variáveis estão definidas, a sessão SSH e o diretório de sessão do usuário:
+
+```ini
+HOST_UID=1000
+HOST_GID=1000
+SSH_AUTH_SOCK=/run/user/1000/keyring/ssh
+RUN_USER_DIR=/run/user/1000
+```
+
+- `SSH_AUTH_SOCK` monta o agente SSH do host em `/run/vpn-ssh-agent.sock` (leitura) — `git push`, `ssh` e ferramentas que usam o agente funcionam dentro do terminal.
+- `RUN_USER_DIR` monta a sessão do usuário (keyring, dbus) no mesmo caminho.
+- **Risco consciente**: o container passa a ler seu agente SSH e sua sessão. Inicie apenas o seu próprio ambiente e não rode o terminal com agentes de outros usuários.
+
+## Painel web e Desktop do OpenCode pela VPN (opt-in)
+
+O helper `vpn-opencode` roda o OpenCode dentro do container (tráfego de LLM 100% pela VPN), expondo a interface na faixa publicada:
+
+```bash
+./scripts/vpn-opencode web     # painel web em http://127.0.0.1:10001
+./scripts/vpn-opencode serve   # ponta para o Desktop App (conecte via 127.0.0.1:10001)
+```
+
+- Porta: `OPENCODE_GUI_PORT` (padrão `10001`); deve estar dentro de `VPN_PORT_RANGE`.
+- Senha (basic auth, usuário `opencode`): arquivo `OPENCODE_GUI_PASSWORD_FILE` (padrão `.secrets/opencode_gui_password`). Sem o arquivo, o painel abre sem senha — apenas para uso local.
+- O estado é compartilhado com o CLI: o mesmo `$HOME` e os mesmos projetos são usados por `opencode` no terminal e pela GUI.
+
+### Conectar o Desktop App (passo a passo)
+
+1. Suba a ponta: `./scripts/vpn-opencode serve` (mantenha o terminal aberto; use `tmux`/`zellij` para deixá-lo de pé).
+2. No OpenCode Desktop do host, adicione o servidor `http://127.0.0.1:10001`.
+3. Login `opencode`; senha: conteúdo de `.secrets/opencode_gui_password` (`cat .secrets/opencode_gui_password`).
+4. Alternativa por CLI no host: `opencode attach http://127.0.0.1:10001 -u opencode -p "$(cat .secrets/opencode_gui_password)"`.
+
+Para atualizar o Desktop: não há repositório apt (`apt upgrade` não o atualiza); baixe o `.deb` oficial e reinstale (`sudo apt-get install ./opencode-desktop-linux-amd64.deb`). Desktop e servidor do container devem ter a mesma versão — atualize também `OPENCODE_VERSION` e os checksums do `Dockerfile` na mesma alteração (tela branca = versões divergentes). Guia completo em `DEV/RUNBOOKS/opencode-desktop-vpn.md`.
+
+### Rotação automática de servidor (opt-in)
+
+Por padrão a rotação automática está desligada. Para ativá-la, configure em `.env` e reinicie o ambiente:
+
+```ini
+VPN_ROTATE_SERVERS=true
+# VPN_SERVER_HOSTNAMES=server1.nordvpn.com,server2.nordvpn.com
+# VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE=3
+```
+
+Com `VPN_ROTATE_SERVERS=true`, após `VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE` falhas consecutivas (padrão 3), o `vpn-auto-reconnect` chama `vpn-server-rotate` e recomeça a contagem. Com `VPN_SERVER_HOSTNAMES` preenchido, os servidores são ciclados na ordem; sem a lista, o Gluetun re-seleciona um servidor aleatório no país configurado. Hostnames inválidos para o provedor são rejeitados pela API do Gluetun.
+
+> Se o seu provedor de acesso bloquear faixas de IP de alguns servidores (a re-seleção aleatória pode cair repetidamente neles), preencha `VPN_SERVER_HOSTNAMES` com uma lista de servidores conhecidamente acessíveis para a rotação.
+
+A troca acontece pelo HTTP Control Server do Gluetun (`PUT /v1/vpn/settings`), sem acesso ao socket do Docker, e respeita a autenticação por chave da API.
 
 Os logs do serviço podem ser acompanhados no host:
 

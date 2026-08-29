@@ -14,3 +14,5 @@ node_modules/
 # Arquivos locais e artefatos de ferramentas
 .DS_Store
 *.log
+*.deb
+secrets.zip

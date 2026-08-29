@@ -8,10 +8,41 @@ readonly API_KEY_FILE="${GLUETUN_API_KEY_FILE:-/run/secrets/gluetun_api_key}"
 api_key="$(tr -d '\r\n' < "$API_KEY_FILE")"
 [[ -n "$api_key" ]] || { echo "Erro: chave da API vazia." >&2; exit 1; }
 
-curl --fail --silent --show-error \
-  -H "X-API-Key: ${api_key}" "${API_URL}/v1/vpn/status"
-echo
-printf 'IP público: '
-curl --fail --silent --show-error \
-  -H "X-API-Key: ${api_key}" "${API_URL}/v1/publicip/ip"
-echo
+api_request() {
+  curl --fail --silent --show-error \
+    -H "X-API-Key: ${api_key}" "$@"
+}
+
+status="$(api_request "${API_URL}/v1/vpn/status")"
+printf 'VPN: %s\n' "$(printf '%s' "$status" | jq -r '.status // "desconhecido"')"
+
+settings="$(api_request "${API_URL}/v1/vpn/settings")"
+provider="$(printf '%s' "$settings" | jq -r '.provider.name // "desconhecido"')"
+vpn_type="$(printf '%s' "$settings" | jq -r '.type // "desconhecido"')"
+hostnames="$(printf '%s' "$settings" | jq -r '.provider.server_selection.hostnames // [] | join(", ")')"
+countries="$(printf '%s' "$settings" | jq -r '.provider.server_selection.countries // [] | join(", ")')"
+printf 'Perfil: %s (%s)\n' "$provider" "$vpn_type"
+[[ -n "$hostnames" ]] && printf 'Servidor(es) configurado(s): %s\n' "$hostnames"
+[[ -n "$countries" ]] && printf 'País(es): %s\n' "$countries"
+
+ip_data="$(api_request "${API_URL}/v1/publicip/ip")"
+ip="$(printf '%s' "$ip_data" | jq -r '.public_ip // empty')"
+if [[ -n "$ip" ]]; then
+  country="$(printf '%s' "$ip_data" | jq -r '.country // empty')"
+  region="$(printf '%s' "$ip_data" | jq -r '.region // empty')"
+  city="$(printf '%s' "$ip_data" | jq -r '.city // empty')"
+  location=""
+  if [[ -n "$country" ]]; then
+    location="$country"
+    [[ -n "$region" ]] && location="${region}, ${location}"
+    [[ -n "$city" ]] && location="${city}, ${location}"
+  fi
+  if [[ -n "$location" ]]; then
+    printf 'IP público: %s (%s)\n' "$ip" "$location"
+  else
+    printf 'IP público: %s\n' "$ip"
+  fi
+else
+  echo "IP público: ainda não disponível (túnel levantando ou IP não obtido)." >&2
+  exit 1
+fi

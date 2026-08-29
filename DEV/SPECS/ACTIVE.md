@@ -2,33 +2,48 @@
 
 ## Goal
 
-- Oferecer um terminal VPN que funcione como extensão direta do host, preservando home, workspace, ferramentas e referências absolutas, com Zsh e recuperação automática autorizada.
+- Oferecer um terminal VPN que funcione como extensão direta do host, preservando home, workspace, ferramentas e referências absolutas, com Zsh, recuperação automática autorizada, diagnóstico, dashboard de saúde, acesso opcional à rede interna do host e GUI do OpenCode pelo túnel.
 
 ## In Scope
 
 - Documentação, imagem Docker, Compose, scripts de operação, CI e memória DEV.
 - Alinhamento do OpenCode da imagem com o host e montagem integral da home no mesmo caminho.
+- Correção do `vpn-reconnect` para aguardar e imprimir o IP público após a reconexão.
+- Saúde do ambiente: `vpn-check` (túnel, IP, DNS do túnel e checagem básica de vazamento de DNS), `vpn-top` (dashboard), `vpn-server-rotate` (troca de servidor pela API de controle) e rotação automática opt-in no `vpn-auto-reconnect`.
+- Gluetun v3.41.3 (digest fixado), `jq` na imagem e DNS resolvido pelo túnel (`dns: 127.0.0.1`).
+- Acesso opcional à rede interna do host: `FIREWALL_SUBNETS` (sub-rede da LAN detectada pelo `vpn-switch` + extras), `INTERNAL_DNS`/`INTERNAL_DNS_EXEMPT_HOSTNAMES` para nomes internos e `INTERNAL_TEST_HOST` no `vpn-check`.
+- Paridade de home: `HOST_UID`/`HOST_GID` na imagem e mounts opcionais de `SSH_AUTH_SOCK` e `RUN_USER_DIR` no terminal.
+- GUI do OpenCode pela VPN: `scripts/vpn-opencode` com `web` e `serve` na faixa publicada, senha via `OPENCODE_GUI_PASSWORD_FILE`.
 
 ## Out Of Scope
 
-- Integrações de VPN fora dos perfis existentes, exposição na internet pública e mecanismos de evasão.
+- Integrações de VPN fora dos perfis existentes, exposição na internet pública, mecanismos de evasão, proxy/SOCKS e port forwarding por provedor.
 
 ## Acceptance
 
 - Todos os perfis validam; documentação e scripts passam; terminal não usa root; a recuperação confirma IP público.
+- `vpn-reconnect` imprime o IP público após a reconexão (bug corrigido), com polling até o Gluetun publicá-lo.
+- `vpn-check`, `vpn-top` e `vpn-server-rotate` funcionam; rotação automática permanece desligada por padrão e opera sem o socket Docker.
 - A home e o workspace do host são visíveis nos mesmos caminhos, e o OpenCode no terminal corresponde ao OpenCode do host.
+- Com a LAN/interno configurados, `vpn-check` alcança `INTERNAL_TEST_HOST` e o firewall libera apenas a sub-rede da rota padrão + `FIREWALL_SUBNETS`. Validado em runtime: `http://192.168.30.20/ → 200` pelo túnel e `vpn-check` todo ok.
+- O terminal herda UID/GID do host; com `SSH_AUTH_SOCK` definido, `ssh-add -l` dentro do terminal lista as chaves da sessão do host. Validado: chave `gitlab-ci-lightsaber-deploy` listada.
+- `vpn-opencode web` abre o painel em `http://127.0.0.1:${OPENCODE_GUI_PORT}` com o tráfego saindo pela VPN; `vpn-opencode serve` expõe a ponta para o Desktop App. Validado: `401` sem senha / `200` com basic auth (`web`) e `200` servindo o app (`serve`); conexão real do Desktop App pendente.
+- `vpn-reconnect` recupera e imprime o IP público após a reconexão. Validado: `IP público: 189.1.168.191` (com servidor fixado via API).
 
 ## Constraints
 
 - Sem segredos em logs ou Git; bind LAN somente em endereço explícito; sem commits automáticos.
 - A home montada deve pertencer ao usuário que inicia o Compose, pois o terminal tem acesso de leitura e escrita a ela.
+- Troca de servidor apenas pelo HTTP Control Server do Gluetun (autenticado), sem socket Docker.
+- Com `INTERNAL_DNS` ativo, `INTERNAL_DNS_RESOLVERS` deve ficar vazio (upstream único).
+- Não incluir a faixa privada do túnel em `FIREWALL_SUBNETS`.
 
 ## Verification Plan
 
-- ShellCheck, verificações de scripts, Compose, documentação e build da imagem.
+- ShellCheck, verificações de scripts, Compose, documentação e build da imagem; validação de runtime com túnel real pendente no host (Docker não disponível no ambiente de edição): build, `vpn-switch nordvpn-openvpn`, `vpn-reconnect` ×2, `vpn-check` (incl. host interno), `vpn-top`, `vpn-opencode web` e `serve`, `ssh-add -l` no terminal.
 
 ## Status
 
-- State: complete
+- State: implemented-and-runtime-validated (pendências: conexão real do Desktop App à ponta `serve`; ShellCheck na CI)
 - Owner: Codex
-- Last updated: 2026-08-10
+- Last updated: 2026-08-19

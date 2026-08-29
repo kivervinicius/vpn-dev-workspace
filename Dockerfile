@@ -4,7 +4,7 @@ ARG TARGETARCH
 ARG NODE_VERSION=22.17.1
 # Deve acompanhar a versão instalada no host para que o terminal VPN tenha o
 # mesmo comportamento do OpenCode local.
-ARG OPENCODE_VERSION=1.18.16
+ARG OPENCODE_VERSION=1.18.25
 
 ENV DEBIAN_FRONTEND=noninteractive \
     HOME=/home/developer \
@@ -16,7 +16,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     default-jdk \
     git \
+    openssh-client \
     build-essential \
+    jq \
     xz-utils \
     zsh \
     && rm -rf /var/lib/apt/lists/*
@@ -36,8 +38,8 @@ RUN case "${TARGETARCH}" in \
 
 # OpenCode é instalado a partir do binário de release com checksum fixado.
 RUN case "${TARGETARCH}" in \
-      amd64) opencode_arch=x64; opencode_sha256=286e07355df06738c1905955be15b7fbc10a7b12d931de9394a6f7597246750b ;; \
-      arm64) opencode_arch=arm64; opencode_sha256=4fdce5f9bc877d977304d71c0c90ad6e83efa381fe0edf0a61e6142a625e1c41 ;; \
+      amd64) opencode_arch=x64; opencode_sha256=58a3729a6f3432dd6d2917fcc4a949788891a035818646ad480e12c947f56e78 ;; \
+      arm64) opencode_arch=arm64; opencode_sha256=35ef77897425e41b5183a2c21ac4fb1d4d944d82a94e3c920f57b5490af11ac5 ;; \
       *) echo "Arquitetura não suportada: ${TARGETARCH}" >&2; exit 1 ;; \
     esac \
     && curl --fail --location --silent --show-error \
@@ -47,10 +49,13 @@ RUN case "${TARGETARCH}" in \
     && tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin \
     && rm /tmp/opencode.tar.gz
 
-# O UID/GID corresponde ao usuário padrão do host Linux e evita escrita como root
-# nos diretórios explicitamente montados.
-RUN groupadd --gid 1000 developer \
-    && useradd --uid 1000 --gid 1000 --create-home --shell /usr/bin/zsh developer
+# O UID/GID corresponde ao usuário do host (padrão 1000) e evita escrita como
+# root nos diretórios explicitamente montados. Ajuste via build-args quando a
+# home do host usa um UID/GID diferente.
+ARG HOST_UID=1000
+ARG HOST_GID=1000
+RUN groupadd --gid "${HOST_GID}" developer \
+    && useradd --uid "${HOST_UID}" --gid "${HOST_GID}" --create-home --shell /usr/bin/zsh developer
 
 USER developer
 WORKDIR /projetos

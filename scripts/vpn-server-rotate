@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly API_URL="http://127.0.0.1:8000"
+readonly API_KEY_FILE="${GLUETUN_API_KEY_FILE:-/run/secrets/gluetun_api_key}"
+readonly STATE_FILE=/tmp/vpn-rotate.index
+
+[[ -r "$API_KEY_FILE" ]] || { echo "Erro: segredo da API ausente: $API_KEY_FILE" >&2; exit 1; }
+api_key="$(tr -d '\r\n' < "$API_KEY_FILE")"
+[[ -n "$api_key" ]] || { echo "Erro: chave da API vazia." >&2; exit 1; }
+
+api_request() {
+  curl --fail --silent --show-error --retry 3 \
+    -H "X-API-Key: ${api_key}" "$@"
+}
+
+settings="$(api_request "${API_URL}/v1/vpn/settings")"
+countries="$(printf '%s' "$settings" | jq -c '.provider.server_selection.countries // []' 2>/dev/null || printf '[]')"
+
+IFS=',' read -r -a hostnames_env <<< "${VPN_SERVER_HOSTNAMES:-}"
+
+patch=""
+if ((${#hostnames_env[@]} > 0)); then
+  total="${#hostnames_env[@]}"
+  previous=0
+  if [[ -f "$STATE_FILE" ]] && [[ "$(<"$STATE_FILE")" =~ ^[0-9]+$ ]]; then
+    previous="$(<"$STATE_FILE")"
+  fi
+  next=$(( (previous + 1) % total ))
+  target="${hostnames_env[$next]}"
+  printf '%s\n' "$next" > "$STATE_FILE"
+  patch="$(jq -nc --arg hostname "$target" '{provider:{server_selection:{hostnames:[$hostname]}}}')"
+  echo "Rotacionando para o servidor: ${target}"
+else
+  country_hint="país configurado"
+  [[ "$countries" == "[]" ]] && country_hint="qualquer país"
+  patch="$(jq -nc --argjson countries "$countries" '{provider:{server_selection:{hostnames:[],countries:$countries}}}')"
+  echo "Re-selecionando um servidor aleatório (${country_hint})."
+fi
+
+echo "Aplicando troca de servidor no Gluetun..."
+if ! outcome="$(api_request -X PUT -H "Content-Type: application/json" -d "$patch" "${API_URL}/v1/vpn/settings")"; then
+  echo "Erro: o Gluetun não aceitou a troca de servidor." >&2
+  exit 1
+fi
+echo "Resposta do Gluetun: ${outcome}"
+
+# O Gluetun reinicia o túnel ao aplicar as configurações; aguarda o IP novo.
+echo "Aguardando IP público após a troca..."
+/usr/local/bin/vpn-reconnect

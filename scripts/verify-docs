@@ -83,6 +83,52 @@ grep -Fq 'vpn-reconnect' "$README_FILE" || {
   exit 1
 }
 
+for script_name in vpn-status vpn-reconnect vpn-check vpn-top vpn-server-rotate vpn-opencode; do
+  [[ -f "${ROOT_DIR}/scripts/${script_name}" ]] || {
+    echo "Erro: script ausente: ${script_name}" >&2
+    exit 1
+  }
+  grep -Fq "$script_name" "$README_FILE" || {
+    echo "Erro: ${script_name} não está documentado no README." >&2
+    exit 1
+  }
+done
+
+grep -Fq 'FIREWALL_SUBNETS' "$README_FILE" || {
+  echo "Erro: acesso à rede interna (FIREWALL_SUBNETS) não está documentado." >&2
+  exit 1
+}
+
+grep -Fq 'INTERNAL_DNS' "$README_FILE" || {
+  echo "Erro: DNS interno (INTERNAL_DNS) não está documentado." >&2
+  exit 1
+}
+
+grep -Fq 'INTERNAL_DNS_EXEMPT_HOSTNAMES' "$README_FILE" || {
+  echo "Erro: exceção de rebinding (INTERNAL_DNS_EXEMPT_HOSTNAMES) não está documentada." >&2
+  exit 1
+}
+
+grep -Fq 'SSH_AUTH_SOCK' "$README_FILE" || {
+  echo "Erro: paridade SSH (SSH_AUTH_SOCK) não está documentada." >&2
+  exit 1
+}
+
+grep -Fq 'OPENCODE_GUI_PORT' "$README_FILE" || {
+  echo "Erro: porta do painel web (OPENCODE_GUI_PORT) não está documentada." >&2
+  exit 1
+}
+
+grep -Fq 'VPN_ROTATE_SERVERS' "$README_FILE" || {
+  echo "Erro: rotação automática de servidor não está documentada." >&2
+  exit 1
+}
+
+grep -Fq 'PUT /v1/vpn/settings' "$README_FILE" || {
+  echo "Erro: controle de troca de servidor pela API não está documentado." >&2
+  exit 1
+}
+
 if grep -Eq 'mudarip|/usr/local/bin/mudarip' "$README_FILE" "$ROOT_DIR/docker-compose.yml"; then
   echo "Erro: comando legado mudarip ainda está documentado ou configurado." >&2
   exit 1

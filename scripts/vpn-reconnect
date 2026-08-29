@@ -3,6 +3,17 @@ set -Eeuo pipefail
 
 readonly API_URL="http://127.0.0.1:8000"
 readonly API_KEY_FILE="${GLUETUN_API_KEY_FILE:-/run/secrets/gluetun_api_key}"
+readonly IP_ATTEMPTS="${VPN_IP_ATTEMPTS:-30}"
+readonly IP_DELAY_SECONDS="${VPN_IP_DELAY_SECONDS:-5}"
+
+[[ "$IP_ATTEMPTS" =~ ^[1-9][0-9]*$ ]] || {
+  echo "Erro: VPN_IP_ATTEMPTS deve ser um número inteiro positivo." >&2
+  exit 2
+}
+[[ "$IP_DELAY_SECONDS" =~ ^[0-9]+$ ]] || {
+  echo "Erro: VPN_IP_DELAY_SECONDS deve ser um número inteiro não negativo." >&2
+  exit 2
+}
 
 [[ -r "$API_KEY_FILE" ]] || { echo "Erro: segredo da API ausente: $API_KEY_FILE" >&2; exit 1; }
 api_key="$(tr -d '\r\n' < "$API_KEY_FILE")"
@@ -13,12 +24,35 @@ api_request() {
     -H "X-API-Key: ${api_key}" "$@"
 }
 
+# O Gluetun só publica o IP público segundos depois de o túnel subir; por isso o
+# endpoint /v1/publicip/ip retorna vazio no início. Este polling evita que a
+# reconexão "perca" o IP e encerre sem informá-lo.
+wait_for_public_ip() {
+  local attempt ip
+  for ((attempt = 1; attempt <= IP_ATTEMPTS; attempt++)); do
+    ip="$(api_request "${API_URL}/v1/publicip/ip" 2>/dev/null | jq -r '.public_ip // empty' || true)"
+    if [[ -n "$ip" ]]; then
+      printf '%s\n' "$ip"
+      return 0
+    fi
+    if ((attempt < IP_ATTEMPTS)); then
+      echo "Aguardando IP público (tentativa ${attempt}/${IP_ATTEMPTS})..." >&2
+      sleep "$IP_DELAY_SECONDS"
+    fi
+  done
+  return 1
+}
+
 echo "Reconectando o perfil VPN atual..."
 api_request -X PUT -H "Content-Type: application/json" \
-  -d '{"status":"stopped"}' "${API_URL}/v1/vpn/status"
+  -d '{"status":"stopped"}' "${API_URL}/v1/vpn/status" >/dev/null || true
 sleep 3
 api_request -X PUT -H "Content-Type: application/json" \
-  -d '{"status":"running"}' "${API_URL}/v1/vpn/status"
-echo "VPN reconectada. IP público atual:"
-api_request "${API_URL}/v1/publicip/ip"
-echo
+  -d '{"status":"running"}' "${API_URL}/v1/vpn/status" >/dev/null
+
+if ip="$(wait_for_public_ip)"; then
+  echo "VPN reconectada. IP público: ${ip}"
+else
+  echo "Erro: IP público não obtido após a reconexão." >&2
+  exit 1
+fi

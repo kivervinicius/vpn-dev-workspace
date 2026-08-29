@@ -21,7 +21,7 @@ mkdir -p .secrets
 Gere a chave da API local do Gluetun:
 
 ```bash
-docker run --rm qmcgaw/gluetun:v3.40.0 genkey
+docker run --rm qmcgaw/gluetun:v3.41.3 genkey
 ```
 
 Grave a chave e as credenciais de serviço nos arquivos indicados por `.env`:
@@ -71,6 +71,7 @@ node --version
 java --version
 npm --version
 vpn-status
+vpn-check
 ```
 
 O caminho do OpenCode deve pertencer à home montada do host, e sua versão deve corresponder à instalada no host. Uma resposta `running` seguida de um IP público confirma que o perfil selecionado carregou as credenciais e estabeleceu o túnel.
@@ -89,7 +90,15 @@ Para uma reconexão manual dentro do terminal:
 vpn-reconnect
 ```
 
-O serviço `vpn-auto-reconnect` faz manutenção a cada hora. Se o endpoint local não confirmar um IP público após uma tentativa, ele repetirá a reconexão a cada 30 segundos até a recuperação.
+O comando aguarda o IP público voltar (o Gluetun só o publica segundos depois de o túnel subir) e o imprime ao final; se o IP não voltar, encerra com erro.
+
+Para um painel de status completo — serviços, perfil, servidor, IP público, DNS e estado da auto-reconexão — use:
+
+```zsh
+vpn-top
+```
+
+O serviço `vpn-auto-reconnect` valida a saúde do ambiente (túnel, IP e DNS) a cada hora. Se uma verificação falhar, ele repete a reconexão a cada 30 segundos até a recuperação; com `VPN_ROTATE_SERVERS=true` (opt-in), troca de servidor após falhas consecutivas, conforme configurado em `.env`.
 
 ## 6. Encerrar o ambiente
 

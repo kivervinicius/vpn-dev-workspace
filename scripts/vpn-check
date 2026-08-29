@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly API_URL="http://127.0.0.1:8000"
+readonly API_KEY_FILE="${GLUETUN_API_KEY_FILE:-/run/secrets/gluetun_api_key}"
+
+[[ -r "$API_KEY_FILE" ]] || { echo "Erro: segredo da API ausente: $API_KEY_FILE" >&2; exit 1; }
+api_key="$(tr -d '\r\n' < "$API_KEY_FILE")"
+
+fails=0
+
+report() {
+  local desc="$1" result="$2"
+  if [[ "$result" == "ok" ]]; then
+    printf 'ok   - %s\n' "$desc"
+  else
+    printf 'FAIL - %s: %s\n' "$desc" "$result"
+    fails=$((fails + 1))
+  fi
+}
+
+api_get() {
+  curl --fail --silent --show-error \
+    -H "X-API-Key: ${api_key}" "$@"
+}
+
+vpn_status="$(api_get "${API_URL}/v1/vpn/status" 2>/dev/null || true)"
+if [[ "$(printf '%s' "$vpn_status" | jq -r '.status // empty')" == "running" ]]; then
+  report "túnel VPN ativo" ok
+else
+  report "túnel VPN ativo" "status=$(printf '%s' "$vpn_status" | jq -r '.status // "inacessível"')"
+fi
+
+ip_data="$(api_get "${API_URL}/v1/publicip/ip" 2>/dev/null || true)"
+ip="$(printf '%s' "$ip_data" | jq -r '.public_ip // empty')"
+if [[ -n "$ip" ]]; then
+  report "IP público obtido (${ip})" ok
+else
+  report "IP público obtido" "vazio ou inacessível"
+fi
+
+dns_status="$(api_get "${API_URL}/v1/dns/status" 2>/dev/null || true)"
+dns_status_value="$(printf '%s' "$dns_status" | jq -r '.status // empty')"
+case "$dns_status_value" in
+  running|ready|starting)
+    report "DNS do túnel ativo (${dns_status_value})" ok
+    ;;
+  stopped|failed|error)
+    report "DNS do túnel ativo" "status=${dns_status_value}"
+    ;;
+  *)
+    report "DNS do túnel ativo" "status=${dns_status_value:-inacessível}"
+    ;;
+esac
+
+if command -v getent >/dev/null 2>&1; then
+  if getent hosts github.com >/dev/null 2>&1; then
+    report "resolução DNS funcional" ok
+  else
+    report "resolução DNS funcional" "não resolveu github.com"
+  fi
+else
+  report "resolução DNS funcional" "getent indisponível (verificação ignorada)"
+fi
+
+if grep -Eq '^nameserver[[:space:]]+127\.0\.0\.1([[:space:]]|$)' /etc/resolv.conf 2>/dev/null; then
+  report "resolv.conf aponta para o DNS do túnel" ok
+else
+  report "resolv.conf aponta para o DNS do túnel" "resolver externo detectado (possível vazamento de DNS)"
+fi
+
+# Acesso à rede interna do host (opt-in): apenas quando INTERNAL_TEST_HOST está
+# definido (ex: um host .omega). Exige INTERNAL_DNS/INTERNAL_DNS_EXEMPT_HOSTNAMES
+# configurados, ou o próprio nome informado como IP.
+internal_test_host="${INTERNAL_TEST_HOST:-}"
+if [[ -n "$internal_test_host" ]]; then
+  resolved=""
+  if [[ "$internal_test_host" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    resolved="$internal_test_host"
+  elif getent hosts "$internal_test_host" >/dev/null 2>&1; then
+    resolved="$(getent hosts "$internal_test_host" | awk '{print $1; exit}')"
+  fi
+  if [[ -n "$resolved" && -n "${INTERNAL_TEST_PORT:-}" ]]; then
+    if (exec 3<>"/dev/tcp/${resolved}/${INTERNAL_TEST_PORT}") 2>/dev/null; then
+      exec 3>&- 3<&- || true
+      report "alcance à rede interna (${internal_test_host}:${INTERNAL_TEST_PORT})" ok
+    else
+      report "alcance à rede interna (${internal_test_host}:${INTERNAL_TEST_PORT})" "TCP sem resposta"
+    fi
+  elif [[ -n "$resolved" ]]; then
+    report "alcance à rede interna (${internal_test_host})" ok
+  else
+    report "alcance à rede interna (${internal_test_host})" "não resolveu; confira INTERNAL_DNS e INTERNAL_DNS_EXEMPT_HOSTNAMES"
+  fi
+fi
+
+if ((fails > 0)); then
+  echo "${fails} verificação(ões) falharam." >&2
+fi
+exit "$fails"

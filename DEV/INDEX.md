@@ -15,6 +15,7 @@
 | `DATABASE/` | Data model, migrations, and data notes |
 | `TESTING.md` | Verification strategy and commands |
 | `RUNBOOKS/` | Operational procedures |
+| `RUNBOOKS/opencode-desktop-vpn.md` | Como conectar o OpenCode Desktop/Web pela VPN (passos validados) |
 | `TASKS/` | Active plans and task artifacts |
 | `RESEARCH/` | Research and references |
 | `HANDOFFS/` | Archived handoffs and compacted worklog history |
