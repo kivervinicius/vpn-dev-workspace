@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# vpn-hosts-import: extrai entradas do /etc/hosts do host filtradas por domínio
+# e imprime a linha pronta para LOCAL_HOSTS (só sugere — nada é escrito sozinho).
+#
+# Uso: vpn-hosts-import --domain omega [--hosts-file /etc/hosts]
+# Ex:  vpn-hosts-import --domain omega
+#      # LOCAL_HOSTS=gitlab.omega=192.168.30.5,registry.omega=192.168.30.6
+set -Eeuo pipefail
+
+usage() {
+  echo "Uso: vpn-hosts-import --domain <sufixo> [--hosts-file <caminho>]" >&2
+  echo "Ex:  vpn-hosts-import --domain omega" >&2
+  exit 2
+}
+
+domain=""
+hosts_file="/etc/hosts"
+while (($# > 0)); do
+  case "$1" in
+    --domain) domain="${2:-}"; shift 2 ;;
+    --hosts-file) hosts_file="${2:-}"; shift 2 ;;
+    -h|--help) usage ;;
+    *) echo "Erro: argumento desconhecido: $1" >&2; usage ;;
+  esac
+done
+[[ -n "$domain" ]] || usage
+[[ "$domain" != *"*"* ]] || { echo "Erro: domínio inválido (sem curingas)." >&2; exit 2; }
+[[ -r "$hosts_file" ]] || { echo "Erro: arquivo ilegível: $hosts_file" >&2; exit 1; }
+
+shopt -s nocasematch
+declare -A seen=()
+pairs=()
+while IFS= read -r line || [[ -n "$line" ]]; do
+  line="${line%%#*}"
+  [[ -n "${line//[[:space:]]/}" ]] || continue
+  read -r -a fields <<< "$line"
+  ((${#fields[@]} >= 2)) || continue
+  ip="${fields[0]}"
+  for raw in "${fields[@]:1}"; do
+    name="${raw,,}"
+    if [[ "$name" == *".$domain" || "$name" == "$domain" ]]; then
+      if [[ -n "${seen[$name]+x}" ]]; then
+        echo "Aviso: '${name}' repetido; vale o último (${ip})." >&2
+        for i in "${!pairs[@]}"; do
+          if [[ "${pairs[$i]}" == "$name="* ]]; then
+            pairs[$i]="${name}=${ip}"
+            break
+          fi
+        done
+      else
+        seen[$name]=1
+        pairs+=("${name}=${ip}")
+      fi
+    fi
+  done
+done < "$hosts_file"
+shopt -u nocasematch
+
+if ((${#pairs[@]} == 0)); then
+  echo "Nenhuma entrada '*.${domain}' encontrada em ${hosts_file}." >&2
+  exit 1
+fi
+
+printf '# Cole no .env:\nLOCAL_HOSTS='
+IFS=,
+printf '%s' "${pairs[*]}"
+printf '\n'

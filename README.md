@@ -110,8 +110,23 @@ INTERNAL_DNS_EXEMPT_HOSTNAMES=dev.go.omega.local,dev.mt.omega.local
 - Quando `INTERNAL_DNS` aponta para um servidor fora da sub-rede da LAN (ex: DNS em outra VLAN), inclua também a sub-rede dele em `FIREWALL_SUBNETS`, senão as consultas são bloqueadas pelo firewall do túnel.
 - Com `INTERNAL_DNS`, o servidor DNS embutido do Gluetun usa esse upstream em texto puro; sem ele, mantém o padrão DoT (Cloudflare).
 - `INTERNAL_DNS_EXEMPT_HOSTNAMES` é obrigatório para nomes internos: sem ele o Gluetun descarta respostas que apontam para IPs privados (proteção contra rebinding). Curingas não são aceitos (`*.omega` é rejeitado) — liste os nomes explícitos, separados por vírgula.
-- O `vpn-check` testa `INTERNAL_TEST_HOST` (nome ou IP) quando configurado.
+- O `vpn-check` testa `INTERNAL_TEST_HOST` (nome ou IP) quando configurado, com teste TCP real na `INTERNAL_TEST_PORT` quando definida (ex: `INTERNAL_TEST_HOST=192.168.30.20`, `INTERNAL_TEST_PORT=80`); sem a porta, valida apenas que o nome resolve.
 - Não inclua a faixa privada do túnel em `FIREWALL_SUBNETS`.
+
+### Hosts locais que só existem no host (opt-in)
+
+Nomes que vivem apenas no `/etc/hosts` do host (ex: `gitlab.omega`) não resolvem dentro do terminal, porque lá todo DNS passa pelo túnel. Para mapeá-los:
+
+```ini
+LOCAL_HOSTS=gitlab.omega=192.168.30.5,registry.omega=192.168.30.6
+```
+
+- O `vpn-switch` gera um snippet a partir de `LOCAL_HOSTS` e injeta no `/etc/hosts` do terminal pós-up (idempotente; `extra_hosts` é rejeitado pelo Docker com `network_mode`, por isso a injeção pós-up).
+- Para importar do `/etc/hosts` do host por domínio: `./scripts/vpn-hosts-import --domain omega` (só sugere a linha — você cola no `.env`).
+- Reaplicar após `restart` manual: `./scripts/vpn-hosts-apply` (o `vpn-switch` sempre reaplica; `down`/`recreate` perde as entradas).
+- Para importar do `/etc/hosts` do host por domínio: `./scripts/vpn-hosts-import --domain omega` (só sugere a linha — você cola no `.env`).
+- O `vpn-check` valida que cada nome resolve para o IP declarado.
+- O mapeamento resolve só o **nome**; o **alcance** continua exigindo a sub-rede em `FIREWALL_SUBNETS` (acima). Se o IP mudar na LAN, atualize o mapeamento (o import facilita o re-sync).
 
 ### Paridade com a home do host
 
@@ -148,7 +163,7 @@ O helper `vpn-opencode` roda o OpenCode dentro do container (tráfego de LLM 100
 3. Login `opencode`; senha: conteúdo de `.secrets/opencode_gui_password` (`cat .secrets/opencode_gui_password`).
 4. Alternativa por CLI no host: `opencode attach http://127.0.0.1:10001 -u opencode -p "$(cat .secrets/opencode_gui_password)"`.
 
-Para atualizar o Desktop: não há repositório apt (`apt upgrade` não o atualiza); baixe o `.deb` oficial e reinstale (`sudo apt-get install ./opencode-desktop-linux-amd64.deb`). Desktop e servidor do container devem ter a mesma versão — atualize também `OPENCODE_VERSION` e os checksums do `Dockerfile` na mesma alteração (tela branca = versões divergentes). Guia completo em `DEV/RUNBOOKS/opencode-desktop-vpn.md`.
+Para atualizar o Desktop: não há repositório apt (`apt upgrade` não o atualiza); baixe o `.deb` oficial e reinstale (`sudo apt-get install ./opencode-desktop-linux-amd64.deb`). O `PATH` do terminal prioriza o binário da home montada do host (`${HOST_HOME_DIR}/.opencode/bin`), então a atualização do host reflete de imediato no container; a versão fixada no `Dockerfile` (`OPENCODE_VERSION` + checksums) é o fallback. Ainda assim, mantenha Desktop e fallback alinhados — tela branca indica versões divergentes. Guia completo em `DEV/RUNBOOKS/opencode-desktop-vpn.md`.
 
 ### Rotação automática de servidor (opt-in)
 
@@ -185,7 +200,7 @@ docker compose -f docker-compose.yml -f profiles/nordvpn-openvpn.yml logs -f vpn
 | `custom-openvpn` | Arquivo e credenciais OpenVPN próprios |
 | `custom-wireguard` | Arquivo WireGuard próprio |
 
-Troque o argumento de `vpn-switch` e o arquivo de perfil nos comandos Compose pelo perfil desejado. Os caminhos de segredo e configurações customizadas estão descritos em `.env.example`.
+Troque o argumento de `vpn-switch` e o arquivo de perfil nos comandos Compose pelo perfil desejado. Os caminhos de segredo e configurações customizadas estão descritos em `.env.example`. Os perfis `*-openvpn` aceitam `OPENVPN_PROTOCOL` (`udp`, padrão, ou `tcp`); `SERVER_HOSTNAMES` (`VPN_SERVER_HOSTNAMES`) restringe/fixa servidores em todos os perfis de provedor (exceto `custom-*`, que usam config própria).
 
 ## Estrutura
 
@@ -199,7 +214,7 @@ host
     └── verifica o IP público e recupera conectividade
 ```
 
-O contêiner de terminal é uma extensão direta do usuário do host: ele monta a home completa no mesmo caminho e o workspace no mesmo caminho. Isso preserva referências absolutas e permite usar as mesmas configurações e ferramentas, inclusive os dados do OpenCode. A imagem fixa o OpenCode na mesma versão do host no momento da atualização; ao atualizar o OpenCode do host, atualize também `OPENCODE_VERSION` e os checksums verificados do `Dockerfile`.
+O contêiner de terminal é uma extensão direta do usuário do host: ele monta a home completa no mesmo caminho e o workspace no mesmo caminho. Isso preserva referências absolutas e permite usar as mesmas configurações e ferramentas, inclusive os dados do OpenCode. O `PATH` do terminal prioriza `${HOST_HOME_DIR}/.opencode/bin` (binário do host, atualizado de imediato); a imagem mantém uma versão verificada compatível (`OPENCODE_VERSION` + checksums no `Dockerfile`) como fallback.
 
 Por padrão, a home montada é a do usuário que executa o Compose. Para selecionar explicitamente o diretório, defina `HOST_HOME_DIR` com um caminho absoluto em `.env`:
 

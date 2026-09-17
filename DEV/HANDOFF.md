@@ -4,7 +4,7 @@ This file should stay small. Refresh it after substantive work or run `orquestra
 
 ## Snapshot
 
-- Updated: 2026-08-19
+- Updated: 2026-09-17
 - Read order: `INDEX.md` -> `HANDOFF.md` -> `CONTEXT.md` -> `SPECS/ACTIVE.md`
 - Active spec: `SPECS/ACTIVE.md`
 - Verification source: `VERIFY.md`
@@ -12,15 +12,18 @@ This file should stay small. Refresh it after substantive work or run `orquestra
 
 ## Latest Work
 
-- Entry: runbook dos passos práticos (Desktop/Web pela VPN).
-- Spec: `SPECS/ACTIVE.md` (status: implemented-and-runtime-validated).
-- Changed: `DEV/RUNBOOKS/opencode-desktop-vpn.md` criado; README com seção "Conectar o Desktop App (passo a passo)"; `DEV/INDEX.md` atualizado.
-- Verified: `verify-docs`, `bash -n`, `git diff --check`.
-- Risks: Desktop do host e servidor do container precisam da mesma versão (tela branca se divergirem); atualização do Desktop é manual via `.deb` (sem apt repo).
-- Next context: conectar o Desktop App em `http://127.0.0.1:10001` (`vpn-opencode serve`, login `opencode` + senha de `.secrets/opencode_gui_password`); manter `VPN_SERVER_HOSTNAMES` preenchido se a rotação aleatória reincidir; ShellCheck na CI.
+- Entry: hosts locais via LOCAL_HOSTS (extra_hosts no túnel).
+- Spec: `SPECS/ACTIVE.md` (status: +local-hosts-mapping; runtime com túnel real pendente no host).
+- Changed: `vpn-hosts-gen` valida + gera snippet `.hosts.local.gen`; novo `vpn-hosts-apply` injeta no `/etc/hosts` via `docker exec -u 0` pós-up (rev. 2: `extra_hosts` rejeitado pelo daemon com `network_mode`); `vpn-switch` gera + aplica; `vpn-hosts-import --domain`; `vpn-check` valida cada `nome=ip`; `LOCAL_HOSTS` no Compose; `.env.example` + README; travas `verify-docs`; `verify-compose` valida snippet + dry-run.
+- Verified: `bash -n`, `./scripts/verify-docs`, `git diff --check` + fixtures (gen/import/check); sem Docker local — `verify-compose`/build/ShellCheck na CI.
+- Risks: IP da LAN muda → mapeamento stale (re-sync via import); nome resolve mas alcance exige `FIREWALL_SUBNETS`.
+- Next context: no host — `LOCAL_HOSTS=gitlab.omega=<ip>` no `.env`, `vpn-switch`, `getent hosts gitlab.omega` no terminal + `vpn-check`; Desktop App real; `verify-compose` + ShellCheck na CI.
 
 ## Recent Entries
 
+- 2026-09-17 — hosts locais via LOCAL_HOSTS (gen + import + check + travas).
+- 2026-09-17 — robustez dos scripts + fechamento dos drifts 29/08 (docs, TESTING, BACKLOG, trava de drift no verify-docs).
+- 2026-08-29 — OpenCode 1.18.25 + PATH host-first; SERVER_HOSTNAMES nos perfis de provedor.
 - 2026-08-19 — rede interna (LAN/DNS), paridade de home (UID/GID, ssh-agent, /run/user) e `vpn-opencode` implementados; validação de runtime pendente.
 - 2026-08-19 — aumento de poderes: IP pós-reconexão, saúde, dashboard, rotação e Gluetun v3.41.3.
 - 2026-08-10 — implementação e validação concluídas.

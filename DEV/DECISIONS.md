@@ -35,10 +35,31 @@ A imagem do terminal é construída com `HOST_UID`/`HOST_GID` (padrão 1000) par
 O OpenCode GUI é executado dentro do `terminal` (tráfego de LLM 100% pela VPN) e publicado na faixa do Gluetun via `vpn-opencode web|serve` (porta `OPENCODE_GUI_PORT`, padrão 10001). `web` serve o painel no navegador do host; `serve` expõe a ponta para o Desktop App. A senha vem de `OPENCODE_GUI_PASSWORD_FILE` (basic auth, usuário `opencode`); sem o arquivo, o painel abre sem senha, apenas para uso local. O estado é compartilhado com o CLI porque ambos usam a mesma home e os mesmos projetos.
 
 ## Achados de runtime (2026-08-19)
-
 - `DNS_REBINDING_PROTECTION_EXEMPT_HOSTNAMES` do Gluetun rejeita curingas (`*.omega.local` inválido): exigem-se nomes explícitos separados por vírgula.
 - Com upstream plain (`INTERNAL_DNS`), o endpoint `/v1/dns/status` permanece `starting` mesmo com o servidor `ready` e resolvendo; o `vpn-check` trata `running|ready|starting` como ok e valida a resolução real à parte.
 - O polling do `vpn-reconnect` subiu para 30×5s porque a troca de servidor do OpenVPN pode demorar mais de um minuto para reconectar.
 - A imagem do terminal passou a incluir `openssh-client`: `git`/`ssh` dependem dele e a paridade do agente SSH do host exige `ssh-add` no container.
 - O provedor de acesso pode bloquear faixas de IP de alguns servidores NordVPN (185.153.176.x inacessível do próprio host); a rotação aleatória pode cair repetidamente neles — para esse caso, fixar servidores conhecidos via `VPN_SERVER_HOSTNAMES` ou pin direto por hostname na API.
 - Nomes `.omega.local` só existem no `/etc/hosts` do host (o DNS da LAN responde NXDOMAIN); o alcance interno real é validado por IP/sub-rede via firewall, e o `vpn-check` aceita `INTERNAL_TEST_HOST` como IP com teste TCP em `INTERNAL_TEST_PORT`.
+
+## Robustez dos scripts (2026-09-17)
+
+- Todo `curl` contra o Gluetun usa `--connect-timeout 5 --max-time 10` (e `--retry-all-errors` onde há `--retry`): sem isso, um Gluetun travado pendurava o script indefinidamente e o `--retry 3` não retentava erros `--fail`.
+- Dependências (`curl`, `jq`, `docker`, `ss`, `ip`, `awk`) são checadas cedo com `need()` e mensagem clara, em vez de falhar de forma críptica sob `set -e` (ex: `ss` ausente gerava falso-negativo de "porta livre").
+- `vpn-top` não aborta em falha transitória de settings e usa `// empty`/`desconhecido` em todo `jq`; `vpn-server-rotate` filtra hostnames vazios/espaçados (`, ,`) antes do `PUT`; helpers resolvem via PATH com fallback para `/usr/local/bin`, funcionando no host e no container.
+- `vpn-auto-reconnect` e `vpn-switch` tratam `TERM`/`INT` para encerrar rápido; o teste TCP do `vpn-check` é limitado a 5s via `timeout` e `INTERNAL_TEST_PORT` é validada (1-65535).
+- Risco consciente remanescente (não tratado): a chave da API viaja em header de `curl` (visível em `ps` na janela da chamada) e `OPENCODE_SERVER_PASSWORD` via `docker compose exec -e` (visível em `inspect`); aceito para uso local, sem `set -x`/logs de segredo.
+
+## Paridade de perfis e init (2026-09-17)
+
+- `profiles/protonvpn-wireguard.yml` ganhou `SERVER_HOSTNAMES`: era o único perfil de provedor sem a linha, então `VPN_SERVER_HOSTNAMES` não tinha efeito nele (bug por omissão, não decisão).
+- `init: true` no serviço `terminal` (estava no working tree sem commit nem doc): mantido e documentado — colhe zumbis de `tail`/`zsh`/`opencode exec` sem mudar comportamento de rede.
+
+## Hosts locais via /etc/hosts pós-up (2026-09-17, rev. 2)
+
+- Tentativa inicial com `extra_hosts` no Compose foi rejeitada pelo Docker (`conflicting options: custom host-to-IP mapping and the network mode`) com `network_mode: service:vpn` — validado no erro real do daemon, não em teoria.
+- Mecanismo atual: `LOCAL_HOSTS` → snippet `.hosts.local.gen` → `vpn-switch` injeta via `docker exec -u 0 ... >> /etc/hosts` pós-up (idempotente, sem duplicar). Recreate perde as entradas, por isso o `vpn-switch` sempre reaplica e existe `vpn-hosts-apply` manual para `restart`.
+- Nomes que só existem no `/etc/hosts` do host não resolvem no terminal porque lá todo DNS passa pelo Gluetun; em vez de mexer no DNS (sidecar ou upstream), o glibc resolve via `files` antes do túnel — sem exceção de rebinding.
+- Entrada via `LOCAL_HOSTS` no `.env` (`nome=ip`, vírgula/espaço); override gerado é git-ignorado e reescrito a cada `vpn-switch` (vazio remove o arquivo — opt-in inerte). Validação estrita com falha rápida (hostname RFC, IPv4 octeto ≤255, sem curingas).
+- `LOCAL_HOSTS` é repassado no ambiente dos 2 serviços para o `vpn-check` validar cada mapeamento; alcance real continua sendo papel de `FIREWALL_SUBNETS`.
+- Risco aceito: IP da LAN muda → stale (re-sync via `vpn-hosts-import --domain`, que só sugere a linha, nunca escreve sozinho).

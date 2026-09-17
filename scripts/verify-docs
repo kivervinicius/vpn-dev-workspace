@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+shopt -s nullglob
 
 readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly README_FILE="${ROOT_DIR}/README.md"
@@ -83,9 +84,9 @@ grep -Fq 'vpn-reconnect' "$README_FILE" || {
   exit 1
 }
 
-for script_name in vpn-status vpn-reconnect vpn-check vpn-top vpn-server-rotate vpn-opencode; do
+for script_name in vpn-status vpn-reconnect vpn-check vpn-top vpn-server-rotate vpn-opencode vpn-hosts-import vpn-hosts-apply; do
   [[ -f "${ROOT_DIR}/scripts/${script_name}" ]] || {
-    echo "Erro: script ausente: ${script_name}" >&2
+    echo "Erro: script ausente: ${script_name}." >&2
     exit 1
   }
   grep -Fq "$script_name" "$README_FILE" || {
@@ -93,6 +94,20 @@ for script_name in vpn-status vpn-reconnect vpn-check vpn-top vpn-server-rotate 
     exit 1
   }
 done
+
+# vpn-hosts-gen é interno (chamado pelo vpn-switch), mas deve existir e estar plugado.
+[[ -f "${ROOT_DIR}/scripts/vpn-hosts-gen" ]] || {
+  echo "Erro: script ausente: vpn-hosts-gen." >&2
+  exit 1
+}
+grep -Fq 'vpn-hosts-gen' "${ROOT_DIR}/scripts/vpn-switch" || {
+  echo "Erro: vpn-switch não chama o vpn-hosts-gen." >&2
+  exit 1
+}
+grep -Fq 'vpn-hosts-apply' "${ROOT_DIR}/scripts/vpn-switch" || {
+  echo "Erro: vpn-switch não aplica os hosts locais (vpn-hosts-apply)." >&2
+  exit 1
+}
 
 grep -Fq 'FIREWALL_SUBNETS' "$README_FILE" || {
   echo "Erro: acesso à rede interna (FIREWALL_SUBNETS) não está documentado." >&2
@@ -133,6 +148,75 @@ if grep -Eq 'mudarip|/usr/local/bin/mudarip' "$README_FILE" "$ROOT_DIR/docker-co
   echo "Erro: comando legado mudarip ainda está documentado ou configurado." >&2
   exit 1
 fi
+
+# Trava de drift: versão do exemplo de genkey acompanha o Compose.
+if grep -Fq 'gluetun:v3.40.0' "$ROOT_DIR/.env.example" "$README_FILE" "$EXAMPLE_FILE" 2>/dev/null; then
+  echo "Erro: referência antiga ao Gluetun v3.40.0 (atualize para a versão do Compose)." >&2
+  exit 1
+fi
+
+# Trava de drift: runbook acompanha o OPENCODE_VERSION do Dockerfile.
+opencode_version="$(grep -E '^ARG OPENCODE_VERSION=' "$ROOT_DIR/Dockerfile" | cut -d= -f2)"
+if [[ -n "$opencode_version" ]]; then
+  grep -Fq "$opencode_version" "$ROOT_DIR/DEV/RUNBOOKS/opencode-desktop-vpn.md" || {
+    echo "Erro: runbook desatualizado (OPENCODE_VERSION=${opencode_version} não mencionado)." >&2
+    exit 1
+  }
+fi
+
+# Trava de drift: PATH do terminal prioriza o binário do host.
+grep -Fq '.opencode/bin' "$ROOT_DIR/docker-compose.yml" || {
+  echo "Erro: PATH host-first do OpenCode ausente no Compose." >&2
+  exit 1
+}
+
+# Trava de drift: SERVER_HOSTNAMES em todos os perfis de provedor (exceto custom-*).
+for profile_file in "$ROOT_DIR"/profiles/*.yml; do
+  profile="$(basename "$profile_file" .yml)"
+  case "$profile" in
+    custom-*) continue ;;
+  esac
+  grep -Fq 'SERVER_HOSTNAMES' "$profile_file" || {
+    echo "Erro: perfil sem SERVER_HOSTNAMES: $profile." >&2
+    exit 1
+  }
+done
+
+# Trava de drift: vars de comportamento documentadas onde o usuário procura.
+grep -Fq 'INTERNAL_TEST_PORT' "$README_FILE" || {
+  echo "Erro: INTERNAL_TEST_PORT sem documentação no README." >&2
+  exit 1
+}
+grep -Fq 'INTERNAL_TEST_PORT' "$ROOT_DIR/.env.example" || {
+  echo "Erro: INTERNAL_TEST_PORT sem exemplo em .env.example." >&2
+  exit 1
+}
+grep -Fq 'OPENVPN_PROTOCOL' "$README_FILE" || {
+  echo "Erro: OPENVPN_PROTOCOL sem documentação no README." >&2
+  exit 1
+}
+grep -Fq 'OPENVPN_PROTOCOL' "$ROOT_DIR/.env.example" || {
+  echo "Erro: OPENVPN_PROTOCOL sem exemplo em .env.example." >&2
+  exit 1
+}
+
+# Trava de drift: hosts locais documentados, com exemplo e override git-ignorado.
+grep -Fq 'LOCAL_HOSTS' "$README_FILE" || {
+  echo "Erro: LOCAL_HOSTS sem documentação no README." >&2
+  exit 1
+}
+grep -Fq 'LOCAL_HOSTS' "$ROOT_DIR/.env.example" || {
+  echo "Erro: LOCAL_HOSTS sem exemplo em .env.example." >&2
+  exit 1
+}
+grep -Fq 'LOCAL_HOSTS' "$ROOT_DIR/docker-compose.yml" || {
+  echo "Erro: LOCAL_HOSTS sem repasse no Compose (vpn-check não enxerga)." >&2
+  exit 1
+}
+grep -Fq '.hosts.local.gen' "$ROOT_DIR/.gitignore" || {
+  echo "Erro: snippet gerado (.hosts.local.gen) sem gitignore." >&2
+  exit 1
+}
 
 if grep -Eq '^[[:space:]]*-[[:space:]]*~/(\.config$|\.local$|\.cache$)' "$ROOT_DIR/docker-compose.yml"; then
   echo "Erro: mount pessoal genérico detectado no Compose." >&2

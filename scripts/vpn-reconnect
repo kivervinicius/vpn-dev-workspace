@@ -5,6 +5,14 @@ readonly API_URL="http://127.0.0.1:8000"
 readonly API_KEY_FILE="${GLUETUN_API_KEY_FILE:-/run/secrets/gluetun_api_key}"
 readonly IP_ATTEMPTS="${VPN_IP_ATTEMPTS:-30}"
 readonly IP_DELAY_SECONDS="${VPN_IP_DELAY_SECONDS:-5}"
+readonly CURL_TIMEOUT_ARGS=(--connect-timeout 5 --max-time 10)
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || { echo "Erro: dependência ausente: $1" >&2; exit 2; }
+}
+
+need curl
+need jq
 
 [[ "$IP_ATTEMPTS" =~ ^[1-9][0-9]*$ ]] || {
   echo "Erro: VPN_IP_ATTEMPTS deve ser um número inteiro positivo." >&2
@@ -20,7 +28,8 @@ api_key="$(tr -d '\r\n' < "$API_KEY_FILE")"
 [[ -n "$api_key" ]] || { echo "Erro: chave da API vazia." >&2; exit 1; }
 
 api_request() {
-  curl --fail --silent --show-error --retry 3 \
+  curl --fail --silent --show-error --retry 3 --retry-all-errors \
+    "${CURL_TIMEOUT_ARGS[@]}" \
     -H "X-API-Key: ${api_key}" "$@"
 }
 

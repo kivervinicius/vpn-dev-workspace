@@ -4,20 +4,56 @@ set -Eeuo pipefail
 readonly API_URL="http://127.0.0.1:8000"
 readonly API_KEY_FILE="${GLUETUN_API_KEY_FILE:-/run/secrets/gluetun_api_key}"
 readonly STATE_FILE=/tmp/vpn-rotate.index
+readonly CURL_TIMEOUT_ARGS=(--connect-timeout 5 --max-time 10)
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || { echo "Erro: dependência ausente: $1" >&2; exit 2; }
+}
+
+need curl
+need jq
+
+resolve_helper() {
+  if command -v "$1" >/dev/null 2>&1; then
+    command -v "$1"
+  elif [[ -x "/usr/local/bin/$1" ]]; then
+    printf '/usr/local/bin/%s' "$1"
+  else
+    echo "Erro: helper ausente: $1 (nem no PATH nem em /usr/local/bin)." >&2
+    exit 1
+  fi
+}
 
 [[ -r "$API_KEY_FILE" ]] || { echo "Erro: segredo da API ausente: $API_KEY_FILE" >&2; exit 1; }
 api_key="$(tr -d '\r\n' < "$API_KEY_FILE")"
 [[ -n "$api_key" ]] || { echo "Erro: chave da API vazia." >&2; exit 1; }
 
 api_request() {
-  curl --fail --silent --show-error --retry 3 \
+  curl --fail --silent --show-error --retry 3 --retry-all-errors \
+    "${CURL_TIMEOUT_ARGS[@]}" \
     -H "X-API-Key: ${api_key}" "$@"
 }
 
 settings="$(api_request "${API_URL}/v1/vpn/settings")"
 countries="$(printf '%s' "$settings" | jq -c '.provider.server_selection.countries // []' 2>/dev/null || printf '[]')"
 
-IFS=',' read -r -a hostnames_env <<< "${VPN_SERVER_HOSTNAMES:-}"
+trim() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
+
+hostnames_raw="${VPN_SERVER_HOSTNAMES:-}"
+hostnames_env=()
+if [[ -n "$hostnames_raw" ]]; then
+  IFS=',' read -r -a _split <<< "$hostnames_raw" || true
+  for _h in "${_split[@]:-}"; do
+    _h="$(trim "$_h")"
+    [[ -n "$_h" ]] && hostnames_env+=("$_h")
+  done
+  unset _split _h
+fi
 
 patch=""
 if ((${#hostnames_env[@]} > 0)); then
@@ -47,4 +83,4 @@ echo "Resposta do Gluetun: ${outcome}"
 
 # O Gluetun reinicia o túnel ao aplicar as configurações; aguarda o IP novo.
 echo "Aguardando IP público após a troca..."
-/usr/local/bin/vpn-reconnect
+exec "$(resolve_helper vpn-reconnect)"

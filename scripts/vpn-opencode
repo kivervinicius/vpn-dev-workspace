@@ -6,6 +6,12 @@ set -Eeuo pipefail
 
 readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+need() {
+  command -v "$1" >/dev/null 2>&1 || { echo "Erro: dependência ausente: $1" >&2; exit 2; }
+}
+
+need docker
+
 usage() {
   echo "Uso: vpn-opencode <web|serve> [porta]" >&2
   echo "  web    abre o painel web no navegador do host (padrão)." >&2
@@ -22,7 +28,7 @@ case "$mode" in
 esac
 
 port="${2:-${OPENCODE_GUI_PORT:-10001}}"
-[[ "$port" =~ ^[1-9][0-9]{0,4}$ ]] || { echo "Erro: porta inválida: $port" >&2; exit 2; }
+[[ "$port" =~ ^[1-9][0-9]{0,4}$ && "$port" -le 65535 ]] || { echo "Erro: porta inválida: $port (1-65535)" >&2; exit 2; }
 
 compose=(docker compose --profile vpn -f "${ROOT_DIR}/docker-compose.yml")
 
@@ -33,7 +39,7 @@ vpn_healthy="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Stat
 [[ "$vpn_healthy" == "healthy" ]] || { echo "Erro: VPN ainda não está saudável (status: ${vpn_healthy})." >&2; exit 1; }
 
 password_file="${OPENCODE_GUI_PASSWORD_FILE:-${ROOT_DIR}/.secrets/opencode_gui_password}"
-if [[ "$password_file" != /* && ! -r "$password_file" ]]; then
+if [[ "$password_file" != /* ]]; then
   password_file="${ROOT_DIR}/${password_file}"
 fi
 if [[ -r "$password_file" ]]; then
@@ -47,8 +53,8 @@ echo "OpenCode ${mode} pela VPN em http://127.0.0.1:${port} (Ctrl+C para encerra
 # Sem navegador no container: o xdg-open falha no stderr (ruído cosmético) e o
 # servidor continua de pé; o acesso é pelo navegador do próprio host.
 env_args=()
-[[ -n "${OPENCODE_SERVER_PASSWORD:-}" ]] && env_args+=(-e OPENCODE_SERVER_PASSWORD)
-[[ -n "${OPENCODE_SERVER_USER:-}" ]] && env_args+=(-e OPENCODE_SERVER_USER)
+if [[ -n "${OPENCODE_SERVER_PASSWORD:-}" ]]; then env_args+=(-e OPENCODE_SERVER_PASSWORD); fi
+if [[ -n "${OPENCODE_SERVER_USER:-}" ]]; then env_args+=(-e OPENCODE_SERVER_USER); fi
 exec docker compose --profile vpn -f "${ROOT_DIR}/docker-compose.yml" exec \
   "${env_args[@]}" \
   terminal opencode "$mode" --port "$port" --hostname 0.0.0.0

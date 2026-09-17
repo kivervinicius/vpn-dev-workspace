@@ -63,9 +63,13 @@ sudo apt-get install ./opencode-desktop.deb
 
 ### Sincronização de versões (importante)
 
-O Desktop do host é cliente; o servidor roda no container com a versão fixada
-no `Dockerfile` (`OPENCODE_VERSION` + checksums, hoje 1.18.16). Desktop mais
-novo que o servidor pode dar tela branca/falha de conexão (anomalyco/opencode#23851).
+O Desktop do host é cliente; o servidor roda no container. O `PATH` do
+terminal prioriza o binário da home montada do host
+(`${HOST_HOME_DIR}/.opencode/bin`), então atualizar o OpenCode no host reflete
+instantaneamente no container; a versão fixada no `Dockerfile`
+(`OPENCODE_VERSION` + checksums, hoje 1.18.25) é o fallback usado quando a home
+não fornece o binário. Desktop mais novo que o servidor pode dar tela
+branca/falha de conexão (anomalyco/opencode#23851).
 
 Ao atualizar o Desktop, atualize na MESMA alteração:
 

@@ -4,6 +4,7 @@ set -Eeuo pipefail
 readonly API_URL="${GLUETUN_API_URL:-http://127.0.0.1:8000}"
 readonly API_KEY_FILE="${GLUETUN_API_KEY_FILE:-/run/secrets/gluetun_api_key}"
 readonly RECONNECT_STATE_FILE=/tmp/vpn-auto-reconnect.state
+readonly CURL_TIMEOUT_ARGS=(--connect-timeout 5 --max-time 10)
 
 if [[ -t 1 ]]; then
   readonly C_BOLD=$'\033[1m'
@@ -22,10 +23,10 @@ else
 fi
 
 section() {
-  printf "${C_BOLD}%s${C_RESET}\n" "$1"
+  printf '%s%s%s\n' "$C_BOLD" "$1" "$C_RESET"
 }
 
-printf "${C_CYAN}${C_BOLD}== VPN Dev Workspace ==${C_RESET}\n\n"
+printf '%s%s== VPN Dev Workspace ==%s\n\n' "$C_CYAN" "$C_BOLD" "$C_RESET"
 
 section "Serviços do ambiente"
 project="${COMPOSE_PROJECT_NAME:-$(basename "${COMPOSE_PROJECT_DIR:-$PWD}")}"
@@ -35,67 +36,72 @@ if command -v docker >/dev/null 2>&1; then
   if docker ps -a --format "$format" --filter "$labels" 2>/dev/null | grep -q .; then
     docker ps -a --format "$format" --filter "$labels"
   else
-    printf "${C_YELLOW}Nenhum contêiner do projeto '%s' encontrado (ambiente não iniciado?).${C_RESET}\n" "$project"
+    printf '%sNenhum contêiner do projeto %s encontrado (ambiente não iniciado?).%s\n' "$C_YELLOW" "$project" "$C_RESET"
   fi
-  printf " (projeto: ${C_CYAN}%s${C_RESET})\n" "$project"
+  printf ' (projeto: %s%s%s)\n' "$C_CYAN" "$project" "$C_RESET"
 else
-  printf "${C_YELLOW}docker indisponível neste ambiente.${C_RESET}\n"
+  printf '%sdocker indisponível neste ambiente.%s\n' "$C_YELLOW" "$C_RESET"
 fi
 
 echo
 
 section "Gluetun (túnel)"
-if command -v jq >/dev/null 2>&1 && [[ -r "$API_KEY_FILE" ]]; then
+if ! command -v curl >/dev/null 2>&1; then
+  printf '%scurl indisponível; seção do túnel indisponível.%s\n' "$C_YELLOW" "$C_RESET"
+elif ! command -v jq >/dev/null 2>&1 || [[ ! -r "$API_KEY_FILE" ]]; then
   api_key="$(tr -d '\r\n' < "$API_KEY_FILE")"
   api_request() {
-    curl --fail --silent --show-error -H "X-API-Key: ${api_key}" "$@"
+    curl --fail --silent --show-error "${CURL_TIMEOUT_ARGS[@]}" -H "X-API-Key: ${api_key}" "$@"
   }
   if vpn_status="$(api_request "${API_URL}/v1/vpn/status" 2>/dev/null)"; then
-    case "$(printf '%s' "$vpn_status" | jq -r '.status')" in
-      running) printf "VPN:        ${C_GREEN}running${C_RESET}\n" ;;
-      stopped) printf "VPN:        ${C_RED}stopped${C_RESET}\n" ;;
-      *) printf "VPN:        ${C_YELLOW}%s${C_RESET}\n" "$(printf '%s' "$vpn_status" | jq -r '.status')" ;;
+    case "$(printf '%s' "$vpn_status" | jq -r '.status // empty')" in
+      running) printf 'VPN:        %srunning%s\n' "$C_GREEN" "$C_RESET" ;;
+      stopped) printf 'VPN:        %sstopped%s\n' "$C_RED" "$C_RESET" ;;
+      *) printf 'VPN:        %s%s%s\n' "$C_YELLOW" "$(printf '%s' "$vpn_status" | jq -r '.status // "desconhecido"')" "$C_RESET" ;;
     esac
 
-    settings="$(api_request "${API_URL}/v1/vpn/settings")"
-    printf 'Perfil:     %s (%s)\n' \
-      "$(printf '%s' "$settings" | jq -r '.provider.name // "?"')" \
-      "$(printf '%s' "$settings" | jq -r '.type // "?"')"
-    hostnames="$(printf '%s' "$settings" | jq -r '.provider.server_selection.hostnames // [] | join(", ")')"
-    countries="$(printf '%s' "$settings" | jq -r '.provider.server_selection.countries // [] | join(", ")')"
-    [[ -n "$hostnames" ]] && printf 'Servidor(es): %s\n' "$hostnames"
-    [[ -n "$countries" ]] && printf 'País(es):    %s\n' "$countries"
-
-    ip_data="$(api_request "${API_URL}/v1/publicip/ip" 2>/dev/null || true)"
-    ip="$(printf '%s' "$ip_data" | jq -r '.public_ip // empty')"
-    if [[ -n "$ip" ]]; then
-      city="$(printf '%s' "$ip_data" | jq -r '.city // empty')"
-      region="$(printf '%s' "$ip_data" | jq -r '.region // empty')"
-      country="$(printf '%s' "$ip_data" | jq -r '.country // empty')"
-      location=""
-      if [[ -n "$country" ]]; then
-        location="$country"
-        [[ -n "$region" ]] && location="${region}, ${location}"
-        [[ -n "$city" ]] && location="${city}, ${location}"
-      fi
-      printf "IP público: ${C_GREEN}%s${C_RESET}%s\n" "$ip" "${location:+ (${location})}"
+    if ! settings="$(api_request "${API_URL}/v1/vpn/settings" 2>/dev/null)"; then
+      printf '%sConfigurações do Gluetun indisponíveis (falha transitória).%s\n' "$C_YELLOW" "$C_RESET"
     else
-      printf "IP público: ${C_YELLOW}ainda não disponível${C_RESET}\n"
-    fi
+      printf 'Perfil:     %s (%s)\n' \
+        "$(printf '%s' "$settings" | jq -r '.provider.name // "?"')" \
+        "$(printf '%s' "$settings" | jq -r '.type // "?"')"
+      hostnames="$(printf '%s' "$settings" | jq -r '.provider.server_selection.hostnames // [] | join(", ")')"
+      countries="$(printf '%s' "$settings" | jq -r '.provider.server_selection.countries // [] | join(", ")')"
+      if [[ -n "$hostnames" ]]; then printf 'Servidor(es): %s\n' "$hostnames"; fi
+      if [[ -n "$countries" ]]; then printf 'País(es):    %s\n' "$countries"; fi
 
-    dns_status="$(api_request "${API_URL}/v1/dns/status" 2>/dev/null || true)"
-    case "$(printf '%s' "$dns_status" | jq -r '.status // empty')" in
-      running) printf "DNS túnel:  ${C_GREEN}running${C_RESET}\n" ;;
-      "") printf "DNS túnel:  ${C_YELLOW}indisponível${C_RESET}\n" ;;
-      *) printf "DNS túnel:  ${C_YELLOW}%s${C_RESET}\n" "$(printf '%s' "$dns_status" | jq -r '.status')" ;;
-    esac
+      ip_data="$(api_request "${API_URL}/v1/publicip/ip" 2>/dev/null || true)"
+      ip="$(printf '%s' "$ip_data" | jq -r '.public_ip // empty')"
+      if [[ -n "$ip" ]]; then
+        city="$(printf '%s' "$ip_data" | jq -r '.city // empty')"
+        region="$(printf '%s' "$ip_data" | jq -r '.region // empty')"
+        country="$(printf '%s' "$ip_data" | jq -r '.country // empty')"
+        location=""
+        if [[ -n "$country" ]]; then
+          location="$country"
+          [[ -n "$region" ]] && location="${region}, ${location}"
+          [[ -n "$city" ]] && location="${city}, ${location}"
+        fi
+        printf 'IP público: %s%s%s%s\n' "$C_GREEN" "$ip" "$C_RESET" "${location:+ (${location})}"
+      else
+        printf 'IP público: %sainda não disponível%s\n' "$C_YELLOW" "$C_RESET"
+      fi
+
+      dns_status="$(api_request "${API_URL}/v1/dns/status" 2>/dev/null || true)"
+      case "$(printf '%s' "$dns_status" | jq -r '.status // empty')" in
+        running) printf 'DNS túnel:  %srunning%s\n' "$C_GREEN" "$C_RESET" ;;
+        "") printf 'DNS túnel:  %sindisponível%s\n' "$C_YELLOW" "$C_RESET" ;;
+        *) printf 'DNS túnel:  %s%s%s\n' "$C_YELLOW" "$(printf '%s' "$dns_status" | jq -r '.status // "desconhecido"')" "$C_RESET" ;;
+      esac
+    fi
   else
-    printf "${C_YELLOW}API do Gluetun inacessível em %s.${C_RESET}\n" "$API_URL"
-    printf "Execute ${C_BOLD}vpn-top${C_RESET} dentro do terminal do ambiente, ou publique a porta de controle do Gluetun.\n"
+    printf '%sAPI do Gluetun inacessível em %s.%s\n' "$C_YELLOW" "$API_URL" "$C_RESET"
+    printf 'Execute %svpn-top%s dentro do terminal do ambiente, ou publique a porta de controle do Gluetun.\n' "$C_BOLD" "$C_RESET"
   fi
 else
-  printf "${C_YELLOW}Sem jq e/ou chave da API neste ambiente; seção do túnel indisponível.${C_RESET}\n"
-  printf "Dentro do terminal do ambiente: ${C_BOLD}vpn-top${C_RESET}\n"
+  printf '%sSem curl/jq e/ou chave da API neste ambiente; seção do túnel indisponível.%s\n' "$C_YELLOW" "$C_RESET"
+  printf 'Dentro do terminal do ambiente: %svpn-top%s\n' "$C_BOLD" "$C_RESET"
 fi
 
 echo
@@ -104,13 +110,13 @@ section "Auto-reconexão"
 if [[ -f "$RECONNECT_STATE_FILE" ]]; then
   state="$(tr -d '\r\n' < "$RECONNECT_STATE_FILE" | head -n 1)"
   case "$state" in
-    healthy) printf "Estado:   ${C_GREEN}%s${C_RESET}\n" "$state" ;;
-    starting) printf "Estado:   ${C_YELLOW}%s${C_RESET}\n" "$state" ;;
-    *) printf "Estado:   ${C_RED}%s${C_RESET}\n" "$state" ;;
+    healthy) printf 'Estado:   %s%s%s\n' "$C_GREEN" "$state" "$C_RESET" ;;
+    starting) printf 'Estado:   %s%s%s\n' "$C_YELLOW" "$state" "$C_RESET" ;;
+    *) printf 'Estado:   %s%s%s\n' "$C_RED" "$state" "$C_RESET" ;;
   esac
   printf 'Intervalo: %ss (retry: %ss)\n' \
     "${VPN_RECONNECT_INTERVAL_SECONDS:-3600}" \
     "${VPN_RECONNECT_RETRY_SECONDS:-30}"
 else
-  printf "${C_YELLOW}Estado indisponível fora do ambiente (host).${C_RESET}\n"
+  printf '%sEstado indisponível fora do ambiente (host).%s\n' "$C_YELLOW" "$C_RESET"
 fi

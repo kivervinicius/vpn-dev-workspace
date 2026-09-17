@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+shopt -s nullglob
 
 readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly COMPOSE_FILE="${ROOT_DIR}/docker-compose.yml"
@@ -28,5 +29,17 @@ for profile_file in "${ROOT_DIR}"/profiles/*.yml; do
   echo "Validando perfil ${profile}..."
   "${compose_env[@]}" docker compose --profile vpn -f "$COMPOSE_FILE" -f "$profile_file" config --quiet
 done
+
+# O snippet gerado pelo vpn-hosts-gen deve ter linhas "IP nome" válidas e o
+# apply deve aceitar o formato em dry-run (sem Docker).
+gen_tmp="$(mktemp)"
+trap 'rm -f "$gen_tmp"' EXIT
+LOCAL_HOSTS="vpn-check.omega=192.168.30.5" VPN_HOSTS_SNIPPET_FILE="$gen_tmp" "${ROOT_DIR}/scripts/vpn-hosts-gen" >/dev/null
+grep -Eq '^192\.168\.30\.5[[:space:]]+vpn-check\.omega$' "$gen_tmp" || {
+  echo "Erro: snippet de hosts locais com conteúdo inesperado." >&2
+  exit 1
+}
+VPN_HOSTS_SNIPPET_FILE="$gen_tmp" "${ROOT_DIR}/scripts/vpn-hosts-apply" --dry-run >/dev/null
+echo "Snippet de hosts locais válido."
 
 echo "Todos os perfis Compose são válidos."

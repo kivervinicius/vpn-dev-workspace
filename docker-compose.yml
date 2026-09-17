@@ -50,6 +50,8 @@ services:
         HOST_UID: ${HOST_UID:-1000}
         HOST_GID: ${HOST_GID:-1000}
     network_mode: "service:vpn"
+    # init colhe zumbis de shells/processos filhos (tail/zsh/opencode exec).
+    init: true
     command: tail -f /dev/null
     environment:
       ALSA_CONFIG_PATH: /dev/null
@@ -62,6 +64,8 @@ services:
       VPN_ROTATE_SERVERS: ${VPN_ROTATE_SERVERS:-false}
       VPN_SERVER_HOSTNAMES: ${VPN_SERVER_HOSTNAMES:-}
       VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE: ${VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE:-3}
+      # Hosts locais mapeados (opt-in): o vpn-check valida cada nome=ip.
+      LOCAL_HOSTS: ${LOCAL_HOSTS:-}
       # Sessão SSH do host, quando existir (senão /dev/null, inofensivo).
       SSH_AUTH_SOCK: /run/vpn-ssh-agent.sock
     volumes:
@@ -101,6 +105,8 @@ services:
       VPN_ROTATE_SERVERS: ${VPN_ROTATE_SERVERS:-false}
       VPN_SERVER_HOSTNAMES: ${VPN_SERVER_HOSTNAMES:-}
       VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE: ${VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE:-3}
+      # Hosts locais mapeados (opt-in): o vpn-check valida cada nome=ip.
+      LOCAL_HOSTS: ${LOCAL_HOSTS:-}
     volumes:
       - ./scripts/vpn-status:/usr/local/bin/vpn-status:ro
       - ./scripts/vpn-reconnect:/usr/local/bin/vpn-reconnect:ro

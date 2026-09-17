@@ -3,6 +3,14 @@ set -Eeuo pipefail
 
 readonly API_URL="http://127.0.0.1:8000"
 readonly API_KEY_FILE="${GLUETUN_API_KEY_FILE:-/run/secrets/gluetun_api_key}"
+readonly CURL_TIMEOUT_ARGS=(--connect-timeout 5 --max-time 10)
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || { echo "Erro: dependência ausente: $1" >&2; exit 2; }
+}
+
+need curl
+need jq
 
 [[ -r "$API_KEY_FILE" ]] || { echo "Erro: segredo da API ausente: $API_KEY_FILE" >&2; exit 1; }
 api_key="$(tr -d '\r\n' < "$API_KEY_FILE")"
@@ -10,6 +18,7 @@ api_key="$(tr -d '\r\n' < "$API_KEY_FILE")"
 
 api_request() {
   curl --fail --silent --show-error \
+    "${CURL_TIMEOUT_ARGS[@]}" \
     -H "X-API-Key: ${api_key}" "$@"
 }
 

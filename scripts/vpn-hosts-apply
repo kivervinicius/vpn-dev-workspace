@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# vpn-hosts-apply: acrescenta o snippet de hosts locais (.hosts.local.gen) ao
+# /etc/hosts de `terminal` e `vpn-auto-reconnect`.
+#
+# Idempotente (não duplica entradas). Chamado pelo vpn-switch após o up;
+# uso manual (ex: após `restart`): ./scripts/vpn-hosts-apply [--dry-run]
+# O --dry-run só imprime o que seria aplicado (sem Docker).
+set -Eeuo pipefail
+
+readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly SNIPPET_FILE="${VPN_HOSTS_SNIPPET_FILE:-${ROOT_DIR}/.hosts.local.gen}"
+readonly SERVICES=(terminal vpn-auto-reconnect)
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || { echo "Erro: dependência ausente: $1" >&2; exit 2; }
+}
+
+dry_run=false
+if [[ "${1:-}" == "--dry-run" ]]; then
+  dry_run=true
+elif [[ -n "${1:-}" ]]; then
+  echo "Uso: vpn-hosts-apply [--dry-run]" >&2
+  exit 2
+fi
+
+[[ -f "$SNIPPET_FILE" ]] || { echo "Sem snippet de hosts locais; nada a aplicar."; exit 0; }
+
+ips=()
+names=()
+while IFS= read -r line || [[ -n "$line" ]]; do
+  line="${line%%#*}"
+  [[ -n "${line//[[:space:]]/}" ]] || continue
+  read -r -a fields <<< "$line"
+  if ((${#fields[@]} != 2)); then
+    echo "Erro: linha inválida no snippet ${SNIPPET_FILE}: '${line}'." >&2
+    exit 2
+  fi
+  ips+=("${fields[0]}")
+  names+=("${fields[1]}")
+done < "$SNIPPET_FILE"
+
+((${#names[@]} > 0)) || { echo "Snippet sem entradas; nada a aplicar."; exit 0; }
+
+if $dry_run; then
+  for svc in "${SERVICES[@]}"; do
+    for i in "${!names[@]}"; do
+      printf '[%s] %s %s >> /etc/hosts\n' "$svc" "${ips[$i]}" "${names[$i]}"
+    done
+  done
+  exit 0
+fi
+
+need docker
+compose=(docker compose --profile vpn -f "${ROOT_DIR}/docker-compose.yml")
+
+for svc in "${SERVICES[@]}"; do
+  cid="$("${compose[@]}" ps -q "$svc" 2>/dev/null || true)"
+  [[ -n "$cid" ]] || { echo "Erro: contêiner '${svc}' não está rodando; aplique após o vpn-switch." >&2; exit 1; }
+  for i in "${!names[@]}"; do
+    ip="${ips[$i]}"
+    name="${names[$i]}"
+    esc_ip="${ip//./\\.}"
+    esc_name="${name//./\\.}"
+    if docker exec -u 0 "$cid" sh -c "grep -Eq '^${esc_ip}[[:space:]]+${esc_name}([[:space:]]|\$)' /etc/hosts" 2>/dev/null; then
+      echo "[${svc}] ${name} já mapeado; pulando."
+    else
+      docker exec -u 0 "$cid" sh -c "printf '%s %s\n' '${ip}' '${name}' >> /etc/hosts"
+      echo "[${svc}] ${ip} ${name} aplicado."
+    fi
+  done
+done

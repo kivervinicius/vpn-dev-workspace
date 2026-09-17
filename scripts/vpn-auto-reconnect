@@ -8,6 +8,8 @@ readonly ROTATE_ENABLED="${VPN_ROTATE_SERVERS:-false}"
 readonly ATTEMPTS_BEFORE_ROTATE="${VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE:-3}"
 consecutive_failures=0
 
+trap 'echo "vpn-auto-reconnect: encerrando (sinal recebido)."; exit 0' TERM INT
+
 validate_interval() {
   local name="$1" value="$2"
   [[ "$value" =~ ^[1-9][0-9]*$ ]] || {
@@ -20,8 +22,22 @@ set_state() {
   printf '%s\n' "$1" > "$STATE_FILE"
 }
 
+resolve_helper() {
+  if command -v "$1" >/dev/null 2>&1; then
+    command -v "$1"
+  elif [[ -x "/usr/local/bin/$1" ]]; then
+    printf '/usr/local/bin/%s' "$1"
+  else
+    echo "Erro: helper ausente: $1 (nem no PATH nem em /usr/local/bin)." >&2
+    exit 1
+  fi
+}
+
+VPN_CHECK_BIN="$(resolve_helper vpn-check)"
+VPN_RECONNECT_BIN="$(resolve_helper vpn-reconnect)"
+
 is_healthy() {
-  /usr/local/bin/vpn-check >/dev/null 2>&1
+  "$VPN_CHECK_BIN" >/dev/null 2>&1
 }
 
 recover_until_healthy() {
@@ -29,7 +45,7 @@ recover_until_healthy() {
     set_state recovering
     echo "Reconectando a VPN para recuperar a conectividade..."
 
-    if /usr/local/bin/vpn-reconnect; then
+    if "$VPN_RECONNECT_BIN"; then
       set_state healthy
       consecutive_failures=0
       echo "VPN saudável: IP público confirmado."
@@ -42,7 +58,7 @@ recover_until_healthy() {
 
     if [[ "$ROTATE_ENABLED" == "true" ]] && ((consecutive_failures >= ATTEMPTS_BEFORE_ROTATE)); then
       echo "Trocando de servidor após ${consecutive_failures} falhas consecutivas..." >&2
-      if /usr/local/bin/vpn-server-rotate; then
+      if "$(resolve_helper vpn-server-rotate)"; then
         set_state healthy
         consecutive_failures=0
         echo "VPN saudável após a troca de servidor: IP público confirmado."

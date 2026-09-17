@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+# vpn-hosts-gen: valida LOCAL_HOSTS e gera o snippet hosts a partir dele.
+#
+# Formato: LOCAL_HOSTS="nome=ip,nome=ip" (vírgula e/ou espaço como separador).
+# Ex: LOCAL_HOSTS="gitlab.omega=192.168.30.5,registry.omega=192.168.30.6"
+#
+# Comportamento:
+# - vazio/ausente: remove o snippet (se existir) e sai 0 — sem mapeamento.
+# - válido: escreve .hosts.local.gen (git-ignorado) com linhas "IP nome",
+#   aplicado por scripts/vpn-hosts-apply ao /etc/hosts de `terminal` e
+#   `vpn-auto-reconnect` (o glibc consulta `files` antes do DNS do túnel,
+#   então o mapeamento vence sem mexer no Gluetun; extra_hosts é rejeitado
+#   pelo Docker com network_mode e não é usado).
+# - inválido: erro claro em stderr e exit 2 (falha rápida no vpn-switch).
+#
+# Snippet alternativo (ex: testes): VPN_HOSTS_SNIPPET_FILE=/tmp/x.hosts
+set -Eeuo pipefail
+
+readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly SNIPPET_FILE="${VPN_HOSTS_SNIPPET_FILE:-${ROOT_DIR}/.hosts.local.gen}"
+
+read_compose_value() {
+  local name="$1" default_value="$2" value=""
+
+  if [[ -n "${!name+x}" ]]; then
+    printf '%s\n' "${!name}"
+    return
+  fi
+
+  if [[ -f "${ROOT_DIR}/.env" ]]; then
+    value="$(awk -v prefix="${name}=" 'index($0, prefix) == 1 { print substr($0, length(prefix) + 1); exit }' "${ROOT_DIR}/.env")"
+  fi
+
+  printf '%s\n' "${value:-$default_value}"
+}
+
+trim() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
+
+valid_hostname() {
+  local h="$1"
+  [[ "$h" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$ ]] || return 1
+  [[ "$h" != *".."* ]] || return 1
+  [[ "$h" != *"*"* ]] || return 1
+  return 0
+}
+
+valid_ipv4() {
+  local ip="$1" o1 o2 o3 o4
+  [[ "$ip" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]] || return 1
+  o1="${BASH_REMATCH[1]}" o2="${BASH_REMATCH[2]}" o3="${BASH_REMATCH[3]}" o4="${BASH_REMATCH[4]}"
+  (( 10#$o1 <= 255 && 10#$o2 <= 255 && 10#$o3 <= 255 && 10#$o4 <= 255 ))
+}
+
+valid_ipv6() {
+  local ip="$1"
+  [[ "$ip" == *:* ]] || return 1
+  [[ "$ip" =~ ^[0-9a-fA-F:.]+$ ]] || return 1
+  [[ "$ip" != *":::"* ]] || return 1
+  return 0
+}
+
+local_hosts="$(read_compose_value LOCAL_HOSTS "")"
+local_hosts="$(trim "$local_hosts")"
+
+if [[ -z "$local_hosts" ]]; then
+  if [[ -f "$SNIPPET_FILE" ]]; then
+    rm -f "$SNIPPET_FILE"
+  fi
+  exit 0
+fi
+
+declare -A seen=()
+names=()
+ips=()
+rest="$local_hosts"
+while [[ -n "$rest" ]]; do
+  entry="${rest%%,*}"
+  if [[ "$rest" == *,* ]]; then
+    rest="${rest#*,}"
+  else
+    rest=""
+  fi
+  entry="$(trim "$entry")"
+  # Permite espaço como separador adicional: "a=1.1.1.1 b=2.2.2.2".
+  [[ -n "$entry" ]] || continue
+  read -r -a tokens <<< "$entry"
+  for token in "${tokens[@]}"; do
+    [[ "$token" == *=* ]] || { echo "Erro: entrada LOCAL_HOSTS sem '=': '${token}' (use nome=ip)." >&2; exit 2; }
+    name="$(trim "${token%%=*}")"
+    ip="$(trim "${token#*=}")"
+    [[ -n "$name" && -n "$ip" ]] || { echo "Erro: entrada LOCAL_HOSTS incompleta: '${token}'." >&2; exit 2; }
+    valid_hostname "$name" || { echo "Erro: hostname inválido em LOCAL_HOSTS: '${name}'." >&2; exit 2; }
+    if ! valid_ipv4 "$ip" && ! valid_ipv6 "$ip"; then
+      echo "Erro: IP inválido em LOCAL_HOSTS: '${ip}' (para '${name}')." >&2
+      exit 2
+    fi
+    if [[ -n "${seen[$name]+x}" ]]; then
+      echo "Aviso: '${name}' repetido em LOCAL_HOSTS; vale o último (${ip})." >&2
+      for i in "${!names[@]}"; do
+        if [[ "${names[$i]}" == "$name" ]]; then
+          ips[$i]="$ip"
+          break
+        fi
+      done
+    else
+      seen[$name]=1
+      names+=("$name")
+      ips+=("$ip")
+    fi
+  done
+done
+
+((${#names[@]} > 0)) || { echo "Erro: LOCAL_HOSTS sem entradas válidas." >&2; exit 2; }
+
+{
+  printf '# Gerado por scripts/vpn-hosts-gen a partir de LOCAL_HOSTS. Não edite (git-ignorado).\n'
+  for i in "${!names[@]}"; do
+    printf '%s\t%s\n' "${ips[$i]}" "${names[$i]}"
+  done
+} > "$SNIPPET_FILE"
+
+echo "Hosts locais mapeados (${#names[@]}): ${names[*]}."

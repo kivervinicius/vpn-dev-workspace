@@ -2,8 +2,38 @@
 
 ## Latest Verification
 
-- Date: 2026-08-19
-- Scope: rede interna opt-in (firewall + DNS), paridade de home (UID/GID, ssh-agent, /run/user), GUI do OpenCode pela VPN (`vpn-opencode`), manutenção da VPN e **validação de runtime no host com Docker**.
+- Date: 2026-09-17
+- Scope: hosts locais via LOCAL_HOSTS (generator, import, vpn-check, docs, travas). Estático + fixtures; runtime com túnel real pendente no host.
+
+## Commands (2026-09-17, sem Docker no ambiente)
+
+### Estáticas (passaram)
+
+- `bash -n scripts/*` (todos, incl. `vpn-hosts-gen` e `vpn-hosts-import`), `sh -n scripts/vpn-entrypoint.sh`.
+- `./scripts/verify-docs` (travas anteriores + `LOCAL_HOSTS` no README/`.env.example`/Compose, override git-ignorado, plug do generator no `vpn-switch`, `vpn-hosts-import` no loop de scripts).
+- `git diff --check`.
+- Fixtures `vpn-hosts-gen` (override temporário via `VPN_HOSTS_OVERRIDE_FILE`): vazio → sem arquivo; 2 nomes (+espaço como separador) → YAML com `extra_hosts` nos 2 serviços; duplicado → aviso + último vence; 7 inválidos (sem `=`, hostname com `*`/`..`, octeto >255, lados vazios) → exit 2 com mensagem; IPv6 → ok.
+- Fixture `vpn-hosts-import --domain` (hosts de teste): extrai só o domínio, dobra case-insensitive com dedup, ignora comentários/`localhost`/outros domínios, imprime linha `LOCAL_HOSTS` colável; domínio ausente → exit 1.
+- `vpn-check` com `LOCAL_HOSTS`: match → ok; mismatch → FAIL com esperado×obtido; não-resolve → FAIL (sugere `vpn-switch`); inválido → FAIL; ausente → 0 linhas (opt-in inerte).
+
+### Não rodados (sem Docker)
+
+- `./scripts/verify-compose` (agora também valida o override gerado), `docker build`, ShellCheck local — cobertos pela CI (`.github/workflows/validate.yml`); rodar na CI ou no host com Docker.
+- Runtime: `getent hosts gitlab.omega` no terminal + `vpn-check` + alcance com `FIREWALL_SUBNETS` — pendente no host.
+
+## Commands (sessão anterior 2026-09-17 — robustez dos scripts, sem Docker)
+
+### Estáticas (passaram)
+- `./scripts/verify-docs` (incl. novas travas: genkey, runbook×`OPENCODE_VERSION`, PATH host-first, `SERVER_HOSTNAMES` por perfil, `INTERNAL_TEST_PORT`, `OPENVPN_PROTOCOL`).
+- `git diff --check`.
+- Teste negativo das travas: padrão `v3.40.0` detectado; `SERVER_HOSTNAMES` presente nos 6 perfis de provedor (`custom-*` excluídos por desenho); `OPENCODE_VERSION=1.18.25` no runbook; `INTERNAL_TEST_PORT`/`OPENVPN_PROTOCOL` no README e `.env.example`.
+- Teste unitário do parse de `VPN_SERVER_HOSTNAMES`: `""`→0 (caminho aleatório), `"a, b"`→2 com trim, `", ,"`→0 (sem `PUT` vazio).
+
+### Não rodados (sem Docker)
+
+- `./scripts/verify-compose`, `docker build`, ShellCheck local — cobertos pela CI (`.github/workflows/validate.yml`); rodar na CI ou no host com Docker.
+
+## Runtime anterior (2026-08-19, host com Docker) — mantido
 
 ## Commands
 
@@ -27,8 +57,13 @@
 - `vpn-opencode web` — painel em `http://127.0.0.1:10001` (na faixa publicada): `401` sem senha, `200` com basic auth (`opencode`); o erro `xdg-open` no stderr é cosmético (sem navegador no container; servidor continua).
 - `vpn-opencode serve` — `200` servindo o HTML do app (ponta para o Desktop App).
 
-## Outcome
+## Outcome do runtime 2026-08-19 (mantido)
 
 - Passed: verificações acima.
 - Failed: nenhuma (2 achados ambientais: `*.omega.local` rejeitado pelo Gluetun; faixa 185.153.176.x bloqueada pela rede local).
-- Pending: conexão real do Desktop App à ponta `serve`; ShellCheck pela CI.
+
+## Outcome (2026-09-17)
+
+- Passed: verificações estáticas + fixtures acima.
+- Failed: nenhuma.
+- Pending: `verify-compose`/ShellCheck/build na CI ou host com Docker; runtime `LOCAL_HOSTS` no host (`getent` + `vpn-check` + alcance); conexão real do Desktop App à ponta `serve`.

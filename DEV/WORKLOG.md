@@ -2,6 +2,22 @@
 
 Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for older entries after compaction.
 
+## 2026-09-17 - Hosts locais via LOCAL_HOSTS (/etc/hosts pós-up)
+
+- Changed (rev. 2): `extra_hosts` rejeitado pelo Docker com `network_mode` (erro real do daemon) → mecanismo refeito: `vpn-hosts-gen` valida e gera snippet `.hosts.local.gen`; novo `vpn-hosts-apply` injeta via `docker exec -u 0` pós-up (idempotente); `vpn-switch` gera + aplica; `verify-compose` valida snippet + dry-run; travas e docs atualizadas.
+
+- Changed: novo `scripts/vpn-hosts-gen` (valida `nome=ip`, gera `.compose.local-hosts.yml` git-ignorado com `extra_hosts` em `terminal` + `vpn-auto-reconnect`); `vpn-switch` chama o generator e anexa `-f`; novo `scripts/vpn-hosts-import --domain` (extrai do `/etc/hosts` do host, só sugere a linha); `vpn-check` valida cada mapeamento (ok/mismatch/não-resolve/inválido); `LOCAL_HOSTS` repassado no Compose (2 serviços); `.env.example` + README (seção "Hosts locais"); `verify-docs` com travas (doc, exemplo, repasse, gitignore, plug do generator, `vpn-hosts-import` no loop); `verify-compose` valida o override gerado (fixture); `TESTING.md` com fixtures.
+- Why: nomes que só existem no `/etc/hosts` do host (ex: `gitlab.omega`) não resolviam no terminal, onde todo DNS passa pelo túnel; `extra_hosts` + precedência `files` do glibc resolve sem mexer no Gluetun.
+- Verified: `bash -n`, `./scripts/verify-docs`, `git diff --check`; fixtures do generator (7 inválidos → exit 2, dup → warning+último, IPv6 ok, vazio → sem arquivo); import (case-insensitive, dedup, domínio ausente → exit 1); `vpn-check` (ok/mismatch/não-resolve/inválido/ausente). `verify-compose`/build/ShellCheck pendentes (sem Docker; cobertos pela CI). Runtime com túnel real pendente no host.
+- Next context: validar no host (`getent hosts gitlab.omega` no terminal + `vpn-check` + alcance com `FIREWALL_SUBNETS`).
+
+## 2026-09-17 - Robustez dos scripts + fechamento dos drifts de docs
+
+- Changed: `scripts/vpn-status|check|reconnect|top|server-rotate` com `--connect-timeout 5 --max-time 10` (+ `--retry-all-errors` onde há retry); `need()` para curl/jq/docker/ss/ip/awk; `vpn-check` valida `INTERNAL_TEST_PORT` e limita TCP a 5s via `timeout`; `vpn-top` sem abort de `set -e` (settings com guarda, `// empty`, `printf '%s'`, `if` idiomático); `vpn-server-rotate` com trim/filtro de hostnames + helper via PATH; `vpn-auto-reconnect`/`vpn-switch` com `trap` e `docker ps` sem falso-negativo; `vpn-opencode` com porta ≤65535 + senha ROOT-relativa; `nullglob` nos `verify-*`. `profiles/protonvpn-wireguard.yml` ganhou `SERVER_HOSTNAMES`; `docker-compose.yml` documenta `init: true`. Docs: `.env.example` (genkey v3.41.3, `INTERNAL_TEST_PORT`, `OPENVPN_PROTOCOL`), README (PATH host-first, `INTERNAL_TEST_PORT`, `OPENVPN_PROTOCOL`/`SERVER_HOSTNAMES`), runbook (1.18.25 + PATH), exemplo com opt-ins, `TESTING.md`/`ROADMAP.md`/`BACKLOG.md`, `INDEX.md` saneado, `verify-docs` como trava de drift.
+- Why: nenhum script pendura sem timeout; falhas claras em vez de aborts crípticos; docs voltam a refletir o código e a CI falha sob drift.
+- Verified: `bash -n scripts/*`, `sh -n vpn-entrypoint.sh`, `./scripts/verify-docs` (novas travas), teste negativo das travas, unit do parse de hostnames, `git diff --check`. `verify-compose`/build/ShellCheck pendentes (sem Docker; cobertos pela CI).
+- Next context: conexão real do Desktop App; fase 2 (segurança/hardening, versionamento) em `BACKLOG.md`.
+
 ## 2026-08-29 - Atualização do OpenCode para 1.18.25 e priorização do PATH do host
 
 - Changed: atualizado [`Dockerfile`](file:///projetos/vpn-dev-workspace/Dockerfile) para OpenCode `1.18.25` (com fallback fixado) e adicionado `PATH` no [`docker-compose.yml`](file:///projetos/vpn-dev-workspace/docker-compose.yml) priorizando `${HOST_HOME_DIR}/.opencode/bin` e caminhos locais do host; configurado `HOST_HOME_DIR=/home/desenvolvedor` no [`.env`](file:///projetos/vpn-dev-workspace/.env).
