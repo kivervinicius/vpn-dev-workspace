@@ -2,6 +2,19 @@
 
 Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for older entries after compaction.
 
+## 2026-09-18 - Suporte Windows PowerShell e WSL2
+
+- Changed: criado `compose.windows.yml` (Compose >= 2.24.4, `!override`,
+  `/workspace`, volume persistente `vpn_windows_home`), `scripts/vpn.ps1`,
+  ponte `vpn-ssh-agent-bridge.ps1`/relay Unix, testes Pester em runner Windows,
+  docs e CI; `vpn-switch` agora evita autodetectar a rede virtual do WSL2.
+- Why: oferecer Docker Desktop sem distribuição WSL e preservar um fluxo Bash
+  seguro no WSL2, sem montar a home Windows no container Linux nem copiar chaves.
+- Verified: `bash -n`, `sh -n`, `verify-docs`, `verify-compose` (Linux + Windows
+  override), ShellCheck, parse PowerShell/Pester e `docker build --pull=false`.
+- Next context: validar runtime real em Windows/WSL2 (túnel, DNS, agent,
+  OpenCode, hosts, stop/start e persistência da home).
+
 ## 2026-09-17 - Revisão completa: bugfixes, CLI máquina, bumps e hardening
 
 - Changed (lote D): (A) `vpn-top` condição invertida corrigida; `INTERNAL_DNS_RESOLVERS` vazio respeitado + `DNS_UPSTREAM_RESOLVER_TYPE=plain` auto no `vpn-switch` (Gluetun ignorava PLAIN sem ele); README sem duplicata; stale rev.1 limpo. (B) `--json`/`-q` em status/check/top (+`--only`, `--api-url`, `--no-color`), `vpn-check` exit 0/1, `vpn-opencode stop/status/logs/--detach` + validação de faixa, `--help` exit 0 nos 14 scripts (com matriz no `verify-docs`, que agora acumula erros), rotate com `--to/--random/--list`, off-by-one e `total==1` corrigidos, `VPN_ROTATE_STATE_FILE`, rotação periódica opt-in, `auto-reconnect` com health leve + backoff + flag case-insensitive. (C) Bumps com SHA verificados: Node `22.23.2`, OpenCode `1.18.31`, digest jammy, CI `ubuntu-24.04`+`checkout@v6`+shellcheck estrito+`bash -n`+`build --pull`; hardening Compose (cap_drop, no-new-privileges, logging, limits, stop_grace_period); `HTTPPROXY` opt-in; higiene local (`chmod 600`, ignores).

@@ -1,5 +1,26 @@
 # Verify
 
+## Latest Verification — 2026-09-18
+
+### Passaram
+
+- `bash -n scripts/*`, `sh -n scripts/vpn-entrypoint.sh` e `git diff --check`.
+- `./scripts/verify-docs`.
+- `./scripts/verify-compose`: oito perfis Linux e oito combinações com
+  `compose.windows.yml` válidas; `!override` foi processado pelo Compose 5.0.2.
+- ShellCheck `-S error` em todos os scripts shell (excluindo os `.ps1`).
+- Parse dos scripts PowerShell e da suíte Pester com PowerShell 7 em container;
+  `vpn.ps1 --help`, perfil inválido e importação de hosts foram exercitados.
+- `docker build --pull=false .`: imagem construída com `socat` e os hashes
+  existentes de Node/OpenCode verificados durante o build.
+
+### Ainda pendente
+
+- Runner Windows/Pester e teste real no Docker Desktop Windows: agente
+  `openssh-ssh-agent`, túnel/DNS, `ssh-add -l`, OpenCode e persistência da home.
+- Repetição do fluxo Bash em WSL2 integrado ao Docker Desktop, incluindo
+  confirmação de que a LAN só funciona com `FIREWALL_SUBNETS` explícito.
+
 ## Latest Verification
 
 - Date: 2026-09-17

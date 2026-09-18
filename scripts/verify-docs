@@ -6,6 +6,7 @@ readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly README_FILE="${ROOT_DIR}/README.md"
 readonly SWITCH_FILE="${ROOT_DIR}/scripts/vpn-switch"
 readonly EXAMPLE_FILE="${ROOT_DIR}/examples/uso-basico.md"
+readonly WINDOWS_COMPOSE_FILE="${ROOT_DIR}/compose.windows.yml"
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   echo "Uso: verify-docs [--help]" >&2
@@ -154,6 +155,31 @@ grep -Fq 'VPN_HTTP_PROXY' "$README_FILE" || {
 }
 grep -Fq 'VPN_HTTP_PROXY' "$ROOT_DIR/.env.example" || {
   echo "Erro: VPN_HTTP_PROXY sem exemplo em .env.example." >&2
+  fails=$((fails + 1))
+}
+
+[[ -f "$WINDOWS_COMPOSE_FILE" ]] || {
+  echo "Erro: override Compose Windows ausente." >&2
+  fails=$((fails + 1))
+}
+grep -Fq '!override' "$WINDOWS_COMPOSE_FILE" || {
+  echo "Erro: override Windows não substitui integralmente os volumes com !override." >&2
+  fails=$((fails + 1))
+}
+grep -Fq '2.24.4' "$WINDOWS_COMPOSE_FILE" || {
+  echo "Erro: requisito mínimo do Docker Compose Windows não está documentado." >&2
+  fails=$((fails + 1))
+}
+grep -Fq 'vpn.ps1' "$README_FILE" || {
+  echo "Erro: interface PowerShell não está documentada no README." >&2
+  fails=$((fails + 1))
+}
+grep -Fq 'FIREWALL_SUBNETS' "$ROOT_DIR/scripts/vpn-switch" || {
+  echo "Erro: vpn-switch não preserva a configuração explícita de FIREWALL_SUBNETS." >&2
+  fails=$((fails + 1))
+}
+[[ -f "$ROOT_DIR/scripts/vpn-ssh-agent-bridge.ps1" && -f "$ROOT_DIR/scripts/vpn-ssh-agent-relay" ]] || {
+  echo "Erro: ponte SSH Windows incompleta." >&2
   fails=$((fails + 1))
 }
 

@@ -1,0 +1,32 @@
+# Override usado somente por scripts/vpn.ps1 no Windows.
+# Requer Docker Compose >= 2.24.4 para substituir a lista de volumes com
+# !override, sem herdar mounts Linux (C:\, /run/user e /dev/null).
+services:
+  terminal:
+    environment:
+      HOME: /home/developer
+      PATH: /home/developer/.opencode/bin:/home/developer/.local/bin:/home/developer/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      SSH_AUTH_SOCK: /tmp/vpn-ssh-agent.sock
+      WINDOWS_SSH_BRIDGE_HOST: ${WINDOWS_SSH_BRIDGE_HOST:-host.docker.internal}
+      WINDOWS_SSH_BRIDGE_PORT: ${WINDOWS_SSH_BRIDGE_PORT:?WINDOWS_SSH_BRIDGE_PORT is required}
+      WINDOWS_SSH_BRIDGE_TOKEN: ${WINDOWS_SSH_BRIDGE_TOKEN:?WINDOWS_SSH_BRIDGE_TOKEN is required}
+    volumes: !override
+      - vpn_windows_home:/home/developer
+      # Sintaxe longa preserva a letra da unidade e espaços no caminho Windows.
+      - type: bind
+        source: ${WINDOWS_WORKSPACE_DIR:?WINDOWS_WORKSPACE_DIR is required}
+        target: /workspace
+      - ./scripts/vpn-status:/usr/local/bin/vpn-status:ro
+      - ./scripts/vpn-reconnect:/usr/local/bin/vpn-reconnect:ro
+      - ./scripts/vpn-check:/usr/local/bin/vpn-check:ro
+      - ./scripts/vpn-top:/usr/local/bin/vpn-top:ro
+      - ./scripts/vpn-server-rotate:/usr/local/bin/vpn-server-rotate:ro
+      - ./scripts/vpn-opencode:/usr/local/bin/vpn-opencode:ro
+      - ./scripts/vpn-hosts-import:/usr/local/bin/vpn-hosts-import:ro
+      - ./scripts/vpn-hosts-apply:/usr/local/bin/vpn-hosts-apply:ro
+      - ./scripts/vpn-ssh-agent-relay:/usr/local/bin/vpn-ssh-agent-relay:ro
+    working_dir: /workspace
+    command: ["/usr/local/bin/vpn-ssh-agent-relay"]
+
+volumes:
+  vpn_windows_home:

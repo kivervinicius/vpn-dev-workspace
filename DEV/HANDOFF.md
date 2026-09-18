@@ -4,13 +4,16 @@ This file should stay small. Refresh it after substantive work or run `orquestra
 
 ## Snapshot
 
-- Updated: 2026-09-17
+- Updated: 2026-09-18
 - Read order: `INDEX.md` -> `HANDOFF.md` -> `CONTEXT.md` -> `SPECS/ACTIVE.md`
 - Active spec: `SPECS/ACTIVE.md`
 - Verification source: `VERIFY.md`
 - Worklog archive: `HANDOFFS/WORKLOG_ARCHIVE.md`
 
 ## Latest Work
+
+- Current: suporte Windows PowerShell/WSL2 implementado; runtime real em
+  Windows e repetição WSL2 continuam pendentes. Consulte `VERIFY.md`.
 
 - Entry: revisão completa lote D (bugfixes + CLI máquina + bumps + hardening).
 - Spec: `SPECS/ACTIVE.md` (status: reviewed-and-upgraded; runtime pendente no host/CI).
@@ -20,6 +23,12 @@ This file should stay small. Refresh it after substantive work or run `orquestra
 - Next context: `vpn-switch` no host (valida plain-DNS nos logs do Gluetun + proxy + hosts + rotate); Desktop App real; supply-chain restante no BACKLOG.
 
 ## Recent Entries
+
+- Current implementation: `compose.windows.yml` + `scripts/vpn.ps1` provide the
+  Docker Desktop path without a WSL distribution; the SSH bridge uses the
+  Windows named pipe and a temporary token, while WSL2 explicitly requires
+  `FIREWALL_SUBNETS` for LAN access.
+- 2026-09-18 — suporte Windows PowerShell/WSL2 implementado; runtime Windows pendente.
 
 - 2026-09-17 — revisão lote D (bugfixes, CLI máquina, bumps, hardening, proxy).
 - 2026-09-17 — hosts locais via LOCAL_HOSTS (gen + import + check + travas).

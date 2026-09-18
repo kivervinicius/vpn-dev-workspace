@@ -30,6 +30,53 @@ O usuário do terminal não é root e o Zsh é seu shell de login padrão. A hom
 
 Para um guia passo a passo, consulte [o exemplo de uso básico](examples/uso-basico.md).
 
+### Windows: PowerShell sem distribuição WSL
+
+No Windows, o caminho recomendado é o Docker Desktop com backend WSL2 e o
+script PowerShell. Ele não exige Ubuntu, Debian ou outra distribuição WSL
+instalada: o Docker Desktop fornece o motor Linux e o projeto Windows é
+montado em `/workspace`. A home Linux fica no volume Docker persistente
+`vpn_windows_home`, separada da home Windows.
+
+Abra PowerShell na raiz do projeto e use:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\vpn.ps1 start nordvpn-openvpn
+.\scripts\vpn.ps1 terminal
+.\scripts\vpn.ps1 status
+.\scripts\vpn.ps1 check
+.\scripts\vpn.ps1 top
+.\scripts\vpn.ps1 reconnect
+.\scripts\vpn.ps1 rotate --list
+.\scripts\vpn.ps1 opencode web
+.\scripts\vpn.ps1 hosts-import --domain omega
+.\scripts\vpn.ps1 hosts-apply
+.\scripts\vpn.ps1 stop
+```
+
+O Docker Compose precisa ser 2.24.4 ou superior, porque o override
+`compose.windows.yml` usa `!override` para substituir integralmente os mounts
+Linux. O `start` valida o perfil, arquivos de segredo, portas, healthcheck e
+`LOCAL_HOSTS` como o `vpn-switch`; caminhos Windows com espaços são aceitos.
+
+O agente OpenSSH do Windows deve estar ativo e acessível pelo named pipe
+`openssh-ssh-agent`. O `vpn.ps1` inicia uma ponte temporária com porta dinâmica
+e token por sessão; dentro do terminal, `SSH_AUTH_SOCK` aponta para um socket
+Unix encaminhado pela ponte. Nenhuma chave privada é copiada para o container.
+Se o agente não estiver disponível, o início falha com uma mensagem explícita.
+Use `ssh-add -l` no terminal para confirmar a conexão e
+`.\scripts\vpn.ps1 agent-stop` para encerrar a ponte manualmente.
+
+### Windows com WSL2
+
+O fluxo Bash continua suportado dentro de uma distribuição WSL2 instalada no
+sistema de arquivos Linux. Instale o projeto em `~/projetos` (não em
+`/mnt/c/...`), habilite a integração dessa distribuição no Docker Desktop e
+continue usando `./scripts/vpn-switch <perfil>`. Esse modo mantém a home Linux
+e o agente SSH do WSL2 atuais. O fluxo PowerShell e o fluxo WSL2 são distintos:
+não misture os mounts ou os arquivos de estado entre eles.
+
 ### Como os perfis carregam credenciais
 
 O arquivo `docker-compose.yml` contém apenas a infraestrutura comum. Cada arquivo em `profiles/` acrescenta um provedor e mapeia seus arquivos locais de segredo para o Gluetun. Por isso, o comando abaixo é a única forma suportada de iniciar o ambiente:
@@ -120,7 +167,8 @@ INTERNAL_DNS_RESOLVERS=
 INTERNAL_DNS_EXEMPT_HOSTNAMES=dev.go.omega.local,dev.mt.omega.local
 ```
 
-- Sem `FIREWALL_SUBNETS`, o `vpn-switch` injeta a sub-rede da interface com a rota padrão do host (a LAN local).
+- No Linux nativo, sem `FIREWALL_SUBNETS`, o `vpn-switch` injeta a sub-rede da interface com a rota padrão do host (a LAN local).
+- No PowerShell e no WSL2, a rota padrão pode ser a rede virtual do Docker/WSL; por isso nenhuma sub-rede é inferida. Configure `FIREWALL_SUBNETS` explicitamente nos modos Windows para liberar a LAN do Windows.
 - Quando `INTERNAL_DNS` aponta para um servidor fora da sub-rede da LAN (ex: DNS em outra VLAN), inclua também a sub-rede dele em `FIREWALL_SUBNETS`, senão as consultas são bloqueadas pelo firewall do túnel.
 - Com `INTERNAL_DNS`, o servidor DNS embutido do Gluetun usa esse upstream em texto puro; sem ele, mantém o padrão DoT (Cloudflare).
 - `INTERNAL_DNS_EXEMPT_HOSTNAMES` é obrigatório para nomes internos: sem ele o Gluetun descarta respostas que apontam para IPs privados (proteção contra rebinding). Curingas não são aceitos (`*.omega` é rejeitado) — liste os nomes explícitos, separados por vírgula.

@@ -9,6 +9,12 @@ Este exemplo inicia o ambiente com NordVPN e OpenVPN. Antes de começar, leia a 
 - credenciais de serviço da NordVPN;
 - permissão para executar Docker.
 
+No Windows, use Docker Desktop + PowerShell sem instalar uma distribuição WSL:
+consulte [o fluxo PowerShell no README](../README.md#windows-powershell-sem-distribuição-wsl).
+O fluxo Bash abaixo é para Linux nativo ou para uma distribuição WSL2
+integrada ao Docker Desktop; no WSL2, mantenha o clone dentro do sistema de
+arquivos Linux (`~/projetos`).
+
 ## 1. Preparar arquivos locais
 
 Na raiz do projeto:

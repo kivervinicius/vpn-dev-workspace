@@ -4,6 +4,7 @@ shopt -s nullglob
 
 readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly COMPOSE_FILE="${ROOT_DIR}/docker-compose.yml"
+readonly WINDOWS_COMPOSE_FILE="${ROOT_DIR}/compose.windows.yml"
 readonly PLACEHOLDER=/dev/null
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
@@ -28,12 +29,16 @@ compose_env=(
   "CUSTOM_OPENVPN_USER_FILE=${PLACEHOLDER}"
   "CUSTOM_OPENVPN_PASSWORD_FILE=${PLACEHOLDER}"
   "CUSTOM_WIREGUARD_CONFIG_FILE=${PLACEHOLDER}"
+  "WINDOWS_WORKSPACE_DIR=${ROOT_DIR}"
+  "WINDOWS_SSH_BRIDGE_PORT=43123"
+  "WINDOWS_SSH_BRIDGE_TOKEN=00000000000000000000000000000000"
 )
 
 for profile_file in "${ROOT_DIR}"/profiles/*.yml; do
   profile="$(basename "$profile_file" .yml)"
   echo "Validando perfil ${profile}..."
   "${compose_env[@]}" docker compose --profile vpn -f "$COMPOSE_FILE" -f "$profile_file" config --quiet
+  "${compose_env[@]}" docker compose --profile vpn -f "$COMPOSE_FILE" -f "$WINDOWS_COMPOSE_FILE" -f "$profile_file" config --quiet
 done
 
 # O snippet gerado pelo vpn-hosts-gen deve ter linhas "IP nome" válidas e o

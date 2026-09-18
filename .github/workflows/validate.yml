@@ -16,10 +16,18 @@ jobs:
       - name: Install ShellCheck
         run: sudo apt-get update && sudo apt-get install --yes shellcheck
       - name: Validate shell scripts
-        run: shellcheck -S error scripts/* && bash -n scripts/* && sh -n scripts/vpn-entrypoint.sh && git diff --check
+        run: find scripts -maxdepth 1 -type f ! -name '*.ps1' -print0 | xargs -0 shellcheck -S error && bash -n scripts/* && sh -n scripts/vpn-entrypoint.sh && git diff --check
       - name: Validate documentation
         run: ./scripts/verify-docs
       - name: Validate Compose profiles
         run: ./scripts/verify-compose
       - name: Build terminal image
         run: docker build --pull=true .
+
+  validate-windows-cli:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Test PowerShell interface with simulated Docker
+        shell: pwsh
+        run: Invoke-Pester -Path tests/windows -CI

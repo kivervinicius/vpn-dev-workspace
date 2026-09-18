@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Ponte Unix -> TCP para o agente OpenSSH do Windows.
+# O processo Windows autentica cada conexão com um token de 32 bytes antes de
+# encaminhar o protocolo bruto do ssh-agent para o named pipe oficial.
+set -Eeuo pipefail
+
+readonly SOCKET_PATH="${WINDOWS_SSH_AGENT_SOCKET:-/tmp/vpn-ssh-agent.sock}"
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  echo "Uso: vpn-ssh-agent-relay (interno do override Compose Windows)" >&2
+  echo "Publica um socket Unix e encaminha o protocolo para a ponte TCP do host." >&2
+  exit 0
+fi
+
+if [[ "${1:-}" == "--connection" ]]; then
+  : "${WINDOWS_SSH_BRIDGE_HOST:?WINDOWS_SSH_BRIDGE_HOST ausente}"
+  : "${WINDOWS_SSH_BRIDGE_PORT:?WINDOWS_SSH_BRIDGE_PORT ausente}"
+  : "${WINDOWS_SSH_BRIDGE_TOKEN:?WINDOWS_SSH_BRIDGE_TOKEN ausente}"
+  exec 3<>"/dev/tcp/${WINDOWS_SSH_BRIDGE_HOST}/${WINDOWS_SSH_BRIDGE_PORT}"
+  # O token tem tamanho fixo; não use uma linha para não perder bytes do
+  # primeiro pacote SSH quando o kernel entregar os dois juntos.
+  printf '%s' "$WINDOWS_SSH_BRIDGE_TOKEN" >&3
+  cat <&3 &
+  reader_pid=$!
+  cat >&3
+  kill "$reader_pid" 2>/dev/null || true
+  wait "$reader_pid" 2>/dev/null || true
+  exit 0
+fi
+
+command -v socat >/dev/null 2>&1 || {
+  echo "Erro: socat não está disponível para a ponte SSH do Windows." >&2
+  exit 1
+}
+
+rm -f "$SOCKET_PATH"
+trap 'rm -f "$SOCKET_PATH"' EXIT INT TERM
+socat "UNIX-LISTEN:${SOCKET_PATH},fork,mode=0600" \
+  "EXEC:/usr/local/bin/vpn-ssh-agent-relay --connection,stderr" &
+relay_pid=$!
+trap 'kill "$relay_pid" 2>/dev/null || true; rm -f "$SOCKET_PATH"' EXIT INT TERM
+exec tail -f /dev/null

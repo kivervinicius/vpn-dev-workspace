@@ -8,6 +8,27 @@ Os arquivos em `profiles/` definem exclusivamente o provedor, protocolo e mapeam
 
 O serviço `vpn` define `dns: 127.0.0.1` para que todos os contêineres que compartilham sua rede resolvam DNS pelo servidor embutido do Gluetun, completando o isolamento do tráfego pelo túnel.
 
+## Modos Windows
+
+`compose.windows.yml` é um override exclusivo do `scripts/vpn.ps1`. Ele exige
+Compose >= 2.24.4 e usa `!override` para substituir os mounts Linux do
+`terminal`: `WINDOWS_WORKSPACE_DIR` entra em `/workspace` e a home Linux fica
+no volume persistente `vpn_windows_home`. Os serviços e os arquivos de perfil
+de provedor continuam sendo os mesmos.
+
+O agente OpenSSH do Windows permanece fora do container. `vpn-ssh-agent-bridge.ps1`
+conecta ao named pipe `openssh-ssh-agent`, publica uma porta TCP dinâmica no
+host com token temporário e encaminha somente o protocolo do agente. O
+`vpn-ssh-agent-relay` cria o socket Unix usado por `ssh` dentro do terminal.
+Assim, nenhuma chave privada é montada no container. A interface PowerShell
+também faz a aplicação de `LOCAL_HOSTS` pelo Docker, pois o `vpn-switch` Bash
+não é requisito nesse modo.
+
+No WSL2, o fluxo Bash continua usando a home Linux existente. A rota padrão do
+WSL é virtual e não deve ser tomada como a LAN do Windows: `vpn-switch` não
+faz autodetecção de `FIREWALL_SUBNETS` quando detecta WSL, e o PowerShell nunca
+faz essa autodetecção. O acesso à LAN nos dois modos Windows é sempre explícito.
+
 Os scripts de operação conversam com o HTTP Control Server do Gluetun (`/v1/vpn/status`, `/v1/vpn/settings`, `/v1/publicip/ip`, `/v1/dns/status`) com autenticação por `X-API-Key`, sem acesso ao socket Docker:
 
 - `vpn-status` — status, perfil, servidor/pais configurados e IP público (com localização).
@@ -23,7 +44,7 @@ Os scripts de operação conversam com o HTTP Control Server do Gluetun (`/v1/vp
 
 ## Acesso à rede interna do host (opt-in)
 
-O serviço `vpn` recebe `FIREWALL_OUTBOUND_SUBNETS` (lista de sub-redes permitidas fora do túnel) e, quando `INTERNAL_DNS` está definido, usa esse upstream em texto puro para o servidor DNS embutido (`DNS_UPSTREAM_PLAIN_ADDRESSES`), com `DNS_REBINDING_PROTECTION_EXEMPT_HOSTNAMES` liberando os hostnames internos listados (nomes explícitos; curingas são rejeitados pelo Gluetun). O `vpn-switch` detecta a sub-rede da interface da rota padrão do host e a injeta quando `FIREWALL_SUBNETS` não está configurado.
+O serviço `vpn` recebe `FIREWALL_OUTBOUND_SUBNETS` (lista de sub-redes permitidas fora do túnel) e, quando `INTERNAL_DNS` está definido, usa esse upstream em texto puro para o servidor DNS embutido (`DNS_UPSTREAM_PLAIN_ADDRESSES`), com `DNS_REBINDING_PROTECTION_EXEMPT_HOSTNAMES` liberando os hostnames internos listados (nomes explícitos; curingas são rejeitados pelo Gluetun). O `vpn-switch` detecta a sub-rede da interface da rota padrão apenas no Linux nativo; em WSL2 a rota virtual não é tratada como LAN, então `FIREWALL_SUBNETS` deve ser explícito.
 
 Nomes que só existem no `/etc/hosts` do host (ex: `gitlab.omega`) usam outro caminho: `LOCAL_HOSTS` vira snippet aplicado ao `/etc/hosts` dos containers pós-up, e o glibc resolve via `files` antes do DNS do túnel — sem Gluetun, sem rebinding (`extra_hosts` é rejeitado pelo Docker com `network_mode`, daí a injeção pós-up; `recreate` perde as entradas, por isso o `vpn-switch` sempre reaplica). O `vpn-check` valida cada `nome=ip`; o alcance continua exigindo `FIREWALL_SUBNETS`.
 

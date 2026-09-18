@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     default-jdk \
     git \
     openssh-client \
+    socat \
     build-essential \
     jq \
     xz-utils \

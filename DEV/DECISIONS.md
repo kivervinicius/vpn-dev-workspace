@@ -10,6 +10,23 @@ O terminal monta integralmente a home do usuário e o workspace nos mesmos camin
 
 O OpenCode da imagem é fixado com checksum na mesma versão do host no momento da alteração. O Zsh interativo também enxerga a instalação compartilhada na home do host; ao atualizar o OpenCode do host, a versão e os checksums da imagem devem ser atualizados juntos.
 
+## Suporte Windows sem distribuição WSL
+
+O PowerShell usa o motor Linux do Docker Desktop sem exigir uma distribuição
+WSL instalada. A home Windows não é usada como home Linux: o override coloca a
+home em `vpn_windows_home` e monta somente o projeto em `/workspace`. Isso
+evita misturar executáveis Windows com ferramentas Linux e mantém a home entre
+recriações dos serviços.
+
+O agente Windows é exposto apenas por uma ponte local temporária, autenticada
+por token e acessível pelo `host.docker.internal`. O terminal recebe um socket
+Unix intermediário; chaves privadas continuam no agente Windows. A ponte
+falha cedo quando o named pipe `openssh-ssh-agent` não está disponível.
+
+No WSL2, a autodetecção de LAN foi desativada porque a rota padrão aponta para
+a sub-rede virtual do WSL. `FIREWALL_SUBNETS` explícito é o contrato para
+liberar a LAN em ambos os modos Windows.
+
 ## Bug do IP pós-reconexão e polling
 
 O endpoint `/v1/publicip/ip` do Gluetun só publica o IP público segundos depois de o túnel subir; consultá-lo imediatamente após `stopped→running` retorna vazio e derrubava o `vpn-reconnect` (erro silencioso, sem IP). A correção faz o `vpn-reconnect` esperar o IP com polling (12 tentativas × 3s) antes de encerrar; a falha em obter IP resulta em exit não-zero para o `vpn-auto-reconnect` retentar.

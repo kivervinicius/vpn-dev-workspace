@@ -9,6 +9,10 @@
 - Whitespace: `git diff --check`
 - Build (exige Docker): `docker build --pull=true .`
 - Convenção: todo script responde `--help` com exit 0 (matriz no `verify-docs`)
+- Windows: `Invoke-Pester -Path tests/windows` no runner Windows; os testes
+  simulam Docker e cobrem argumentos, perfis, caminhos com espaços, segredos e
+  hosts locais. O teste real de túnel/agent depende de Docker Desktop e de um
+  agente OpenSSH autorizado.
 
 ## Strategy
 
@@ -32,3 +36,7 @@
   exige a sub-rede em `FIREWALL_SUBNETS`.
 - Vazamento de DNS: `vpn-check` cobre resolv.conf → `127.0.0.1`, resolução via
   túnel e checagem básica de leak; rodar sempre após mudar DNS/firewall.
+- Windows runtime: `vpn.ps1 start <perfil>` sem distribuição WSL, `vpn-check`,
+  `getent hosts`/`ssh-add -l` no terminal, OpenCode, stop/start e persistência
+  de `/home/developer`; repetir o fluxo Bash dentro de WSL2 com
+  `FIREWALL_SUBNETS` explícito.

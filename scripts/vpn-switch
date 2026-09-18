@@ -136,11 +136,17 @@ if [[ "${http_proxy,,}" == "on" ]]; then
   echo "Proxy HTTP pela VPN em http://127.0.0.1:${http_port} (dentro da faixa publicada)."
 fi
 
-# Acesso à rede interna do host (opt-in): quando FIREWALL_SUBNETS não está
-# definido no ambiente nem no .env, injeta a sub-rede da interface que possui a
-# rota padrão do host (a LAN local). Extras/config explícitos continuam válidos.
+# Acesso à rede interna do host (opt-in): em Linux nativo, quando
+# FIREWALL_SUBNETS não está definido no ambiente nem no .env, injeta a sub-rede
+# da interface que possui a rota padrão do host (a LAN local). Em WSL2 a rota
+# padrão aponta para a rede virtual do WSL, não para a LAN do Windows; por isso
+# a LAN só é liberada quando FIREWALL_SUBNETS é explícito.
 firewall_subnets="$(read_compose_value FIREWALL_SUBNETS "")"
-if [[ -z "$firewall_subnets" ]]; then
+is_wsl=false
+if [[ -n "${WSL_INTEROP:-}" ]] || grep -qi microsoft /proc/version 2>/dev/null; then
+  is_wsl=true
+fi
+if [[ -z "$firewall_subnets" && "$is_wsl" == false ]]; then
   need ip
   lan_interface="$(ip route show default 2>/dev/null | awk '/^default/ {print $5; exit}')"
   if [[ -n "$lan_interface" ]]; then
@@ -152,6 +158,8 @@ if [[ -z "$firewall_subnets" ]]; then
   else
     echo "Aviso: não foi possível detectar a sub-rede da LAN; rede interna bloqueada." >&2
   fi
+elif [[ -z "$firewall_subnets" && "$is_wsl" == true ]]; then
+  echo "Aviso: WSL2 detectado; defina FIREWALL_SUBNETS explicitamente para liberar a LAN do Windows." >&2
 fi
 
 # DNS interno: o Gluetun só obedece a DNS_UPSTREAM_PLAIN_ADDRESSES com

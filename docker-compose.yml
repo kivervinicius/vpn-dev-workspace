@@ -23,7 +23,7 @@ services:
         limits:
           cpus: "2.0"
           memory: 1G
-    pids_limit: 256
+          pids: 256
     stop_grace_period: 30s
     dns:
       # Resolução dentro do túnel pelo servidor DNS embutido do Gluetun.
@@ -39,7 +39,8 @@ services:
       # Gluetun obedecer ao upstream plain (sem isso ele ignora e usa DoT).
       # Veja .env.example.
       DNS_UPSTREAM_RESOLVER_TYPE: ${DNS_UPSTREAM_RESOLVER_TYPE:-dot}
-      DNS_UPSTREAM_RESOLVERS: ${INTERNAL_DNS_RESOLVERS:-cloudflare}
+      # O hífen simples preserva uma string vazia explícita no modo plain.
+      DNS_UPSTREAM_RESOLVERS: ${INTERNAL_DNS_RESOLVERS-cloudflare}
       DNS_UPSTREAM_PLAIN_ADDRESSES: ${INTERNAL_DNS:-}
       DNS_REBINDING_PROTECTION_EXEMPT_HOSTNAMES: ${INTERNAL_DNS_EXEMPT_HOSTNAMES:-}
       # Proxy HTTP pela VPN (opt-in): porta dentro de VPN_PORT_RANGE, sem
@@ -92,7 +93,7 @@ services:
         limits:
           cpus: "4.0"
           memory: 8G
-    pids_limit: 1024
+          pids: 1024
     environment:
       ALSA_CONFIG_PATH: /dev/null
       GLUETUN_API_KEY_FILE: /run/secrets/gluetun_api_key
@@ -151,7 +152,7 @@ services:
         limits:
           cpus: "0.5"
           memory: 256M
-    pids_limit: 64
+          pids: 64
     environment:
       GLUETUN_API_KEY_FILE: /run/secrets/gluetun_api_key
       VPN_RECONNECT_INTERVAL_SECONDS: ${VPN_RECONNECT_INTERVAL_SECONDS:-3600}

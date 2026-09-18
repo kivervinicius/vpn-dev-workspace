@@ -19,6 +19,9 @@
 - Hosts locais: `LOCAL_HOSTS` (`nome=ip`) vira snippet injetado no `/etc/hosts` do terminal pós-up via `vpn-switch` (sem Gluetun/DNS envolvido); `vpn-hosts-import --domain` sugere a linha a partir do `/etc/hosts` do host; `vpn-check` valida cada mapeamento.
 - CLI scriptável: `--json`/`-q` em status/check/top, `check --only`, exit 0/1, `--help` em todos, `opencode stop/status/logs`, rotate com `--to/--list` + periódica opt-in.
 - DNS interno correto: modo plain automático; proxy HTTP opt-in; hardening base do Compose.
+- Windows: interface PowerShell sem distribuição WSL, override Compose com
+  workspace em `/workspace`, home Linux persistente e ponte temporária para o
+  agente OpenSSH do Windows; WSL2 mantém o fluxo Bash sem autodetectar a LAN.
 
 ## Out Of Scope
 
@@ -39,6 +42,9 @@
 - Com `LOCAL_HOSTS=gitlab.omega=<ip>`, `getent hosts gitlab.omega` no terminal retorna o IP e o `vpn-check` marca ok (alcance real exige a sub-rede em `FIREWALL_SUBNETS`). Validado via fixtures; runtime com túnel real pendente no host.
 - `vpn-top` renderiza a seção Gluetun com chave válida e avisa graciosamente sem ela; `vpn-check --json` emite `{healthy, fails, checks[]}` e sai 0/1; `vpn-server-rotate --list` funciona sem API.
 - Com `INTERNAL_DNS`, o Compose recebe `DNS_UPSTREAM_RESOLVER_TYPE=plain` (Gluetun obedece ao upstream plain); `verify-docs` trava o modo.
+- `scripts/vpn.ps1` valida Compose >= 2.24.4, perfil, portas, segredos e
+  healthcheck; os testes PowerShell simulam Docker e rejeitam perfis inválidos,
+  caminhos/hosts inválidos e segredos ausentes.
 - Toolchain: Node `22.23.2`, OpenCode `1.18.31`, digest jammy atual, CI `ubuntu-24.04` (SHAs/digest verificados na origem; build real pendente na CI).
 
 ## Constraints
@@ -55,6 +61,6 @@
 
 ## Status
 
-- State: reviewed-and-upgraded (runtime + build pendentes na CI/host)
+- State: Windows-support-implemented (runtime Windows/WSL2 pendente; build local passou)
 - Owner: Codex
 - Last updated: 2026-09-17
