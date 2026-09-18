@@ -17,6 +17,8 @@
 - Robustez dos scripts: timeouts em todo I/O de rede (`--connect-timeout/--max-time`, `timeout 5` no TCP), checagem explícita de dependências (`need()`), sem aborts crípticos de `set -e`, `trap` em loops/sleeps longos, validações de porta/intervalo.
 - Docs como contrato: `TESTING.md` preenchido, `BACKLOG.md` com pendências triadas, `verify-docs` trava drifts (versões, `SERVER_HOSTNAMES`, `PATH` host-first, `INTERNAL_TEST_PORT`, `LOCAL_HOSTS`).
 - Hosts locais: `LOCAL_HOSTS` (`nome=ip`) vira snippet injetado no `/etc/hosts` do terminal pós-up via `vpn-switch` (sem Gluetun/DNS envolvido); `vpn-hosts-import --domain` sugere a linha a partir do `/etc/hosts` do host; `vpn-check` valida cada mapeamento.
+- CLI scriptável: `--json`/`-q` em status/check/top, `check --only`, exit 0/1, `--help` em todos, `opencode stop/status/logs`, rotate com `--to/--list` + periódica opt-in.
+- DNS interno correto: modo plain automático; proxy HTTP opt-in; hardening base do Compose.
 
 ## Out Of Scope
 
@@ -35,6 +37,9 @@
 - Scripts falham rápido e claro: `curl` nunca pendura (>10s), `vpn-check` valida `INTERNAL_TEST_PORT` e limita o TCP a 5s, `vpn-top` sobrevive a falha transitória de settings, `vpn-server-rotate` ignora hostnames vazios/espaçados, helpers resolvem via PATH com fallback.
 - Docs acompanham o código: sem menção a `v3.40.0`/`1.18.16`, `INTERNAL_TEST_PORT` e `OPENVPN_PROTOCOL` documentados, `protonvpn-wireguard` com `SERVER_HOSTNAMES` como os demais.
 - Com `LOCAL_HOSTS=gitlab.omega=<ip>`, `getent hosts gitlab.omega` no terminal retorna o IP e o `vpn-check` marca ok (alcance real exige a sub-rede em `FIREWALL_SUBNETS`). Validado via fixtures; runtime com túnel real pendente no host.
+- `vpn-top` renderiza a seção Gluetun com chave válida e avisa graciosamente sem ela; `vpn-check --json` emite `{healthy, fails, checks[]}` e sai 0/1; `vpn-server-rotate --list` funciona sem API.
+- Com `INTERNAL_DNS`, o Compose recebe `DNS_UPSTREAM_RESOLVER_TYPE=plain` (Gluetun obedece ao upstream plain); `verify-docs` trava o modo.
+- Toolchain: Node `22.23.2`, OpenCode `1.18.31`, digest jammy atual, CI `ubuntu-24.04` (SHAs/digest verificados na origem; build real pendente na CI).
 
 ## Constraints
 
@@ -50,6 +55,6 @@
 
 ## Status
 
-- State: implemented-with-local-hosts-mapping (runtime-validated 2026-08-19 para o núcleo; runtime LOCAL_HOSTS + Desktop App pendentes)
+- State: reviewed-and-upgraded (runtime + build pendentes na CI/host)
 - Owner: Codex
 - Last updated: 2026-09-17

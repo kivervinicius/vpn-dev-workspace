@@ -3,6 +3,10 @@
 .env.*
 !.env.example
 .secrets
+secrets/
+secrets.zip
+.hosts.local.gen
+*.deb
 .opencode
 .config
 .local

@@ -18,6 +18,10 @@ need() {
 dry_run=false
 if [[ "${1:-}" == "--dry-run" ]]; then
   dry_run=true
+elif [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  echo "Uso: vpn-hosts-apply [--dry-run] [--help]" >&2
+  echo "Injeta o snippet no /etc/hosts de terminal e vpn-auto-reconnect (idempotente)." >&2
+  exit 0
 elif [[ -n "${1:-}" ]]; then
   echo "Uso: vpn-hosts-apply [--dry-run]" >&2
   exit 2

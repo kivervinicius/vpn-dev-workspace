@@ -1,9 +1,35 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-readonly API_URL="http://127.0.0.1:8000"
+readonly API_URL="${GLUETUN_API_URL:-http://127.0.0.1:8000}"
 readonly API_KEY_FILE="${GLUETUN_API_KEY_FILE:-/run/secrets/gluetun_api_key}"
 readonly CURL_TIMEOUT_ARGS=(--connect-timeout 5 --max-time 10)
+readonly DNS_TEST_HOSTS="${VPN_DNS_TEST_HOSTS:-github.com,cloudflare.com}"
+
+usage() {
+  echo "Uso: vpn-check [--json] [-q|--quiet] [--only tunnel|dns|internal|hosts] [--api-url <url>]" >&2
+  echo "  --json     saída máquina ({healthy, fails, checks[]})" >&2
+  echo "  -q,--quiet sem linhas por check (só exit code)" >&2
+  echo "  --only     roda só um grupo (para health leve: --only tunnel)" >&2
+  exit 0
+}
+
+output_json=false
+quiet=false
+only="all"
+api_url="$API_URL"
+while (($# > 0)); do
+  case "$1" in
+    --json) output_json=true; shift ;;
+    -q|--quiet) quiet=true; shift ;;
+    --only) only="${2:-}"; [[ "$only" =~ ^(tunnel|dns|internal|hosts)$ ]] || { echo "Erro: --only exige tunnel|dns|internal|hosts." >&2; exit 2; }; shift 2 ;;
+    --api-url) api_url="${2:-}"; [[ -n "$api_url" ]] || { echo "Erro: --api-url exige um valor." >&2; exit 2; }; shift 2 ;;
+    -h|--help) usage ;;
+    *) echo "Erro: argumento desconhecido: $1" >&2; exit 2 ;;
+  esac
+done
+
+run_group() { [[ "$only" == "all" || "$only" == "$1" ]]; }
 
 need() {
   command -v "$1" >/dev/null 2>&1 || { echo "Erro: dependência ausente: $1" >&2; exit 2; }
@@ -16,14 +42,20 @@ need jq
 api_key="$(tr -d '\r\n' < "$API_KEY_FILE")"
 
 fails=0
+check_json_lines=()
 
 report() {
-  local desc="$1" result="$2"
-  if [[ "$result" == "ok" ]]; then
-    printf 'ok   - %s\n' "$desc"
-  else
-    printf 'FAIL - %s: %s\n' "$desc" "$result"
+  local desc="$1" result="$2" ok=true detail=""
+  if [[ "$result" != "ok" ]]; then
+    ok=false
+    detail="$result"
     fails=$((fails + 1))
+  fi
+  if ! $quiet && ! $output_json; then
+    if $ok; then printf 'ok   - %s\n' "$desc"; else printf 'FAIL - %s: %s\n' "$desc" "$result"; fi
+  fi
+  if $output_json; then
+    check_json_lines+=("$(jq -nc --arg name "$desc" --argjson ok "$ok" --arg detail "$detail" '{name: $name, ok: $ok, detail: $detail}')")
   fi
 }
 
@@ -33,22 +65,25 @@ api_get() {
     -H "X-API-Key: ${api_key}" "$@"
 }
 
-vpn_status="$(api_get "${API_URL}/v1/vpn/status" 2>/dev/null || true)"
+if run_group tunnel; then
+vpn_status="$(api_get "${api_url}/v1/vpn/status" 2>/dev/null || true)"
 if [[ "$(printf '%s' "$vpn_status" | jq -r '.status // empty')" == "running" ]]; then
   report "túnel VPN ativo" ok
 else
   report "túnel VPN ativo" "status=$(printf '%s' "$vpn_status" | jq -r '.status // "inacessível"')"
 fi
 
-ip_data="$(api_get "${API_URL}/v1/publicip/ip" 2>/dev/null || true)"
+ip_data="$(api_get "${api_url}/v1/publicip/ip" 2>/dev/null || true)"
 ip="$(printf '%s' "$ip_data" | jq -r '.public_ip // empty')"
 if [[ -n "$ip" ]]; then
   report "IP público obtido (${ip})" ok
 else
   report "IP público obtido" "vazio ou inacessível"
 fi
+fi
 
-dns_status="$(api_get "${API_URL}/v1/dns/status" 2>/dev/null || true)"
+if run_group dns; then
+dns_status="$(api_get "${api_url}/v1/dns/status" 2>/dev/null || true)"
 dns_status_value="$(printf '%s' "$dns_status" | jq -r '.status // empty')"
 case "$dns_status_value" in
   running|ready|starting)
@@ -63,26 +98,39 @@ case "$dns_status_value" in
 esac
 
 if command -v getent >/dev/null 2>&1; then
-  if getent hosts github.com >/dev/null 2>&1; then
-    report "resolução DNS funcional" ok
+  resolved_name=""
+  rest_hosts="$DNS_TEST_HOSTS"
+  while [[ -n "$rest_hosts" && -z "$resolved_name" ]]; do
+    dns_host="${rest_hosts%%,*}"
+    if [[ "$rest_hosts" == *,* ]]; then rest_hosts="${rest_hosts#*,}"; else rest_hosts=""; fi
+    [[ -n "$dns_host" ]] || continue
+    if command -v timeout >/dev/null 2>&1; then
+      timeout 5 getent hosts "$dns_host" >/dev/null 2>&1 && resolved_name="$dns_host"
+    else
+      getent hosts "$dns_host" >/dev/null 2>&1 && resolved_name="$dns_host"
+    fi
+  done
+  if [[ -n "$resolved_name" ]]; then
+    report "resolução DNS funcional (${resolved_name})" ok
   else
-    report "resolução DNS funcional" "não resolveu github.com"
+    report "resolução DNS funcional" "não resolveu ${DNS_TEST_HOSTS} (timeout 5s)"
   fi
 else
   report "resolução DNS funcional" "getent indisponível (verificação ignorada)"
 fi
 
-if grep -Eq '^nameserver[[:space:]]+127\.0\.0\.1([[:space:]]|$)' /etc/resolv.conf 2>/dev/null; then
+if grep -Eq '^nameserver[[:space:]]+(127\.0\.0\.1|::1)([[:space:]]|$)' /etc/resolv.conf 2>/dev/null; then
   report "resolv.conf aponta para o DNS do túnel" ok
 else
   report "resolv.conf aponta para o DNS do túnel" "resolver externo detectado (possível vazamento de DNS)"
+fi
 fi
 
 # Acesso à rede interna do host (opt-in): apenas quando INTERNAL_TEST_HOST está
 # definido (ex: um host .omega). Exige INTERNAL_DNS/INTERNAL_DNS_EXEMPT_HOSTNAMES
 # configurados, ou o próprio nome informado como IP.
 internal_test_host="${INTERNAL_TEST_HOST:-}"
-if [[ -n "$internal_test_host" ]]; then
+if [[ -n "$internal_test_host" ]] && run_group internal; then
   resolved=""
   if [[ "$internal_test_host" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     resolved="$internal_test_host"
@@ -112,10 +160,11 @@ if [[ -n "$internal_test_host" ]]; then
 fi
 
 # Hosts locais mapeados via LOCAL_HOSTS (opt-in): cada nome deve resolver para
-# o IP declarado (extra_hosts do Compose; o glibc consulta `files` antes do DNS
-# do túnel). Alcance real continua dependendo de FIREWALL_SUBNETS.
+# o IP declarado (snippet aplicado ao /etc/hosts pós-up; o glibc consulta
+# `files` antes do DNS do túnel). Alcance real continua dependendo de
+# FIREWALL_SUBNETS.
 local_hosts="${LOCAL_HOSTS:-}"
-if [[ -n "$local_hosts" ]]; then
+if [[ -n "$local_hosts" ]] && run_group hosts; then
   trim_lh() {
     local s="$1"
     s="${s#"${s%%[![:space:]]*}"}"
@@ -142,13 +191,19 @@ if [[ -n "$local_hosts" ]]; then
         got="$(getent hosts "$lh_name" | awk '{print $1}' | tr '\n' ' ')"
         report "host local (${lh_name} → ${lh_ip})" "resolveu para ${got}(esperado ${lh_ip}; confira LOCAL_HOSTS)"
       else
-        report "host local (${lh_name} → ${lh_ip})" "não resolveu (extra_hosts aplicado? rode vpn-switch)"
+        report "host local (${lh_name} → ${lh_ip})" "não resolveu (snippet aplicado? rode vpn-switch)"
       fi
     done
   done
 fi
 
-if ((fails > 0)); then
-  echo "${fails} verificação(ões) falharam." >&2
+if $output_json; then
+  healthy=true
+  ((fails > 0)) && healthy=false
+  printf '%s\n' "${check_json_lines[@]}" | jq -cs --argjson fails "$fails" --argjson healthy "$healthy" '{healthy: $healthy, fails: $fails, checks: .}'
+else
+  if ((fails > 0)); then
+    echo "${fails} verificação(ões) falharam." >&2
+  fi
 fi
-exit "$fails"
+((fails == 0))

@@ -2,11 +2,27 @@
 set -Eeuo pipefail
 
 readonly STATE_FILE=/tmp/vpn-auto-reconnect.state
+readonly COUNT_FILE=/tmp/vpn-auto-reconnect.count
+readonly ROTATE_LAST_FILE=/tmp/vpn-rotate.last
 readonly RECONNECT_INTERVAL_SECONDS="${VPN_RECONNECT_INTERVAL_SECONDS:-3600}"
 readonly RETRY_SECONDS="${VPN_RECONNECT_RETRY_SECONDS:-30}"
-readonly ROTATE_ENABLED="${VPN_ROTATE_SERVERS:-false}"
+readonly ROTATE_ENABLED_RAW="${VPN_ROTATE_SERVERS:-false}"
 readonly ATTEMPTS_BEFORE_ROTATE="${VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE:-3}"
+readonly ROTATE_INTERVAL_SECONDS="${VPN_ROTATE_INTERVAL_SECONDS:-0}"
 consecutive_failures=0
+
+# Aceita true/1/yes (qualquer caixa); resto = desligado.
+case "${ROTATE_ENABLED_RAW,,}" in
+  true|1|yes) ROTATE_ON_FAILURE=true ;;
+  *) ROTATE_ON_FAILURE=false ;;
+esac
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  echo "Uso: vpn-auto-reconnect [--help]" >&2
+  echo "Daemon: valida saúde a cada VPN_RECONNECT_INTERVAL_SECONDS e recupera." >&2
+  echo "Opt-in rotação: VPN_ROTATE_SERVERS=true (após VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE falhas)." >&2
+  exit 0
+fi
 
 trap 'echo "vpn-auto-reconnect: encerrando (sinal recebido)."; exit 0' TERM INT
 
@@ -20,6 +36,10 @@ validate_interval() {
 
 set_state() {
   printf '%s\n' "$1" > "$STATE_FILE"
+}
+
+write_count() {
+  printf '%s %s\n' "$(date +%s)" "$consecutive_failures" > "$COUNT_FILE"
 }
 
 resolve_helper() {
@@ -40,6 +60,20 @@ is_healthy() {
   "$VPN_CHECK_BIN" >/dev/null 2>&1
 }
 
+# Saúde leve para o loop (só túnel+IP): evita reconnect por blip de DNS/hosts.
+is_critical_healthy() {
+  "$VPN_CHECK_BIN" --only tunnel -q >/dev/null 2>&1
+}
+
+backoff_sleep() {
+  local factor="$consecutive_failures"
+  ((factor > 4)) && factor=4
+  ((factor < 1)) && factor=1
+  local wait_s=$((RETRY_SECONDS * factor))
+  echo "Nova tentativa em ${wait_s}s (backoff ×${factor})." >&2
+  sleep "$wait_s"
+}
+
 recover_until_healthy() {
   while true; do
     set_state recovering
@@ -53,32 +87,58 @@ recover_until_healthy() {
     fi
 
     consecutive_failures=$((consecutive_failures + 1))
+    write_count
     set_state degraded
     echo "VPN sem IP público; tentativa ${consecutive_failures} falhou." >&2
 
-    if [[ "$ROTATE_ENABLED" == "true" ]] && ((consecutive_failures >= ATTEMPTS_BEFORE_ROTATE)); then
+    if $ROTATE_ON_FAILURE && ((consecutive_failures >= ATTEMPTS_BEFORE_ROTATE)); then
       echo "Trocando de servidor após ${consecutive_failures} falhas consecutivas..." >&2
       if "$(resolve_helper vpn-server-rotate)"; then
         set_state healthy
         consecutive_failures=0
+        write_count
+        date +%s > "$ROTATE_LAST_FILE"
         echo "VPN saudável após a troca de servidor: IP público confirmado."
         return 0
       fi
       echo "Falha ao trocar de servidor; mantendo o atual." >&2
     fi
 
-    echo "Nova tentativa em ${RETRY_SECONDS}s." >&2
-    sleep "$RETRY_SECONDS"
+    backoff_sleep
   done
+}
+
+# Rotação periódica opt-in (privacidade), independente de falhas.
+maybe_periodic_rotate() {
+  ((ROTATE_INTERVAL_SECONDS > 0)) || return 0
+  local last=0 now
+  now="$(date +%s)"
+  if [[ -f "$ROTATE_LAST_FILE" ]] && [[ "$(<"$ROTATE_LAST_FILE")" =~ ^[0-9]+$ ]]; then
+    last="$(<"$ROTATE_LAST_FILE")"
+  fi
+  if ((now - last >= ROTATE_INTERVAL_SECONDS)); then
+    echo "Rotação periódica (a cada ${ROTATE_INTERVAL_SECONDS}s)..." >&2
+    if "$(resolve_helper vpn-server-rotate)" >/dev/null 2>&1; then
+      date +%s > "$ROTATE_LAST_FILE"
+      echo "Rotação periódica concluída."
+    else
+      echo "Aviso: rotação periódica falhou; tentando no próximo ciclo." >&2
+    fi
+  fi
 }
 
 validate_interval VPN_RECONNECT_INTERVAL_SECONDS "$RECONNECT_INTERVAL_SECONDS"
 validate_interval VPN_RECONNECT_RETRY_SECONDS "$RETRY_SECONDS"
 validate_interval VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE "$ATTEMPTS_BEFORE_ROTATE"
+if ((ROTATE_INTERVAL_SECONDS > 0)); then
+  validate_interval VPN_ROTATE_INTERVAL_SECONDS "$ROTATE_INTERVAL_SECONDS"
+fi
 
 set_state starting
 if is_healthy; then
   set_state healthy
+  consecutive_failures=0
+  write_count
   echo "VPN saudável; manutenção automática a cada ${RECONNECT_INTERVAL_SECONDS}s."
 else
   recover_until_healthy
@@ -86,7 +146,13 @@ fi
 
 while true; do
   sleep "$RECONNECT_INTERVAL_SECONDS"
-  if ! is_healthy; then
+  if ! is_critical_healthy; then
     recover_until_healthy
+  else
+    # Túnel ok: checagem completa só informa (sem reconnect por blip de DNS).
+    if ! is_healthy; then
+      echo "Aviso: checagem completa falhou com túnel ativo (provável blip de DNS/hosts); sem reconectar." >&2
+    fi
+    maybe_periodic_rotate
   fi
 done

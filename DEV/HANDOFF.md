@@ -12,15 +12,16 @@ This file should stay small. Refresh it after substantive work or run `orquestra
 
 ## Latest Work
 
-- Entry: hosts locais via LOCAL_HOSTS (extra_hosts no túnel).
-- Spec: `SPECS/ACTIVE.md` (status: +local-hosts-mapping; runtime com túnel real pendente no host).
-- Changed: `vpn-hosts-gen` valida + gera snippet `.hosts.local.gen`; novo `vpn-hosts-apply` injeta no `/etc/hosts` via `docker exec -u 0` pós-up (rev. 2: `extra_hosts` rejeitado pelo daemon com `network_mode`); `vpn-switch` gera + aplica; `vpn-hosts-import --domain`; `vpn-check` valida cada `nome=ip`; `LOCAL_HOSTS` no Compose; `.env.example` + README; travas `verify-docs`; `verify-compose` valida snippet + dry-run.
-- Verified: `bash -n`, `./scripts/verify-docs`, `git diff --check` + fixtures (gen/import/check); sem Docker local — `verify-compose`/build/ShellCheck na CI.
-- Risks: IP da LAN muda → mapeamento stale (re-sync via import); nome resolve mas alcance exige `FIREWALL_SUBNETS`.
-- Next context: no host — `LOCAL_HOSTS=gitlab.omega=<ip>` no `.env`, `vpn-switch`, `getent hosts gitlab.omega` no terminal + `vpn-check`; Desktop App real; `verify-compose` + ShellCheck na CI.
+- Entry: revisão completa lote D (bugfixes + CLI máquina + bumps + hardening).
+- Spec: `SPECS/ACTIVE.md` (status: reviewed-and-upgraded; runtime pendente no host/CI).
+- Changed: (A) `vpn-top` invertido, `INTERNAL_DNS_RESOLVERS` vazio + modo plain auto, README/stale limpos. (B) `--json`/`-q` em status/check/top, `check` exit 0/1, `opencode stop/status/logs/--detach` + faixa, `--help` ×14, rotate (`--to/--list`, off-by-one, periódica), health leve no auto-reconnect. (C) Node `22.23.2` + OpenCode `1.18.31` + digest jammy (SHAs verificados), CI `24.04`/`checkout@v6`/strict, hardening Compose, `HTTPPROXY` opt-in, higiene local `600` + ignores.
+- Verified: estático + fixtures (ver VERIFY.md); sem Docker — runtime e build na CI/host.
+- Risks: hardening/limits e bumps exigem `vpn-switch` + build reais; `read_only` adiado; `secrets/` dup + `secrets.zip` a decidir.
+- Next context: `vpn-switch` no host (valida plain-DNS nos logs do Gluetun + proxy + hosts + rotate); Desktop App real; supply-chain restante no BACKLOG.
 
 ## Recent Entries
 
+- 2026-09-17 — revisão lote D (bugfixes, CLI máquina, bumps, hardening, proxy).
 - 2026-09-17 — hosts locais via LOCAL_HOSTS (gen + import + check + travas).
 - 2026-09-17 — robustez dos scripts + fechamento dos drifts 29/08 (docs, TESTING, BACKLOG, trava de drift no verify-docs).
 - 2026-08-29 — OpenCode 1.18.25 + PATH host-first; SERVER_HOSTNAMES nos perfis de provedor.

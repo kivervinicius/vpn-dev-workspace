@@ -3,7 +3,25 @@
 ## Latest Verification
 
 - Date: 2026-09-17
-- Scope: hosts locais via LOCAL_HOSTS (generator, import, vpn-check, docs, travas). Estático + fixtures; runtime com túnel real pendente no host.
+- Scope: revisão completa lote D (bugfixes A, CLI B, infra C). Estático + fixtures; runtime pendente no host/CI.
+
+## Commands (2026-09-17, sem Docker no ambiente)
+
+### Estáticas (passaram)
+
+- `bash -n scripts/*` (todos), `sh -n scripts/vpn-entrypoint.sh`.
+- `./scripts/verify-docs` (travas anteriores + plain-DNS, `VPN_HTTP_PROXY`, matriz `--help` ×14, acúmulo de erros).
+- `git diff --check`.
+- `--help` com exit 0 nos 14 scripts (matriz com timeout; achou e corrigiu `auto-reconnect` que pendurava e `hosts-import` com exit 2).
+- `vpn-status --json/-q/--api-url` (parse + erros); `vpn-check --json/--only/ -q` (JSON válido, exit 0/1, grupos isolados); `vpn-top --json/--no-color`; `vpn-opencode` (porta fora da faixa rejeitada com dica); `vpn-server-rotate --list/--to` (sem API, erros); `vpn-hosts-import --domain` sem valor (exit 2 com mensagem).
+- `vpn-top` corrigido: sem chave → aviso gracioso exit 0 (antes abortava).
+- SHAs: Node `22.23.2` (SHASUMS oficial), OpenCode `1.18.31` (tarballs baixados + `sha256sum` + conteúdo `opencode` único), digest jammy via registry API (`829f6df2…`).
+- Fixtures anteriores (gen/import/check) revalidadas após refactors.
+
+### Não rodados (sem Docker)
+
+- `./scripts/verify-compose`, `docker build` (valida SHAs na prática), ShellCheck local — CI (`ubuntu-24.04`, `checkout@v6`, shellcheck `-S error`, `bash -n`, `build --pull`).
+- Runtime no host: `vpn-switch` (hardening, proxy, plain-DNS, bumps, rotate, hosts), `getent gitlab.omega` + `vpn-check`, `vpn-opencode stop/status`, rotação periódica.
 
 ## Commands (2026-09-17, sem Docker no ambiente)
 
@@ -12,7 +30,7 @@
 - `bash -n scripts/*` (todos, incl. `vpn-hosts-gen` e `vpn-hosts-import`), `sh -n scripts/vpn-entrypoint.sh`.
 - `./scripts/verify-docs` (travas anteriores + `LOCAL_HOSTS` no README/`.env.example`/Compose, override git-ignorado, plug do generator no `vpn-switch`, `vpn-hosts-import` no loop de scripts).
 - `git diff --check`.
-- Fixtures `vpn-hosts-gen` (override temporário via `VPN_HOSTS_OVERRIDE_FILE`): vazio → sem arquivo; 2 nomes (+espaço como separador) → YAML com `extra_hosts` nos 2 serviços; duplicado → aviso + último vence; 7 inválidos (sem `=`, hostname com `*`/`..`, octeto >255, lados vazios) → exit 2 com mensagem; IPv6 → ok.
+- Fixtures `vpn-hosts-gen` (snippet temporário via `VPN_HOSTS_SNIPPET_FILE`): vazio → sem arquivo; 2 nomes (+espaço como separador) → snippet `IP nome`; duplicado → aviso + último vence; 7 inválidos (sem `=`, hostname com `*`/`..`, octeto >255, lados vazios) → exit 2 com mensagem; IPv6 → ok.
 - Fixture `vpn-hosts-import --domain` (hosts de teste): extrai só o domínio, dobra case-insensitive com dedup, ignora comentários/`localhost`/outros domínios, imprime linha `LOCAL_HOSTS` colável; domínio ausente → exit 1.
 - `vpn-check` com `LOCAL_HOSTS`: match → ok; mismatch → FAIL com esperado×obtido; não-resolve → FAIL (sugere `vpn-switch`); inválido → FAIL; ausente → 0 linhas (opt-in inerte).
 

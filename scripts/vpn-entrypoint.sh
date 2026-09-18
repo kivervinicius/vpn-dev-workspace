@@ -1,5 +1,13 @@
 #!/usr/bin/env sh
+# vpn-entrypoint.sh: lê segredos de arquivos e exporta para o Gluetun.
+# Uso interno do serviço vpn (entrypoint); sem flags (aceita -h/--help).
 set -eu
+
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  echo "Uso: vpn-entrypoint.sh (entrypoint interno do serviço vpn)" >&2
+  echo "Lê GLUETUN_API_KEY_FILE + OPENVPN_*/WIREGUARD_*_FILE e executa /gluetun-entrypoint." >&2
+  exit 0
+fi
 
 read_secret() {
   secret_file="$1"

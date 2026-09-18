@@ -5,6 +5,13 @@ readonly API_URL="http://127.0.0.1:8000"
 readonly API_KEY_FILE="${GLUETUN_API_KEY_FILE:-/run/secrets/gluetun_api_key}"
 readonly IP_ATTEMPTS="${VPN_IP_ATTEMPTS:-30}"
 readonly IP_DELAY_SECONDS="${VPN_IP_DELAY_SECONDS:-5}"
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  echo "Uso: vpn-reconnect [--help]" >&2
+  echo "Reconecta o perfil atual (stopped→running) e aguarda o IP público." >&2
+  echo "Ajustes: VPN_IP_ATTEMPTS (default 30), VPN_IP_DELAY_SECONDS (default 5)." >&2
+  exit 0
+fi
 readonly CURL_TIMEOUT_ARGS=(--connect-timeout 5 --max-time 10)
 
 need() {

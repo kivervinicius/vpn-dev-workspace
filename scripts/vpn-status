@@ -1,9 +1,30 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-readonly API_URL="http://127.0.0.1:8000"
+readonly API_URL="${GLUETUN_API_URL:-http://127.0.0.1:8000}"
 readonly API_KEY_FILE="${GLUETUN_API_KEY_FILE:-/run/secrets/gluetun_api_key}"
 readonly CURL_TIMEOUT_ARGS=(--connect-timeout 5 --max-time 10)
+
+usage() {
+  echo "Uso: vpn-status [--json] [-q|--quiet] [--api-url <url>]" >&2
+  echo "  --json     saída máquina (objeto JSON em stdout)" >&2
+  echo "  -q,--quiet imprime só o IP público (para automação)" >&2
+  echo "  --api-url  base da API do Gluetun (default: \$GLUETUN_API_URL ou 127.0.0.1:8000)" >&2
+  exit 0
+}
+
+output_json=false
+quiet=false
+api_url="$API_URL"
+while (($# > 0)); do
+  case "$1" in
+    --json) output_json=true; shift ;;
+    -q|--quiet) quiet=true; shift ;;
+    --api-url) api_url="${2:-}"; [[ -n "$api_url" ]] || { echo "Erro: --api-url exige um valor." >&2; exit 2; }; shift 2 ;;
+    -h|--help) usage ;;
+    *) echo "Erro: argumento desconhecido: $1" >&2; exit 2 ;;
+  esac
+done
 
 need() {
   command -v "$1" >/dev/null 2>&1 || { echo "Erro: dependência ausente: $1" >&2; exit 2; }
@@ -22,30 +43,51 @@ api_request() {
     -H "X-API-Key: ${api_key}" "$@"
 }
 
-status="$(api_request "${API_URL}/v1/vpn/status")"
-printf 'VPN: %s\n' "$(printf '%s' "$status" | jq -r '.status // "desconhecido"')"
+status="$(api_request "${api_url}/v1/vpn/status")"
+vpn_state="$(printf '%s' "$status" | jq -r '.status // "desconhecido"')"
 
-settings="$(api_request "${API_URL}/v1/vpn/settings")"
+settings="$(api_request "${api_url}/v1/vpn/settings")"
 provider="$(printf '%s' "$settings" | jq -r '.provider.name // "desconhecido"')"
 vpn_type="$(printf '%s' "$settings" | jq -r '.type // "desconhecido"')"
 hostnames="$(printf '%s' "$settings" | jq -r '.provider.server_selection.hostnames // [] | join(", ")')"
 countries="$(printf '%s' "$settings" | jq -r '.provider.server_selection.countries // [] | join(", ")')"
+
+ip_data="$(api_request "${api_url}/v1/publicip/ip")"
+ip="$(printf '%s' "$ip_data" | jq -r '.public_ip // empty')"
+country="$(printf '%s' "$ip_data" | jq -r '.country // empty')"
+region="$(printf '%s' "$ip_data" | jq -r '.region // empty')"
+city="$(printf '%s' "$ip_data" | jq -r '.city // empty')"
+location=""
+if [[ -n "$country" ]]; then
+  location="$country"
+  [[ -n "$region" ]] && location="${region}, ${location}"
+  [[ -n "$city" ]] && location="${city}, ${location}"
+fi
+
+if $output_json; then
+  jq -nc \
+    --arg vpn "$vpn_state" --arg provider "$provider" --arg type "$vpn_type" \
+    --arg hostnames "$hostnames" --arg countries "$countries" \
+    --arg ip "$ip" --arg location "$location" \
+    '{vpn: $vpn, provider: $provider, type: $type,
+      hostnames: ($hostnames | split(", ") | map(select(length > 0))),
+      countries: ($countries | split(", ") | map(select(length > 0))),
+      public_ip: $ip, location: $location}'
+  [[ -n "$ip" ]] || exit 1
+  exit 0
+fi
+
+if $quiet; then
+  [[ -n "$ip" ]] || { echo "IP público indisponível." >&2; exit 1; }
+  printf '%s\n' "$ip"
+  exit 0
+fi
+
+printf 'VPN: %s\n' "$vpn_state"
 printf 'Perfil: %s (%s)\n' "$provider" "$vpn_type"
 [[ -n "$hostnames" ]] && printf 'Servidor(es) configurado(s): %s\n' "$hostnames"
 [[ -n "$countries" ]] && printf 'País(es): %s\n' "$countries"
-
-ip_data="$(api_request "${API_URL}/v1/publicip/ip")"
-ip="$(printf '%s' "$ip_data" | jq -r '.public_ip // empty')"
 if [[ -n "$ip" ]]; then
-  country="$(printf '%s' "$ip_data" | jq -r '.country // empty')"
-  region="$(printf '%s' "$ip_data" | jq -r '.region // empty')"
-  city="$(printf '%s' "$ip_data" | jq -r '.city // empty')"
-  location=""
-  if [[ -n "$country" ]]; then
-    location="$country"
-    [[ -n "$region" ]] && location="${region}, ${location}"
-    [[ -n "$city" ]] && location="${city}, ${location}"
-  fi
   if [[ -n "$location" ]]; then
     printf 'IP público: %s (%s)\n' "$ip" "$location"
   else

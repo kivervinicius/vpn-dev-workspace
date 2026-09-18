@@ -62,6 +62,18 @@ Para outro provedor, troque o argumento pelo perfil correto e use os respectivos
 
 O serviço `vpn` publica a faixa TCP configurada por `VPN_PORT_RANGE` (padrão `10000-10100`). Projete aplicações expostas para escutar uma porta dentro dessa faixa.
 
+### Proxy HTTP pela VPN (opt-in)
+
+Com `VPN_HTTP_PROXY=on` no `.env` (e `vpn-switch` para aplicar), o Gluetun expõe um proxy HTTP na porta `VPN_HTTP_PROXY_PORT` (padrão `10080`, dentro da faixa publicada):
+
+```bash
+export http_proxy=http://127.0.0.1:10080 https_proxy=http://127.0.0.1:10080
+```
+
+- O `vpn-switch` valida que a porta está dentro de `VPN_PORT_RANGE`.
+- Auth opcional: `VPN_HTTP_PROXY_USER`/`VPN_HTTP_PROXY_PASSWORD` (a senha viaja em env do container; bind é só local).
+- Útil para browser/IDE/plugins do host passarem pela VPN sem `exec` no container.
+
 - Por padrão, `HOST_BIND_ADDRESS=127.0.0.1`, acessível somente na máquina host.
 - Para acesso pela LAN, informe o IP específico da interface local, por exemplo `HOST_BIND_ADDRESS=192.168.1.20`.
 - Não use `0.0.0.0` ou `::`: eles expõem a faixa em todas as interfaces, inclusive onde um firewall pode não protegê-la.
@@ -89,6 +101,8 @@ vpn-server-rotate   # troca de servidor pelo controle do Gluetun
 ```
 
 O `vpn-reconnect` aguarda o IP público do Gluetun após a reconexão (o endpoint só o publica segundos depois de o túnel subir) e imprime o IP quando disponível; se o IP não voltar, encerra com erro para o `vpn-auto-reconnect` retentar.
+
+Para automação: `vpn-status --json|-q`, `vpn-check --json|-q [--only tunnel|dns|internal|hosts]`, `vpn-top --json|--no-color`; todo script responde `--help`. O `vpn-check` sai `0` saudável / `1` com falha (a contagem vai na mensagem/JSON).
 
 ## Acesso à rede interna do host (opt-in)
 
@@ -124,7 +138,6 @@ LOCAL_HOSTS=gitlab.omega=192.168.30.5,registry.omega=192.168.30.6
 - O `vpn-switch` gera um snippet a partir de `LOCAL_HOSTS` e injeta no `/etc/hosts` do terminal pós-up (idempotente; `extra_hosts` é rejeitado pelo Docker com `network_mode`, por isso a injeção pós-up).
 - Para importar do `/etc/hosts` do host por domínio: `./scripts/vpn-hosts-import --domain omega` (só sugere a linha — você cola no `.env`).
 - Reaplicar após `restart` manual: `./scripts/vpn-hosts-apply` (o `vpn-switch` sempre reaplica; `down`/`recreate` perde as entradas).
-- Para importar do `/etc/hosts` do host por domínio: `./scripts/vpn-hosts-import --domain omega` (só sugere a linha — você cola no `.env`).
 - O `vpn-check` valida que cada nome resolve para o IP declarado.
 - O mapeamento resolve só o **nome**; o **alcance** continua exigindo a sub-rede em `FIREWALL_SUBNETS` (acima). Se o IP mudar na LAN, atualize o mapeamento (o import facilita o re-sync).
 
@@ -152,7 +165,8 @@ O helper `vpn-opencode` roda o OpenCode dentro do container (tráfego de LLM 100
 ./scripts/vpn-opencode serve   # ponta para o Desktop App (conecte via 127.0.0.1:10001)
 ```
 
-- Porta: `OPENCODE_GUI_PORT` (padrão `10001`); deve estar dentro de `VPN_PORT_RANGE`.
+- Porta: `OPENCODE_GUI_PORT` (padrão `10001`); validada dentro de `VPN_PORT_RANGE`.
+- Gerenciar: `vpn-opencode status|logs [--port P]`, `vpn-opencode stop [--port P]`, fundo com `web|serve --detach`.
 - Senha (basic auth, usuário `opencode`): arquivo `OPENCODE_GUI_PASSWORD_FILE` (padrão `.secrets/opencode_gui_password`). Sem o arquivo, o painel abre sem senha — apenas para uso local.
 - O estado é compartilhado com o CLI: o mesmo `$HOME` e os mesmos projetos são usados por `opencode` no terminal e pela GUI.
 
@@ -173,9 +187,11 @@ Por padrão a rotação automática está desligada. Para ativá-la, configure e
 VPN_ROTATE_SERVERS=true
 # VPN_SERVER_HOSTNAMES=server1.nordvpn.com,server2.nordvpn.com
 # VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE=3
+# Rotação periódica (privacidade), independente de falhas; 0 = desligada.
+# VPN_ROTATE_INTERVAL_SECONDS=86400
 ```
 
-Com `VPN_ROTATE_SERVERS=true`, após `VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE` falhas consecutivas (padrão 3), o `vpn-auto-reconnect` chama `vpn-server-rotate` e recomeça a contagem. Com `VPN_SERVER_HOSTNAMES` preenchido, os servidores são ciclados na ordem; sem a lista, o Gluetun re-seleciona um servidor aleatório no país configurado. Hostnames inválidos para o provedor são rejeitados pela API do Gluetun.
+Com `VPN_ROTATE_SERVERS=true`, após `VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE` falhas consecutivas (padrão 3), o `vpn-auto-reconnect` chama `vpn-server-rotate` e recomeça a contagem. Com `VPN_SERVER_HOSTNAMES` preenchido, os servidores são ciclados na ordem; sem a lista, o Gluetun re-seleciona um servidor aleatório no país configurado. Hostnames inválidos para o provedor são rejeitados pela API do Gluetun. Manual: `vpn-server-rotate [--to <host>|--random|--list]`.
 
 > Se o seu provedor de acesso bloquear faixas de IP de alguns servidores (a re-seleção aleatória pode cair repetidamente neles), preencha `VPN_SERVER_HOSTNAMES` com uma lista de servidores conhecidamente acessíveis para a rotação.
 
@@ -199,6 +215,8 @@ docker compose -f docker-compose.yml -f profiles/nordvpn-openvpn.yml logs -f vpn
 | `mullvad-wireguard` | Mullvad por WireGuard |
 | `custom-openvpn` | Arquivo e credenciais OpenVPN próprios |
 | `custom-wireguard` | Arquivo WireGuard próprio |
+
+(Surfshark não tem perfil WireGuard: o provedor não expõe chave WireGuard reutilizável como os demais; use `surfshark-openvpn` ou `custom-wireguard`.)
 
 Troque o argumento de `vpn-switch` e o arquivo de perfil nos comandos Compose pelo perfil desejado. Os caminhos de segredo e configurações customizadas estão descritos em `.env.example`. Os perfis `*-openvpn` aceitam `OPENVPN_PROTOCOL` (`udp`, padrão, ou `tcp`); `SERVER_HOSTNAMES` (`VPN_SERVER_HOSTNAMES`) restringe/fixa servidores em todos os perfis de provedor (exceto `custom-*`, que usam config própria).
 

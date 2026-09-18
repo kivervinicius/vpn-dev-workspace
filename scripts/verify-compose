@@ -6,6 +6,12 @@ readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly COMPOSE_FILE="${ROOT_DIR}/docker-compose.yml"
 readonly PLACEHOLDER=/dev/null
 
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  echo "Uso: verify-compose [--help]" >&2
+  echo "Valida interpolação dos perfis Compose com segredos /dev/null (exige Docker)." >&2
+  exit 0
+fi
+
 compose_env=(
   env
   "GLUETUN_API_KEY_FILE=${PLACEHOLDER}"

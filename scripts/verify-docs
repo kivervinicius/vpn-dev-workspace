@@ -7,64 +7,73 @@ readonly README_FILE="${ROOT_DIR}/README.md"
 readonly SWITCH_FILE="${ROOT_DIR}/scripts/vpn-switch"
 readonly EXAMPLE_FILE="${ROOT_DIR}/examples/uso-basico.md"
 
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  echo "Uso: verify-docs [--help]" >&2
+  echo "Valida consistência README ↔ perfis ↔ scripts ↔ Compose (trava de drift)." >&2
+  exit 0
+fi
+
+# Acumula todas as falhas e só decide no fim (sem fail-fast que esconde erros).
+fails=0
+
 [[ -f "$EXAMPLE_FILE" ]] || {
   echo "Erro: exemplo de uso ausente: $EXAMPLE_FILE" >&2
-  exit 1
+  fails=$((fails + 1))
 }
 
 grep -Fq 'examples/uso-basico.md' "$README_FILE" || {
   echo "Erro: exemplo de uso não está vinculado ao README." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 
 grep -Fq 'VPN_PORT_RANGE' "$README_FILE" || {
   echo "Erro: faixa de portas não está documentada no README." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 
 grep -Fq 'vpn-auto-reconnect' "$README_FILE" || {
   echo "Erro: manutenção automática não está documentada no README." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 
 grep -Fq 'OpenVPN settings: user is empty' "$README_FILE" || {
   echo "Erro: diagnóstico de credenciais de perfil não está documentado no README." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 
 grep -Fq 'docker compose up' "$README_FILE" || {
   echo "Erro: restrição de inicialização sem perfil não está documentada no README." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 
 grep -Fq ' exec terminal zsh' "$README_FILE" || {
   echo "Erro: terminal Zsh não está documentado no README." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 
 grep -Fq '## Objetivo' "$README_FILE" || {
   echo "Erro: objetivo do projeto não está documentado no README." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 
 grep -Fq 'extensão direta do ambiente do host' "$README_FILE" || {
   echo "Erro: objetivo de extensão direta do host não está documentado." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 
 grep -Fq 'HOST_HOME_DIR' "$README_FILE" || {
   echo "Erro: montagem da home do host não está documentada." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 
 grep -Fq 'network_mode: "service:vpn"' "$ROOT_DIR/docker-compose.yml" || {
   echo "Erro: terminal não está associado à rede do serviço VPN." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 
 grep -Fq 'preservando home, workspace, ferramentas' "$ROOT_DIR/DEV/SPECS/ACTIVE.md" || {
   echo "Erro: especificação ativa não reflete o objetivo do terminal." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 
 for profile_file in "${ROOT_DIR}"/profiles/*.yml; do
@@ -81,7 +90,7 @@ done
 
 grep -Fq 'vpn-reconnect' "$README_FILE" || {
   echo "Erro: vpn-reconnect não está documentado." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 
 for script_name in vpn-status vpn-reconnect vpn-check vpn-top vpn-server-rotate vpn-opencode vpn-hosts-import vpn-hosts-apply; do
@@ -98,50 +107,59 @@ done
 # vpn-hosts-gen é interno (chamado pelo vpn-switch), mas deve existir e estar plugado.
 [[ -f "${ROOT_DIR}/scripts/vpn-hosts-gen" ]] || {
   echo "Erro: script ausente: vpn-hosts-gen." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 grep -Fq 'vpn-hosts-gen' "${ROOT_DIR}/scripts/vpn-switch" || {
   echo "Erro: vpn-switch não chama o vpn-hosts-gen." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 grep -Fq 'vpn-hosts-apply' "${ROOT_DIR}/scripts/vpn-switch" || {
   echo "Erro: vpn-switch não aplica os hosts locais (vpn-hosts-apply)." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 
 grep -Fq 'FIREWALL_SUBNETS' "$README_FILE" || {
   echo "Erro: acesso à rede interna (FIREWALL_SUBNETS) não está documentado." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 
 grep -Fq 'INTERNAL_DNS' "$README_FILE" || {
   echo "Erro: DNS interno (INTERNAL_DNS) não está documentado." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 
 grep -Fq 'INTERNAL_DNS_EXEMPT_HOSTNAMES' "$README_FILE" || {
   echo "Erro: exceção de rebinding (INTERNAL_DNS_EXEMPT_HOSTNAMES) não está documentada." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 
 grep -Fq 'SSH_AUTH_SOCK' "$README_FILE" || {
   echo "Erro: paridade SSH (SSH_AUTH_SOCK) não está documentada." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 
 grep -Fq 'OPENCODE_GUI_PORT' "$README_FILE" || {
   echo "Erro: porta do painel web (OPENCODE_GUI_PORT) não está documentada." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 
 grep -Fq 'VPN_ROTATE_SERVERS' "$README_FILE" || {
   echo "Erro: rotação automática de servidor não está documentada." >&2
-  exit 1
+  fails=$((fails + 1))
+}
+
+grep -Fq 'VPN_HTTP_PROXY' "$README_FILE" || {
+  echo "Erro: proxy HTTP (VPN_HTTP_PROXY) não está documentado." >&2
+  fails=$((fails + 1))
+}
+grep -Fq 'VPN_HTTP_PROXY' "$ROOT_DIR/.env.example" || {
+  echo "Erro: VPN_HTTP_PROXY sem exemplo em .env.example." >&2
+  fails=$((fails + 1))
 }
 
 grep -Fq 'PUT /v1/vpn/settings' "$README_FILE" || {
   echo "Erro: controle de troca de servidor pela API não está documentado." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 
 if grep -Eq 'mudarip|/usr/local/bin/mudarip' "$README_FILE" "$ROOT_DIR/docker-compose.yml"; then
@@ -167,7 +185,7 @@ fi
 # Trava de drift: PATH do terminal prioriza o binário do host.
 grep -Fq '.opencode/bin' "$ROOT_DIR/docker-compose.yml" || {
   echo "Erro: PATH host-first do OpenCode ausente no Compose." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 
 # Trava de drift: SERVER_HOSTNAMES em todos os perfis de provedor (exceto custom-*).
@@ -185,41 +203,66 @@ done
 # Trava de drift: vars de comportamento documentadas onde o usuário procura.
 grep -Fq 'INTERNAL_TEST_PORT' "$README_FILE" || {
   echo "Erro: INTERNAL_TEST_PORT sem documentação no README." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 grep -Fq 'INTERNAL_TEST_PORT' "$ROOT_DIR/.env.example" || {
   echo "Erro: INTERNAL_TEST_PORT sem exemplo em .env.example." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 grep -Fq 'OPENVPN_PROTOCOL' "$README_FILE" || {
   echo "Erro: OPENVPN_PROTOCOL sem documentação no README." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 grep -Fq 'OPENVPN_PROTOCOL' "$ROOT_DIR/.env.example" || {
   echo "Erro: OPENVPN_PROTOCOL sem exemplo em .env.example." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 
 # Trava de drift: hosts locais documentados, com exemplo e override git-ignorado.
 grep -Fq 'LOCAL_HOSTS' "$README_FILE" || {
   echo "Erro: LOCAL_HOSTS sem documentação no README." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 grep -Fq 'LOCAL_HOSTS' "$ROOT_DIR/.env.example" || {
   echo "Erro: LOCAL_HOSTS sem exemplo em .env.example." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 grep -Fq 'LOCAL_HOSTS' "$ROOT_DIR/docker-compose.yml" || {
   echo "Erro: LOCAL_HOSTS sem repasse no Compose (vpn-check não enxerga)." >&2
-  exit 1
+  fails=$((fails + 1))
 }
 grep -Fq '.hosts.local.gen' "$ROOT_DIR/.gitignore" || {
   echo "Erro: snippet gerado (.hosts.local.gen) sem gitignore." >&2
-  exit 1
+  fails=$((fails + 1))
+}
+
+# Trava: modo plain do DNS interno (Gluetun ignora PLAIN_ADDRESSES sem ele).
+grep -Fq 'DNS_UPSTREAM_RESOLVER_TYPE' "$ROOT_DIR/docker-compose.yml" || {
+  echo "Erro: DNS_UPSTREAM_RESOLVER_TYPE ausente no Compose (INTERNAL_DNS seria ignorado)." >&2
+  fails=$((fails + 1))
+}
+grep -Fq 'DNS_UPSTREAM_RESOLVER_TYPE=plain' "${ROOT_DIR}/scripts/vpn-switch" || {
+  echo "Erro: vpn-switch não ativa o modo plain com INTERNAL_DNS." >&2
+  fails=$((fails + 1))
 }
 
 if grep -Eq '^[[:space:]]*-[[:space:]]*~/(\.config$|\.local$|\.cache$)' "$ROOT_DIR/docker-compose.yml"; then
   echo "Erro: mount pessoal genérico detectado no Compose." >&2
+  fails=$((fails + 1))
+fi
+
+# Convenção: todo script executável responde --help com exit 0 (sem Docker).
+for helper in "${ROOT_DIR}"/scripts/*; do
+  helper_name="$(basename "$helper")"
+  [[ -x "$helper" && -f "$helper" ]] || continue
+  if ! "$helper" --help >/dev/null 2>&1; then
+    echo "Erro: ${helper_name} não responde --help com exit 0." >&2
+    fails=$((fails + 1))
+  fi
+done
+
+if ((fails > 0)); then
+  echo "verify-docs: ${fails} inconsistência(s) encontrada(s)." >&2
   exit 1
 fi
 

@@ -10,16 +10,16 @@ permissions:
 
 jobs:
   validate:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install ShellCheck
         run: sudo apt-get update && sudo apt-get install --yes shellcheck
       - name: Validate shell scripts
-        run: shellcheck scripts/*
+        run: shellcheck -S error scripts/* && bash -n scripts/* && sh -n scripts/vpn-entrypoint.sh && git diff --check
       - name: Validate documentation
         run: ./scripts/verify-docs
       - name: Validate Compose profiles
         run: ./scripts/verify-compose
       - name: Build terminal image
-        run: docker build --pull=false .
+        run: docker build --pull=true .

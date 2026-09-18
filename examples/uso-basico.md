@@ -113,7 +113,7 @@ docker compose \
 
 ## 7. Próximos passos (opt-ins)
 
-- Rede interna/LAN: `FIREWALL_SUBNETS`, `INTERNAL_DNS`/`INTERNAL_DNS_EXEMPT_HOSTNAMES` — veja [README](../README.md#acesso-à-rede-interna-do-host-opt-in); nomes `.omega.local` vivem no `/etc/hosts` do host (alcance por IP), e `INTERNAL_TEST_HOST`/`INTERNAL_TEST_PORT` habilitam o teste no `vpn-check`.
+- Rede interna/LAN: `FIREWALL_SUBNETS`, `INTERNAL_DNS`/`INTERNAL_DNS_EXEMPT_HOSTNAMES` — veja [README](../README.md#acesso-à-rede-interna-do-host-opt-in); nomes que só existem no `/etc/hosts` do host usam `LOCAL_HOSTS` (mapeamento validado pelo `vpn-check`), e `INTERNAL_TEST_HOST`/`INTERNAL_TEST_PORT` habilitam o teste de alcance no `vpn-check`.
 - Servidores bloqueados pelo provedor de acesso (ex: faixa `185.153.176.x`): fixe `VPN_SERVER_HOSTNAMES` com servidores conhecidos.
 - Painel/Desktop do OpenCode pela VPN: `./scripts/vpn-opencode web|serve` — guia em `DEV/RUNBOOKS/opencode-desktop-vpn.md`.
 - Verificação local: `./scripts/verify-docs` e `./scripts/verify-compose`.

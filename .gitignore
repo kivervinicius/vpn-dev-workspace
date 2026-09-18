@@ -1,6 +1,7 @@
 # Environment variables (senhas e dados sensíveis)
 .env
 .secrets/
+secrets/
 
 # Snippet de hosts locais gerado (LOCAL_HOSTS, aplicado pós-up)
 .hosts.local.gen

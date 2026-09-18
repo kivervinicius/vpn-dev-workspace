@@ -4,6 +4,13 @@ set -Eeuo pipefail
 readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly COMPOSE_FILE="${ROOT_DIR}/docker-compose.yml"
 
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  echo "Uso: vpn-switch <perfil> [--help]" >&2
+  echo "Perfis: nordvpn-openvpn|nordvpn-wireguard|protonvpn-openvpn|protonvpn-wireguard|surfshark-openvpn|mullvad-wireguard|custom-openvpn|custom-wireguard" >&2
+  echo "Valida, sobe o perfil (rebuild), aguarda health, aplica LOCAL_HOSTS." >&2
+  exit 0
+fi
+
 trap 'echo "vpn-switch: interrompido pelo usuário." >&2; exit 130' INT
 
 need() {
@@ -106,7 +113,28 @@ host_bind_address="$(read_compose_value HOST_BIND_ADDRESS 127.0.0.1)"
   echo "Erro: use o IP específico da interface LAN em HOST_BIND_ADDRESS, não um bind público." >&2
   exit 2
 }
-validate_port_range "$(read_compose_value VPN_PORT_RANGE 10000-10100)"
+port_range="$(read_compose_value VPN_PORT_RANGE 10000-10100)"
+validate_port_range "$port_range"
+
+# Proxy HTTP opt-in: a porta precisa estar na faixa publicada pelo Gluetun.
+http_proxy="$(read_compose_value VPN_HTTP_PROXY off)"
+if [[ "${http_proxy,,}" == "on" ]]; then
+  http_port="$(read_compose_value VPN_HTTP_PROXY_PORT 10080)"
+  [[ "$http_port" =~ ^[1-9][0-9]{0,4}$ && "$http_port" -le 65535 ]] || {
+    echo "Erro: VPN_HTTP_PROXY_PORT inválida: $http_port." >&2
+    exit 2
+  }
+  if [[ "$port_range" =~ ^([1-9][0-9]{0,4})-([1-9][0-9]{0,4})$ ]]; then
+    (( http_port < BASH_REMATCH[1] || http_port > BASH_REMATCH[2] )) && {
+      echo "Erro: VPN_HTTP_PROXY_PORT (${http_port}) fora de VPN_PORT_RANGE (${port_range})." >&2
+      exit 2
+    }
+  elif [[ "$http_port" != "$port_range" ]]; then
+    echo "Erro: VPN_HTTP_PROXY_PORT (${http_port}) fora de VPN_PORT_RANGE (${port_range})." >&2
+    exit 2
+  fi
+  echo "Proxy HTTP pela VPN em http://127.0.0.1:${http_port} (dentro da faixa publicada)."
+fi
 
 # Acesso à rede interna do host (opt-in): quando FIREWALL_SUBNETS não está
 # definido no ambiente nem no .env, injeta a sub-rede da interface que possui a
@@ -126,12 +154,26 @@ if [[ -z "$firewall_subnets" ]]; then
   fi
 fi
 
-# DNS interno: com INTERNAL_DNS ativo e DNS_UPSTREAM_RESOLVERS ainda preenchido,
-# o Gluetun divide as consultas entre upstreams e nomes internos falham.
+# DNS interno: o Gluetun só obedece a DNS_UPSTREAM_PLAIN_ADDRESSES com
+# DNS_UPSTREAM_RESOLVER_TYPE=plain (sem isso ele ignora e usa DoT/Cloudflare).
+# Vazio aqui é significativo: distingue "não definido" (default cloudflare)
+# de "vazio de propósito" (upstream plain único).
 internal_dns="$(read_compose_value INTERNAL_DNS "")"
-internal_dns_resolvers="$(read_compose_value INTERNAL_DNS_RESOLVERS cloudflare)"
-if [[ -n "$internal_dns" && -n "$internal_dns_resolvers" ]]; then
-  echo "Aviso: INTERNAL_DNS ativo com INTERNAL_DNS_RESOLVERS=${internal_dns_resolvers}; deixe INTERNAL_DNS_RESOLVERS vazio no .env, senão a resolução de nomes internos fica aleatória." >&2
+internal_dns_resolvers_isset=false
+internal_dns_resolvers=""
+if [[ -n "${INTERNAL_DNS_RESOLVERS+x}" ]]; then
+  internal_dns_resolvers_isset=true
+  internal_dns_resolvers="$INTERNAL_DNS_RESOLVERS"
+elif [[ -f "${ROOT_DIR}/.env" ]] && grep -Eq '^[[:space:]]*INTERNAL_DNS_RESOLVERS=' "${ROOT_DIR}/.env"; then
+  internal_dns_resolvers_isset=true
+  internal_dns_resolvers="$(awk -v prefix="INTERNAL_DNS_RESOLVERS=" 'index($0, prefix) == 1 { print substr($0, length(prefix) + 1); exit }' "${ROOT_DIR}/.env")"
+fi
+if [[ -n "$internal_dns" ]]; then
+  export DNS_UPSTREAM_RESOLVER_TYPE=plain
+  echo "DNS interno ativo (${internal_dns}); upstream plain único."
+  if $internal_dns_resolvers_isset && [[ -n "$internal_dns_resolvers" ]]; then
+    echo "Aviso: INTERNAL_DNS ativo com INTERNAL_DNS_RESOLVERS=${internal_dns_resolvers} (ignorado em modo plain, mas deixe vazio no .env)." >&2
+  fi
 fi
 
 echo "Parando o perfil atual..."

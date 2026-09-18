@@ -63,3 +63,10 @@ O OpenCode GUI é executado dentro do `terminal` (tráfego de LLM 100% pela VPN)
 - Entrada via `LOCAL_HOSTS` no `.env` (`nome=ip`, vírgula/espaço); override gerado é git-ignorado e reescrito a cada `vpn-switch` (vazio remove o arquivo — opt-in inerte). Validação estrita com falha rápida (hostname RFC, IPv4 octeto ≤255, sem curingas).
 - `LOCAL_HOSTS` é repassado no ambiente dos 2 serviços para o `vpn-check` validar cada mapeamento; alcance real continua sendo papel de `FIREWALL_SUBNETS`.
 - Risco aceito: IP da LAN muda → stale (re-sync via `vpn-hosts-import --domain`, que só sugere a linha, nunca escreve sozinho).
+
+## Revisão lote D (2026-09-17)
+
+- `vpn-top` tinha a condição invertida (ramo sem-jq usava jq); `INTERNAL_DNS_RESOLVERS` vazio era anulado por `:-` (Compose e switch) — agora vazio é significativo e o switch exporta `DNS_UPSTREAM_RESOLVER_TYPE=plain`, sem o qual o Gluetun ignora o upstream plain (issues #3216/#3220/#3422).
+- `vpn-check` agora sai 0/1 (contagem na mensagem/JSON); `--only tunnel` alimenta o health leve do `auto-reconnect` (cheio só informa, sem reconnect por blip de DNS).
+- Bumps com prova de origem: SHASUMS oficial (Node), tarballs baixados + `sha256sum` (OpenCode), registry API (jammy); build da CI reconfere os hashes.
+- Hardening conservador (cap_drop, no-new-privileges, logs, limits) — `read_only+tmpfs` adiado por exigir runtime; proxy HTTP opt-in na faixa publicada (sem `ports` novo); senha do proxy em env documentada como visível em `inspect`.

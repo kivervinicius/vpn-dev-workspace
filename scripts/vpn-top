@@ -6,7 +6,50 @@ readonly API_KEY_FILE="${GLUETUN_API_KEY_FILE:-/run/secrets/gluetun_api_key}"
 readonly RECONNECT_STATE_FILE=/tmp/vpn-auto-reconnect.state
 readonly CURL_TIMEOUT_ARGS=(--connect-timeout 5 --max-time 10)
 
-if [[ -t 1 ]]; then
+usage() {
+  echo "Uso: vpn-top [--json] [--no-color]" >&2
+  echo "  --json     saída máquina (objeto JSON em stdout)" >&2
+  echo "  --no-color sem códigos ANSI mesmo em tty" >&2
+  exit 0
+}
+
+output_json=false
+no_color=false
+while (($# > 0)); do
+  case "$1" in
+    --json) output_json=true; shift ;;
+    --no-color) no_color=true; shift ;;
+    -h|--help) usage ;;
+    *) echo "Erro: argumento desconhecido: $1" >&2; exit 2 ;;
+  esac
+done
+
+if $output_json; then
+  need() { command -v "$1" >/dev/null 2>&1 || { echo "Erro: dependência ausente: $1" >&2; exit 2; }; }
+  need curl
+  need jq
+  [[ -r "$API_KEY_FILE" ]] || { echo "Erro: segredo da API ausente: $API_KEY_FILE" >&2; exit 1; }
+  api_key="$(tr -d '\r\n' < "$API_KEY_FILE")"
+  jget() {
+    curl --fail --silent --show-error "${CURL_TIMEOUT_ARGS[@]}" -H "X-API-Key: ${api_key}" "$@" 2>/dev/null || printf ''
+  }
+  vpn_status="$(jget "${API_URL}/v1/vpn/status")"
+  settings="$(jget "${API_URL}/v1/vpn/settings")"
+  ip_data="$(jget "${API_URL}/v1/publicip/ip")"
+  dns_data="$(jget "${API_URL}/v1/dns/status")"
+  auto_state=""
+  [[ -f "$RECONNECT_STATE_FILE" ]] && auto_state="$(tr -d '\r\n' < "$RECONNECT_STATE_FILE" | head -n 1)"
+  jq -nc \
+    --argjson vpn_status "${vpn_status:-null}" \
+    --argjson settings "${settings:-null}" \
+    --argjson public_ip "${ip_data:-null}" \
+    --argjson dns "${dns_data:-null}" \
+    --arg auto_reconnect "$auto_state" \
+    '{vpn: $vpn_status, settings: $settings, public_ip: $public_ip, dns: $dns, auto_reconnect: $auto_reconnect}'
+  exit 0
+fi
+
+if [[ -t 1 && "$no_color" != true ]]; then
   readonly C_BOLD=$'\033[1m'
   readonly C_CYAN=$'\033[36m'
   readonly C_GREEN=$'\033[32m'
@@ -49,6 +92,9 @@ section "Gluetun (túnel)"
 if ! command -v curl >/dev/null 2>&1; then
   printf '%scurl indisponível; seção do túnel indisponível.%s\n' "$C_YELLOW" "$C_RESET"
 elif ! command -v jq >/dev/null 2>&1 || [[ ! -r "$API_KEY_FILE" ]]; then
+  printf '%sSem jq e/ou chave da API neste ambiente; seção do túnel indisponível.%s\n' "$C_YELLOW" "$C_RESET"
+  printf 'Dentro do terminal do ambiente: %svpn-top%s\n' "$C_BOLD" "$C_RESET"
+else
   api_key="$(tr -d '\r\n' < "$API_KEY_FILE")"
   api_request() {
     curl --fail --silent --show-error "${CURL_TIMEOUT_ARGS[@]}" -H "X-API-Key: ${api_key}" "$@"
@@ -99,9 +145,6 @@ elif ! command -v jq >/dev/null 2>&1 || [[ ! -r "$API_KEY_FILE" ]]; then
     printf '%sAPI do Gluetun inacessível em %s.%s\n' "$C_YELLOW" "$API_URL" "$C_RESET"
     printf 'Execute %svpn-top%s dentro do terminal do ambiente, ou publique a porta de controle do Gluetun.\n' "$C_BOLD" "$C_RESET"
   fi
-else
-  printf '%sSem curl/jq e/ou chave da API neste ambiente; seção do túnel indisponível.%s\n' "$C_YELLOW" "$C_RESET"
-  printf 'Dentro do terminal do ambiente: %svpn-top%s\n' "$C_BOLD" "$C_RESET"
 fi
 
 echo

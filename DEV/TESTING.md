@@ -5,9 +5,10 @@
 - Sintaxe: `bash -n scripts/*`, `sh -n scripts/vpn-entrypoint.sh`
 - Docs/perfis: `./scripts/verify-docs`
 - Compose (exige Docker): `./scripts/verify-compose`
-- Lint (CI): ShellCheck via `.github/workflows/validate.yml` (`shellcheck scripts/*`)
+- Lint (CI): ShellCheck `-S error` via `.github/workflows/validate.yml` (+`bash -n`, `sh -n`, `git diff --check`)
 - Whitespace: `git diff --check`
-- Build (exige Docker): `docker build --pull=false .`
+- Build (exige Docker): `docker build --pull=true .`
+- Convenção: todo script responde `--help` com exit 0 (matriz no `verify-docs`)
 
 ## Strategy
 

@@ -1,10 +1,10 @@
-FROM ubuntu:22.04@sha256:3b06811b2afd352be909dd088a004166d665dc76d38b13eada33522a9d915c6f
+FROM ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7
 
 ARG TARGETARCH
-ARG NODE_VERSION=22.17.1
+ARG NODE_VERSION=22.23.2
 # Deve acompanhar a versão instalada no host para que o terminal VPN tenha o
 # mesmo comportamento do OpenCode local.
-ARG OPENCODE_VERSION=1.18.25
+ARG OPENCODE_VERSION=1.18.31
 
 ENV DEBIAN_FRONTEND=noninteractive \
     HOME=/home/developer \
@@ -25,8 +25,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Node.js oficial, com checksum fixado para cada arquitetura suportada.
 RUN case "${TARGETARCH}" in \
-      amd64) node_arch=x64; node_sha256=ff04bc7c3ed7699ceb708dbaaf3580d899ff8bf67f17114f979e83aa74fc5a49 ;; \
-      arm64) node_arch=arm64; node_sha256=a5bb879af2fe70e7b5dc5e0bbadecba88e87f45bd8e62c0c57b5c815a4cbbaa6 ;; \
+      amd64) node_arch=x64; node_sha256=d60acfe00a2932254bb0ad20e01b0d74397a0875595de719654b214f4b03f307 ;; \
+      arm64) node_arch=arm64; node_sha256=fff4078c5def658577f92c88db7db3bc0072924bfb93fe52c1e744a54e94abb8 ;; \
       *) echo "Arquitetura não suportada: ${TARGETARCH}" >&2; exit 1 ;; \
     esac \
     && curl --fail --location --silent --show-error \
@@ -38,8 +38,8 @@ RUN case "${TARGETARCH}" in \
 
 # OpenCode é instalado a partir do binário de release com checksum fixado.
 RUN case "${TARGETARCH}" in \
-      amd64) opencode_arch=x64; opencode_sha256=58a3729a6f3432dd6d2917fcc4a949788891a035818646ad480e12c947f56e78 ;; \
-      arm64) opencode_arch=arm64; opencode_sha256=35ef77897425e41b5183a2c21ac4fb1d4d944d82a94e3c920f57b5490af11ac5 ;; \
+      amd64) opencode_arch=x64; opencode_sha256=e9312be75ed803b7415fc2aeabda1f4fe938912a39673762dc0c38c0e11ebde4 ;; \
+      arm64) opencode_arch=arm64; opencode_sha256=d4e332f46b227448582c0d9fc75f6f826dfe95c9f751bc2011fc4d937a042be6 ;; \
       *) echo "Arquitetura não suportada: ${TARGETARCH}" >&2; exit 1 ;; \
     esac \
     && curl --fail --location --silent --show-error \

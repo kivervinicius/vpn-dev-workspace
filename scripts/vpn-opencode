@@ -10,51 +10,130 @@ need() {
   command -v "$1" >/dev/null 2>&1 || { echo "Erro: dependência ausente: $1" >&2; exit 2; }
 }
 
-need docker
+read_compose_value() {
+  local name="$1" default_value="$2" value=""
+
+  if [[ -n "${!name+x}" ]]; then
+    printf '%s\n' "${!name}"
+    return
+  fi
+
+  if [[ -f "${ROOT_DIR}/.env" ]]; then
+    value="$(awk -v prefix="${name}=" 'index($0, prefix) == 1 { print substr($0, length(prefix) + 1); exit }' "${ROOT_DIR}/.env")"
+  fi
+
+  printf '%s\n' "${value:-$default_value}"
+}
 
 usage() {
-  echo "Uso: vpn-opencode <web|serve> [porta]" >&2
-  echo "  web    abre o painel web no navegador do host (padrão)." >&2
-  echo "  serve  expõe a ponta para o Desktop App do OpenCode." >&2
+  echo "Uso: vpn-opencode <web|serve|stop|status|logs> [opções]" >&2
+  echo "  web [--detach] [--port P]   painel web (foreground; -d solta no fundo)" >&2
+  echo "  serve [--detach] [--port P] ponta para o Desktop App" >&2
+  echo "  stop [--port P]             encerra web/serve na porta" >&2
+  echo "  status [--port P]           diz se há web/serve ouvindo a porta" >&2
+  echo "  logs [--tail N] [--port P]  logs do terminal (útil com --detach)" >&2
   echo "Porta padrão: \${OPENCODE_GUI_PORT:-10001} (deve estar na VPN_PORT_RANGE)." >&2
-  exit 2
+  exit 0
 }
 
 mode="${1:-}"
-[[ -n "$mode" ]] || usage
 case "$mode" in
-  web|serve) ;;
-  *) usage ;;
+  web|serve|stop|status|logs) ;;
+  -h|--help|"") usage ;;
+  *) echo "Erro: modo desconhecido: $mode" >&2; echo "Uso: vpn-opencode <web|serve|stop|status|logs>" >&2; exit 2 ;;
 esac
 
-port="${2:-${OPENCODE_GUI_PORT:-10001}}"
+detach=false
+port="${OPENCODE_GUI_PORT:-10001}"
+tail_n="50"
+shift
+while (($# > 0)); do
+  case "$1" in
+    -d|--detach) detach=true; shift ;;
+    --port) port="${2:-}"; [[ -n "$port" ]] || { echo "Erro: --port exige um valor." >&2; exit 2; }; shift 2 ;;
+    --tail) tail_n="${2:-}"; [[ "$tail_n" =~ ^[1-9][0-9]*$ ]] || { echo "Erro: --tail exige inteiro positivo." >&2; exit 2; }; shift 2 ;;
+    -h|--help) usage ;;
+    *) echo "Erro: opção desconhecida: $1" >&2; exit 2 ;;
+  esac
+done
+
 [[ "$port" =~ ^[1-9][0-9]{0,4}$ && "$port" -le 65535 ]] || { echo "Erro: porta inválida: $port (1-65535)" >&2; exit 2; }
+
+# A porta precisa estar na faixa publicada pelo Gluetun, senão dá refused sem dica.
+port_range="$(read_compose_value VPN_PORT_RANGE 10000-10100)"
+if [[ "$port_range" =~ ^([1-9][0-9]{0,4})-([1-9][0-9]{0,4})$ ]]; then
+  if (( port < BASH_REMATCH[1] || port > BASH_REMATCH[2] )); then
+    echo "Erro: porta ${port} fora de VPN_PORT_RANGE (${port_range}); o host recusaria a conexão." >&2
+    exit 2
+  fi
+elif [[ "$port_range" =~ ^[1-9][0-9]{0,4}$ ]]; then
+  if (( port != port_range )); then
+    echo "Erro: porta ${port} fora de VPN_PORT_RANGE (${port_range})." >&2
+    exit 2
+  fi
+fi
 
 compose=(docker compose --profile vpn -f "${ROOT_DIR}/docker-compose.yml")
 
-vpn_container="$("${compose[@]}" ps -q vpn 2>/dev/null || true)"
-[[ -n "$vpn_container" ]] || { echo "Erro: VPN não está ativa; inicie com ./scripts/vpn-switch <perfil>." >&2; exit 1; }
+need docker
+terminal_cid="$("${compose[@]}" ps -q terminal 2>/dev/null || true)"
+[[ -n "$terminal_cid" ]] || { echo "Erro: terminal não está ativo; inicie com ./scripts/vpn-switch <perfil>." >&2; exit 1; }
 
-vpn_healthy="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}starting{{end}}' "$vpn_container" 2>/dev/null || true)"
-[[ "$vpn_healthy" == "healthy" ]] || { echo "Erro: VPN ainda não está saudável (status: ${vpn_healthy})." >&2; exit 1; }
+proc_match="opencode \(web\|serve\).*--port ${port}"
 
-password_file="${OPENCODE_GUI_PASSWORD_FILE:-${ROOT_DIR}/.secrets/opencode_gui_password}"
-if [[ "$password_file" != /* ]]; then
-  password_file="${ROOT_DIR}/${password_file}"
-fi
-if [[ -r "$password_file" ]]; then
-  export OPENCODE_SERVER_PASSWORD="$(tr -d '\r\n' < "$password_file")"
-  export OPENCODE_SERVER_USER="${OPENCODE_SERVER_USER:-opencode}"
-else
-  echo "Aviso: sem arquivo de senha em ${password_file}; o painel abre sem autenticação (apenas local)." >&2
-fi
+case "$mode" in
+  status)
+    if docker exec "$terminal_cid" bash -c "exec 3<>/dev/tcp/127.0.0.1/${port}" 2>/dev/null; then
+      echo "OpenCode ouvindo em 127.0.0.1:${port} (pela VPN)."
+    else
+      echo "Nada ouvindo em 127.0.0.1:${port}." >&2
+      exit 1
+    fi
+    ;;
+  stop)
+    stopped="$(docker exec "$terminal_cid" sh -c 'n=0; for d in /proc/[0-9]*; do if tr "\0" " " < "$d/cmdline" 2>/dev/null | grep -q "'"${proc_match}"'"; then kill "${d#/proc/}" 2>/dev/null && n=$((n+1)); fi; done; printf "%s" "$n"')"
+    if (( stopped > 0 )); then
+      echo "Encerrado(s) ${stopped} processo(s) na porta ${port}."
+    else
+      echo "Nenhum processo web/serve na porta ${port}." >&2
+      exit 1
+    fi
+    ;;
+  logs)
+    "${compose[@]}" logs --tail="$tail_n" terminal
+    ;;
+  web|serve)
+    vpn_container="$("${compose[@]}" ps -q vpn 2>/dev/null || true)"
+    [[ -n "$vpn_container" ]] || { echo "Erro: VPN não está ativa; inicie com ./scripts/vpn-switch <perfil>." >&2; exit 1; }
+    vpn_healthy="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}starting{{end}}' "$vpn_container" 2>/dev/null || true)"
+    [[ "$vpn_healthy" == "healthy" ]] || { echo "Erro: VPN ainda não está saudável (status: ${vpn_healthy})." >&2; exit 1; }
 
-echo "OpenCode ${mode} pela VPN em http://127.0.0.1:${port} (Ctrl+C para encerrar)..."
-# Sem navegador no container: o xdg-open falha no stderr (ruído cosmético) e o
-# servidor continua de pé; o acesso é pelo navegador do próprio host.
-env_args=()
-if [[ -n "${OPENCODE_SERVER_PASSWORD:-}" ]]; then env_args+=(-e OPENCODE_SERVER_PASSWORD); fi
-if [[ -n "${OPENCODE_SERVER_USER:-}" ]]; then env_args+=(-e OPENCODE_SERVER_USER); fi
-exec docker compose --profile vpn -f "${ROOT_DIR}/docker-compose.yml" exec \
-  "${env_args[@]}" \
-  terminal opencode "$mode" --port "$port" --hostname 0.0.0.0
+    password_file="${OPENCODE_GUI_PASSWORD_FILE:-${ROOT_DIR}/.secrets/opencode_gui_password}"
+    if [[ "$password_file" != /* ]]; then
+      password_file="${ROOT_DIR}/${password_file}"
+    fi
+    if [[ -r "$password_file" ]]; then
+      export OPENCODE_SERVER_PASSWORD="$(tr -d '\r\n' < "$password_file")"
+      export OPENCODE_SERVER_USER="${OPENCODE_SERVER_USER:-opencode}"
+    else
+      echo "Aviso: sem arquivo de senha em ${password_file}; o painel abre sem autenticação (apenas local)." >&2
+    fi
+
+    # Sem navegador no container: o xdg-open falha no stderr (ruído cosmético) e o
+    # servidor continua de pé; o acesso é pelo navegador do próprio host.
+    env_args=()
+    if [[ -n "${OPENCODE_SERVER_PASSWORD:-}" ]]; then env_args+=(-e OPENCODE_SERVER_PASSWORD); fi
+    if [[ -n "${OPENCODE_SERVER_USER:-}" ]]; then env_args+=(-e OPENCODE_SERVER_USER); fi
+    if $detach; then
+      echo "OpenCode ${mode} pela VPN em http://127.0.0.1:${port} (fundo; pare com: vpn-opencode stop --port ${port})..."
+      exec docker compose --profile vpn -f "${ROOT_DIR}/docker-compose.yml" exec -d \
+        "${env_args[@]}" \
+        terminal opencode "$mode" --port "$port" --hostname 0.0.0.0
+    else
+      echo "OpenCode ${mode} pela VPN em http://127.0.0.1:${port} (Ctrl+C para encerrar)..."
+      exec docker compose --profile vpn -f "${ROOT_DIR}/docker-compose.yml" exec \
+        "${env_args[@]}" \
+        terminal opencode "$mode" --port "$port" --hostname 0.0.0.0
+    fi
+    ;;
+esac

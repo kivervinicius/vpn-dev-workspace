@@ -13,13 +13,23 @@ usage() {
   exit 2
 }
 
+help() {
+  echo "Uso: vpn-hosts-import --domain <sufixo> [--hosts-file <caminho>]" >&2
+  echo "Extrai entradas do hosts do host filtradas por domínio e imprime LOCAL_HOSTS." >&2
+  echo "Ex:  vpn-hosts-import --domain omega" >&2
+  exit 0
+}
+
 domain=""
 hosts_file="/etc/hosts"
 while (($# > 0)); do
   case "$1" in
-    --domain) domain="${2:-}"; shift 2 ;;
-    --hosts-file) hosts_file="${2:-}"; shift 2 ;;
-    -h|--help) usage ;;
+    --domain|--hosts-file)
+      [[ $# -ge 2 ]] || { echo "Erro: $1 exige um valor." >&2; exit 2; }
+      if [[ "$1" == "--domain" ]]; then domain="$2"; else hosts_file="$2"; fi
+      shift 2
+      ;;
+    -h|--help) help ;;
     *) echo "Erro: argumento desconhecido: $1" >&2; usage ;;
   esac
 done

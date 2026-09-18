@@ -19,6 +19,13 @@ set -Eeuo pipefail
 readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly SNIPPET_FILE="${VPN_HOSTS_SNIPPET_FILE:-${ROOT_DIR}/.hosts.local.gen}"
 
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  echo "Uso: vpn-hosts-gen [--help]" >&2
+  echo 'Valida LOCAL_HOSTS (nome=ip,...) e gera o snippet .hosts.local.gen.' >&2
+  echo "Override de teste: VPN_HOSTS_SNIPPET_FILE=/tmp/x.hosts" >&2
+  exit 0
+fi
+
 read_compose_value() {
   local name="$1" default_value="$2" value=""
 

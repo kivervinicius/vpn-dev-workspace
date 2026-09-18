@@ -67,7 +67,7 @@ O Desktop do host é cliente; o servidor roda no container. O `PATH` do
 terminal prioriza o binário da home montada do host
 (`${HOST_HOME_DIR}/.opencode/bin`), então atualizar o OpenCode no host reflete
 instantaneamente no container; a versão fixada no `Dockerfile`
-(`OPENCODE_VERSION` + checksums, hoje 1.18.25) é o fallback usado quando a home
+(`OPENCODE_VERSION` + checksums, hoje 1.18.31) é o fallback usado quando a home
 não fornece o binário. Desktop mais novo que o servidor pode dar tela
 branca/falha de conexão (anomalyco/opencode#23851).
 

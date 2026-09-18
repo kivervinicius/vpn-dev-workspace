@@ -1,17 +1,38 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-readonly API_URL="http://127.0.0.1:8000"
+readonly API_URL="${GLUETUN_API_URL:-http://127.0.0.1:8000}"
 readonly API_KEY_FILE="${GLUETUN_API_KEY_FILE:-/run/secrets/gluetun_api_key}"
-readonly STATE_FILE=/tmp/vpn-rotate.index
+readonly STATE_FILE="${VPN_ROTATE_STATE_FILE:-/tmp/vpn-rotate.index}"
 readonly CURL_TIMEOUT_ARGS=(--connect-timeout 5 --max-time 10)
+
+usage() {
+  echo "Uso: vpn-server-rotate [--to <host>|--random|--list] [--api-url <url>]" >&2
+  echo "  (sem flags) round-robin em VPN_SERVER_HOSTNAMES ou re-seleção aleatória" >&2
+  echo "  --to       salta direto para o host (deve estar na lista)" >&2
+  echo "  --random   ignora a lista e re-seleciona no país configurado" >&2
+  echo "  --list     mostra a lista e o índice atual" >&2
+  exit 0
+}
+
+want_to=""
+want_random=false
+want_list=false
+api_url="$API_URL"
+while (($# > 0)); do
+  case "$1" in
+    --to) want_to="${2:-}"; [[ -n "$want_to" ]] || { echo "Erro: --to exige um hostname." >&2; exit 2; }; shift 2 ;;
+    --random) want_random=true; shift ;;
+    --list) want_list=true; shift ;;
+    --api-url) api_url="${2:-}"; [[ -n "$api_url" ]] || { echo "Erro: --api-url exige um valor." >&2; exit 2; }; shift 2 ;;
+    -h|--help) usage ;;
+    *) echo "Erro: argumento desconhecido: $1" >&2; exit 2 ;;
+  esac
+done
 
 need() {
   command -v "$1" >/dev/null 2>&1 || { echo "Erro: dependência ausente: $1" >&2; exit 2; }
 }
-
-need curl
-need jq
 
 resolve_helper() {
   if command -v "$1" >/dev/null 2>&1; then
@@ -24,18 +45,11 @@ resolve_helper() {
   fi
 }
 
-[[ -r "$API_KEY_FILE" ]] || { echo "Erro: segredo da API ausente: $API_KEY_FILE" >&2; exit 1; }
-api_key="$(tr -d '\r\n' < "$API_KEY_FILE")"
-[[ -n "$api_key" ]] || { echo "Erro: chave da API vazia." >&2; exit 1; }
-
 api_request() {
   curl --fail --silent --show-error --retry 3 --retry-all-errors \
     "${CURL_TIMEOUT_ARGS[@]}" \
     -H "X-API-Key: ${api_key}" "$@"
 }
-
-settings="$(api_request "${API_URL}/v1/vpn/settings")"
-countries="$(printf '%s' "$settings" | jq -c '.provider.server_selection.countries // []' 2>/dev/null || printf '[]')"
 
 trim() {
   local s="$1"
@@ -56,11 +70,56 @@ if [[ -n "$hostnames_raw" ]]; then
 fi
 
 patch=""
-if ((${#hostnames_env[@]} > 0)); then
+if [[ -n "$want_to" ]] && ((${#hostnames_env[@]} == 0)); then
+  echo "Erro: --to exige VPN_SERVER_HOSTNAMES preenchido." >&2
+  exit 2
+fi
+if $want_list; then
+  if ((${#hostnames_env[@]} > 0)); then
+    current=""
+    if [[ -f "$STATE_FILE" ]] && [[ "$(<"$STATE_FILE")" =~ ^[0-9]+$ ]]; then
+      current="$(<"$STATE_FILE")"
+    fi
+    for i in "${!hostnames_env[@]}"; do
+      if [[ "$current" == "$i" ]]; then
+        printf '* %s (atual)\n' "${hostnames_env[$i]}"
+      else
+        printf '  %s\n' "${hostnames_env[$i]}"
+      fi
+    done
+  else
+    echo "Sem VPN_SERVER_HOSTNAMES (re-seleção aleatória no país configurado)."
+  fi
+  exit 0
+fi
+
+need curl
+need jq
+[[ -r "$API_KEY_FILE" ]] || { echo "Erro: segredo da API ausente: $API_KEY_FILE" >&2; exit 1; }
+api_key="$(tr -d '\r\n' < "$API_KEY_FILE")"
+[[ -n "$api_key" ]] || { echo "Erro: chave da API vazia." >&2; exit 1; }
+
+settings="$(api_request "${api_url}/v1/vpn/settings")"
+countries="$(printf '%s' "$settings" | jq -c '.provider.server_selection.countries // []' 2>/dev/null || printf '[]')"
+
+if ((${#hostnames_env[@]} > 0)) && ! $want_random; then
   total="${#hostnames_env[@]}"
-  previous=0
-  if [[ -f "$STATE_FILE" ]] && [[ "$(<"$STATE_FILE")" =~ ^[0-9]+$ ]]; then
-    previous="$(<"$STATE_FILE")"
+  if ((total == 1)) && [[ -z "$want_to" ]]; then
+    echo "Aviso: lista com 1 servidor (${hostnames_env[0]}); nada a rotacionar." >&2
+    exit 0
+  fi
+  if [[ -n "$want_to" ]]; then
+    to_index=-1
+    for i in "${!hostnames_env[@]}"; do
+      [[ "${hostnames_env[$i]}" == "$want_to" ]] && to_index="$i" && break
+    done
+    ((to_index >= 0)) || { echo "Erro: '${want_to}' fora de VPN_SERVER_HOSTNAMES." >&2; exit 2; }
+    previous=$(( (to_index - 1 + total) % total ))
+  else
+    previous=$((total - 1))
+    if [[ -f "$STATE_FILE" ]] && [[ "$(<"$STATE_FILE")" =~ ^[0-9]+$ ]]; then
+      previous="$(<"$STATE_FILE")"
+    fi
   fi
   next=$(( (previous + 1) % total ))
   target="${hostnames_env[$next]}"
@@ -75,7 +134,7 @@ else
 fi
 
 echo "Aplicando troca de servidor no Gluetun..."
-if ! outcome="$(api_request -X PUT -H "Content-Type: application/json" -d "$patch" "${API_URL}/v1/vpn/settings")"; then
+if ! outcome="$(api_request -X PUT -H "Content-Type: application/json" -d "$patch" "${api_url}/v1/vpn/settings")"; then
   echo "Erro: o Gluetun não aceitou a troca de servidor." >&2
   exit 1
 fi

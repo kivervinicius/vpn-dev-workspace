@@ -7,8 +7,24 @@ services:
     entrypoint: ["/usr/local/bin/vpn-entrypoint.sh"]
     cap_add:
       - NET_ADMIN
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     devices:
       - /dev/net/tun:/dev/net/tun
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+    pids_limit: 256
+    stop_grace_period: 30s
     dns:
       # Resolução dentro do túnel pelo servidor DNS embutido do Gluetun.
       - 127.0.0.1
@@ -19,11 +35,20 @@ services:
       # Acesso à rede interna do host (opt-in): sub-redes permitidas fora do túnel.
       FIREWALL_OUTBOUND_SUBNETS: ${FIREWALL_SUBNETS:-}
       # Resolução de nomes internos (ex: *.omega): quando INTERNAL_DNS estiver
-      # definido, deixe INTERNAL_DNS_RESOLVERS vazio para não dividir as consultas
-      # entre upstreams. Veja .env.example.
+      # definido, o vpn-switch exporta DNS_UPSTREAM_RESOLVER_TYPE=plain para o
+      # Gluetun obedecer ao upstream plain (sem isso ele ignora e usa DoT).
+      # Veja .env.example.
+      DNS_UPSTREAM_RESOLVER_TYPE: ${DNS_UPSTREAM_RESOLVER_TYPE:-dot}
       DNS_UPSTREAM_RESOLVERS: ${INTERNAL_DNS_RESOLVERS:-cloudflare}
       DNS_UPSTREAM_PLAIN_ADDRESSES: ${INTERNAL_DNS:-}
       DNS_REBINDING_PROTECTION_EXEMPT_HOSTNAMES: ${INTERNAL_DNS_EXEMPT_HOSTNAMES:-}
+      # Proxy HTTP pela VPN (opt-in): porta dentro de VPN_PORT_RANGE, sem
+      # entrada nova em `ports`. Ver .env.example (VPN_HTTP_PROXY*).
+      HTTPPROXY: ${VPN_HTTP_PROXY:-off}
+      HTTPPROXY_LISTENING_ADDRESS: :${VPN_HTTP_PROXY_PORT:-10080}
+      HTTPPROXY_STEALTH: ${VPN_HTTP_PROXY_STEALTH:-on}
+      HTTPPROXY_USER: ${VPN_HTTP_PROXY_USER:-}
+      HTTPPROXY_PASSWORD: ${VPN_HTTP_PROXY_PASSWORD:-}
     ports:
       # A faixa é publicada apenas no endereço configurado do host.
       - "${HOST_BIND_ADDRESS:-127.0.0.1}:${VPN_PORT_RANGE:-10000-10100}:${VPN_PORT_RANGE:-10000-10100}"
@@ -53,6 +78,21 @@ services:
     # init colhe zumbis de shells/processos filhos (tail/zsh/opencode exec).
     init: true
     command: tail -f /dev/null
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 8G
+    pids_limit: 1024
     environment:
       ALSA_CONFIG_PATH: /dev/null
       GLUETUN_API_KEY_FILE: /run/secrets/gluetun_api_key
@@ -97,6 +137,21 @@ services:
     build: .
     network_mode: "service:vpn"
     command: ["/usr/local/bin/vpn-auto-reconnect"]
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    pids_limit: 64
     environment:
       GLUETUN_API_KEY_FILE: /run/secrets/gluetun_api_key
       VPN_RECONNECT_INTERVAL_SECONDS: ${VPN_RECONNECT_INTERVAL_SECONDS:-3600}
