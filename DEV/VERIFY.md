@@ -1,6 +1,6 @@
 # Verify
 
-## Latest Verification — 2026-09-18
+## Latest Verification — 2026-09-19
 
 ### Passaram
 
@@ -13,6 +13,16 @@
   `vpn.ps1 --help`, perfil inválido e importação de hosts foram exercitados.
 - `docker build --pull=false .`: imagem construída com `socat` e os hashes
   existentes de Node/OpenCode verificados durante o build.
+- `bash -n scripts/*`, `sh -n scripts/vpn-entrypoint.sh` e `git diff --check`
+  após o ajuste de capabilities e lifecycle.
+- `./scripts/verify-docs` e `./scripts/verify-compose`: oito perfis Linux e
+  oito combinações Windows válidas; `DAC_READ_SEARCH`, `DAC_OVERRIDE`, `CHOWN`,
+  `SETUID` e `SETGID` presentes no serviço `vpn` de cada perfil.
+- `./scripts/vpn-switch stop`: encerrou o projeto sem Compose manual.
+- Runtime Linux: `./scripts/vpn-switch nordvpn-openvpn` recriou os serviços e
+  deixou `vpn`, `terminal` e `vpn-auto-reconnect` saudáveis; `vpn-status --json`
+  mostrou IP público `189.1.168.11` e `vpn-check --json` passou com `healthy=true`,
+  DNS do túnel e `LOCAL_HOSTS`.
 
 ### Ainda pendente
 
@@ -20,6 +30,8 @@
   `openssh-ssh-agent`, túnel/DNS, `ssh-add -l`, OpenCode e persistência da home.
 - Repetição do fluxo Bash em WSL2 integrado ao Docker Desktop, incluindo
   confirmação de que a LAN só funciona com `FIREWALL_SUBNETS` explícito.
+- Runtime Windows/WSL2 e demais smoke tests pendentes; ShellCheck local não
+  instalado.
 
 ## Latest Verification
 

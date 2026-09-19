@@ -366,7 +366,7 @@ function Start-Vpn {
     try {
         Invoke-Compose -Arguments @($compose + @('config', '--quiet')) | Out-Null
         Invoke-Compose -Arguments @($compose + @('down', '--remove-orphans')) | Out-Null
-        Invoke-Compose -Arguments @($compose + @('up', '-d', '--build', '--remove-orphans')) | Out-Null
+        Invoke-Compose -Arguments @($compose + @('up', '-d', '--build', '--force-recreate', '--remove-orphans')) | Out-Null
         Wait-ForHealthyVpn $compose
         Write-Output "Perfil $Profile conectado no Docker Desktop."
         Apply-LocalHosts

@@ -61,6 +61,6 @@
 
 ## Status
 
-- State: Windows-support-implemented (runtime Windows/WSL2 pendente; build local passou)
+- State: secret-capabilities-fixed (runtime Linux validado; Windows/WSL2 pendentes)
 - Owner: Codex
-- Last updated: 2026-09-17
+- Last updated: 2026-09-19

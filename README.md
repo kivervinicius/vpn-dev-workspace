@@ -300,5 +300,5 @@ Esse mount concede ao terminal acesso de leitura e escrita a toda a home indicad
 ## Encerrar o ambiente
 
 ```bash
-docker compose -f docker-compose.yml -f profiles/nordvpn-openvpn.yml down --remove-orphans
+./scripts/vpn-switch stop
 ```

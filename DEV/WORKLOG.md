@@ -2,6 +2,24 @@
 
 Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for older entries after compaction.
 
+## 2026-09-19 - Secrets 0600 e ciclo de vida pelo vpn-switch
+
+- Changed: `vpn` ganhou `DAC_READ_SEARCH`/`DAC_OVERRIDE` para ler e reescrever
+  os secrets/arquivos bind-mounted em modo 0600, `CHOWN` para o Gluetun gerar
+  o perfil OpenVPN e `SETUID`/`SETGID` para o OpenVPN reduzir privilégios;
+  `vpn-switch` e
+  `vpn.ps1 start` usam `--force-recreate`; `vpn-switch stop|down` encerra o
+  projeto; `verify-compose` passou a usar `/usr/bin/env` e trava as capabilities
+  exigidas nos oito perfis.
+- Why: `cap_drop: ALL` fazia o entrypoint falhar com `Permission denied` e,
+  depois da leitura corrigida, o Gluetun falhava em `chown`/`setuid`; o ciclo
+  deve ser operável pelo script sem Compose manual.
+- Verified: `bash -n`, `sh -n`, `verify-docs`, `verify-compose` (Linux + Windows),
+  `git diff --check`; `./scripts/vpn-switch nordvpn-openvpn` deixou os três
+  serviços saudáveis; `vpn-status --json` e `vpn-check --json` passaram com IP
+  público e DNS pelo túnel.
+- Next context: repetir runtime em Windows/WSL2; ShellCheck local não está instalado.
+
 ## 2026-09-18 - Suporte Windows PowerShell e WSL2
 
 - Changed: criado `compose.windows.yml` (Compose >= 2.24.4, `!override`,

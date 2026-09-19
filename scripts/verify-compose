@@ -14,7 +14,7 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
 fi
 
 compose_env=(
-  env
+  /usr/bin/env
   "GLUETUN_API_KEY_FILE=${PLACEHOLDER}"
   "NORDVPN_USER_FILE=${PLACEHOLDER}"
   "NORDVPN_PASSWORD_FILE=${PLACEHOLDER}"
@@ -37,6 +37,13 @@ compose_env=(
 for profile_file in "${ROOT_DIR}"/profiles/*.yml; do
   profile="$(basename "$profile_file" .yml)"
   echo "Validando perfil ${profile}..."
+  config="$("${compose_env[@]}" docker compose --profile vpn -f "$COMPOSE_FILE" -f "$profile_file" config)"
+  for capability in DAC_READ_SEARCH DAC_OVERRIDE CHOWN SETUID SETGID; do
+    grep -Fq "$capability" <<<"$config" || {
+      echo "Erro: serviço vpn sem ${capability} exigida pelo Gluetun: ${profile}." >&2
+      exit 1
+    }
+  done
   "${compose_env[@]}" docker compose --profile vpn -f "$COMPOSE_FILE" -f "$profile_file" config --quiet
   "${compose_env[@]}" docker compose --profile vpn -f "$COMPOSE_FILE" -f "$WINDOWS_COMPOSE_FILE" -f "$profile_file" config --quiet
 done

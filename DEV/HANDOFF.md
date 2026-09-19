@@ -4,7 +4,7 @@ This file should stay small. Refresh it after substantive work or run `orquestra
 
 ## Snapshot
 
-- Updated: 2026-09-18
+- Updated: 2026-09-19
 - Read order: `INDEX.md` -> `HANDOFF.md` -> `CONTEXT.md` -> `SPECS/ACTIVE.md`
 - Active spec: `SPECS/ACTIVE.md`
 - Verification source: `VERIFY.md`
@@ -12,15 +12,17 @@ This file should stay small. Refresh it after substantive work or run `orquestra
 
 ## Latest Work
 
-- Current: suporte Windows PowerShell/WSL2 implementado; runtime real em
-  Windows e repetição WSL2 continuam pendentes. Consulte `VERIFY.md`.
+- Current: falha recorrente de secrets/hardening corrigida; `vpn-switch` agora
+  recria o ambiente e oferece `stop|down`. Runtime Linux passou com os três
+  serviços saudáveis, IP público, DNS e hosts locais; Windows/WSL2 continuam
+  pendentes. Consulte `VERIFY.md`.
 
-- Entry: revisão completa lote D (bugfixes + CLI máquina + bumps + hardening).
+- Entry: correção das capabilities necessárias ao Gluetun e lifecycle pelo script.
 - Spec: `SPECS/ACTIVE.md` (status: reviewed-and-upgraded; runtime pendente no host/CI).
-- Changed: (A) `vpn-top` invertido, `INTERNAL_DNS_RESOLVERS` vazio + modo plain auto, README/stale limpos. (B) `--json`/`-q` em status/check/top, `check` exit 0/1, `opencode stop/status/logs/--detach` + faixa, `--help` ×14, rotate (`--to/--list`, off-by-one, periódica), health leve no auto-reconnect. (C) Node `22.23.2` + OpenCode `1.18.31` + digest jammy (SHAs verificados), CI `24.04`/`checkout@v6`/strict, hardening Compose, `HTTPPROXY` opt-in, higiene local `600` + ignores.
-- Verified: estático + fixtures (ver VERIFY.md); sem Docker — runtime e build na CI/host.
-- Risks: hardening/limits e bumps exigem `vpn-switch` + build reais; `read_only` adiado; `secrets/` dup + `secrets.zip` a decidir.
-- Next context: `vpn-switch` no host (valida plain-DNS nos logs do Gluetun + proxy + hosts + rotate); Desktop App real; supply-chain restante no BACKLOG.
+- Changed: `vpn` mantém `cap_drop: ALL` e adiciona somente as capabilities mínimas observadas (`DAC_READ_SEARCH`, `DAC_OVERRIDE`, `CHOWN`, `SETUID`, `SETGID`); `vpn-switch`/`vpn.ps1` forçam recreate; `vpn-switch stop|down` encerra o projeto; `verify-compose` valida o conjunto.
+- Verified: checks estáticos e oito perfis passaram; `vpn-switch nordvpn-openvpn`, `vpn-status --json` e `vpn-check --json` passaram no Linux.
+- Risks: ShellCheck local indisponível; Windows/WSL2 e demais smoke tests continuam pendentes.
+- Next context: validar Windows/WSL2 e executar os smoke tests restantes.
 
 ## Recent Entries
 

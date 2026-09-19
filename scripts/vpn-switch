@@ -5,9 +5,10 @@ readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly COMPOSE_FILE="${ROOT_DIR}/docker-compose.yml"
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-  echo "Uso: vpn-switch <perfil> [--help]" >&2
+  echo "Uso: vpn-switch <perfil> | stop|down [--help]" >&2
   echo "Perfis: nordvpn-openvpn|nordvpn-wireguard|protonvpn-openvpn|protonvpn-wireguard|surfshark-openvpn|mullvad-wireguard|custom-openvpn|custom-wireguard" >&2
-  echo "Valida, sobe o perfil (rebuild), aguarda health, aplica LOCAL_HOSTS." >&2
+  echo "Valida, recria e sobe o perfil (rebuild), aguarda health, aplica LOCAL_HOSTS." >&2
+  echo "stop|down: encerra todos os serviços do projeto sem chamar Compose manualmente." >&2
   exit 0
 fi
 
@@ -19,6 +20,13 @@ need() {
 
 need docker
 need awk
+
+if [[ "${1:-}" == "stop" || "${1:-}" == "down" ]]; then
+  [[ $# -eq 1 ]] || { echo "Erro: stop|down não aceita argumentos." >&2; exit 2; }
+  echo "Encerrando o ambiente VPN..."
+  docker compose --profile vpn -f "$COMPOSE_FILE" down --remove-orphans
+  exit 0
+fi
 
 read_compose_value() {
   local name="$1" default_value="$2" value=""
@@ -187,7 +195,7 @@ fi
 echo "Parando o perfil atual..."
 "${compose[@]}" down --remove-orphans
 echo "Subindo o perfil ${profile}..."
-"${compose[@]}" up -d --build --remove-orphans
+"${compose[@]}" up -d --build --force-recreate --remove-orphans
 
 vpn_container="$("${compose[@]}" ps -q vpn)"
 [[ -n "$vpn_container" ]] || {

@@ -7,6 +7,17 @@ services:
     entrypoint: ["/usr/local/bin/vpn-entrypoint.sh"]
     cap_add:
       - NET_ADMIN
+      # Os segredos locais são bind mounts com modo 0600 e pertencem ao
+      # usuário do host; estas capabilities permitem ao entrypoint root
+      # lê-los e ao Gluetun reescrever seus arquivos de runtime sem reabrir
+      # todas as capabilities removidas abaixo.
+      - DAC_READ_SEARCH
+      - DAC_OVERRIDE
+      # O Gluetun gera o perfil OpenVPN e ajusta o dono do arquivo antes de
+      # reduzir o processo ao UID/GID configurado na imagem.
+      - CHOWN
+      - SETUID
+      - SETGID
     cap_drop:
       - ALL
     security_opt:
