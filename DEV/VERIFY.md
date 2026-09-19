@@ -1,8 +1,30 @@
 # Verify
 
-## Latest Verification — 2026-09-19
+## Latest Verification — 2026-09-19 (Verificação automática do OpenCode)
+
+### Passaram (sem Docker no ambiente de edição)
+
+- `bash -n` em `vpn-opencode`, `vpn-auto-reconnect`, `vpn-top`, `verify-docs`, `verify-compose`; `sh -n vpn-entrypoint.sh`; `git diff --check`.
+- `./scripts/verify-docs` (incl. novas travas: `check|watch`, `OPENCODE_AUTOCHECK`, mounts/env no Compose, seção `OpenCode` no `vpn-top`).
+- Matriz `--help` exit 0 (`vpn-opencode`, `vpn-auto-reconnect`, `vpn-top`, `vpn-check`, `vpn-status`).
+- `vpn-opencode check --port` em porta fechada → `down` exit 1 (texto e `--json`); responder HTTP com `quota exceeded` → `quota` exit 1 com `quota-pattern-in-http`; corpo neutro → `ok` exit 0; `watch` sem Docker falha rápido exit 2 (sem hang); `vpn-top --json` inclui `.opencode`.
+- Greps do Compose: mount `vpn-opencode` em 2 serviços + repasse `OPENCODE_AUTOCHECK`/`OPENCODE_GUI_PORT`.
+
+### Ainda pendente
+
+- `./scripts/verify-compose` completo, `docker build`, ShellCheck (sem Docker/ShellCheck aqui — CI/host).
+- Runtime real: `vpn-switch`, `web|serve --detach`, `check --json`, matar processo p/ `watch` recuperar com limite, `OPENCODE_AUTOCHECK=true` no `auto-reconnect` (só alerta), `vpn-top` com túnel + OpenCode, `vpn.ps1 opencode check|watch` em Windows real.
+
+## Latest Verification — 2026-09-19 (Adição de KILL capability)
 
 ### Passaram
+
+- `./scripts/verify-compose`: oito perfis Linux e oito combinações Windows válidas, confirmando `KILL` junto a `DAC_READ_SEARCH`, `DAC_OVERRIDE`, `CHOWN`, `SETUID`, `SETGID`.
+- `./scripts/verify-docs`.
+- `./scripts/vpn-switch nordvpn-openvpn`: recriação completa dos contêineres; serviços `vpn`, `terminal` e `vpn-auto-reconnect` saudáveis.
+- `docker exec vpn-dev-workspace-terminal-1 vpn-reconnect`: executado 2x consecutivas com encerramento gracioso do OpenVPN, polling e novo IP público obtido sem timeouts (tempo de execução ~9s).
+- `docker exec vpn-dev-workspace-terminal-1 vpn-status`: túnel running, servidores listados e IP público identificado.
+- `docker exec vpn-dev-workspace-terminal-1 vpn-check`: túnel, IP, DNS do túnel, resolução e hosts locais 100% ok.
 
 - `bash -n scripts/*`, `sh -n scripts/vpn-entrypoint.sh` e `git diff --check`.
 - `./scripts/verify-docs`.

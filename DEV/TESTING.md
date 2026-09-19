@@ -28,9 +28,13 @@
   `LOCAL_HOSTS` cobrindo resolve/mismatch/não-resolve/inválido.
 - Runtime (manual, com túnel real): `vpn-switch nordvpn-openvpn`,
   `vpn-reconnect` ×2 (imprime IP), `vpn-check` (incl. `INTERNAL_TEST_HOST`/
-  `INTERNAL_TEST_PORT`), `vpn-top`, `vpn-opencode web` (401 sem senha, 200 com
+  `INTERNAL_TEST_PORT`), `vpn-top` (incl. seção OpenCode), `vpn-opencode web` (401 sem senha, 200 com
   basic auth) e `serve` (200), `ssh-add -l` no terminal. Evidência em
   `VERIFY.md`.
+- OpenCode sem Docker: `vpn-opencode check --port` com porta fechada (`down`, exit 1),
+  responder HTTP com `quota exceeded` (`quota`, exit 1, sem restart) e corpo neutro
+  (`ok`, exit 0); `--json` emite `{status,port,detail}`; `watch` com `--restart-max 0`
+  nunca reinicia; `vpn-top --json` inclui `.opencode`.
 - Hosts locais (runtime): com `LOCAL_HOSTS=gitlab.omega=<ip>`, `getent hosts
   gitlab.omega` no terminal retorna o IP e `vpn-check` marca ok; alcance real
   exige a sub-rede em `FIREWALL_SUBNETS`.

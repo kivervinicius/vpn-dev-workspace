@@ -12,16 +12,22 @@ This file should stay small. Refresh it after substantive work or run `orquestra
 
 ## Latest Work
 
-- Current: falha recorrente de secrets/hardening corrigida; `vpn-switch` agora
-  recria o ambiente e oferece `stop|down`. Runtime Linux passou com os três
-  serviços saudáveis, IP público, DNS e hosts locais; Windows/WSL2 continuam
-  pendentes. Consulte `VERIFY.md`.
+- Current: verificação automática do OpenCode — `vpn-opencode check|watch`
+  (`quota`=alerta puro zero restart, `down`=restart limitado), sonda opt-in
+  `OPENCODE_AUTOCHECK` no `vpn-auto-reconnect` (sem socket, sem reconnect do
+  túnel), seção `opencode` no `vpn-top`, paridade `vpn.ps1`, docs e travas.
+  Estático validado sem Docker; runtime real pendente no host. Consulte `VERIFY.md`.
 
-- Entry: correção das capabilities necessárias ao Gluetun e lifecycle pelo script.
-- Spec: `SPECS/ACTIVE.md` (status: reviewed-and-upgraded; runtime pendente no host/CI).
-- Changed: `vpn` mantém `cap_drop: ALL` e adiciona somente as capabilities mínimas observadas (`DAC_READ_SEARCH`, `DAC_OVERRIDE`, `CHOWN`, `SETUID`, `SETGID`); `vpn-switch`/`vpn.ps1` forçam recreate; `vpn-switch stop|down` encerra o projeto; `verify-compose` valida o conjunto.
-- Verified: checks estáticos e oito perfis passaram; `vpn-switch nordvpn-openvpn`, `vpn-status --json` e `vpn-check --json` passaram no Linux.
-- Risks: ShellCheck local indisponível; Windows/WSL2 e demais smoke tests continuam pendentes.
+- Previous: falha de timeout no `vpn-reconnect` corrigida adicionando a capability
+  `KILL` ao serviço `vpn`. Runtime Linux validado com reconexão bem-sucedida (2x),
+  troca e obtenção de IP público, `vpn-status` e `vpn-check` 100% saudáveis.
+  Consulte `VERIFY.md`.
+
+- Entry: adição de `KILL` capability ao Gluetun para sinalizar e parar OpenVPN na reconexão.
+- Spec: `SPECS/ACTIVE.md` (status: reviewed-and-upgraded; runtime Linux validado; Windows/WSL2 pendentes).
+- Changed: `vpn` adiciona capability `KILL` ao `cap_add` em `docker-compose.yml`; `scripts/verify-compose` trava a presença de `KILL` em todos os perfis.
+- Verified: `verify-compose` e `verify-docs` passaram; `vpn-switch nordvpn-openvpn` recriou contêineres saudáveis; `vpn-reconnect` executado duas vezes com sucesso e novo IP atribuído em ~9s; `vpn-status` e `vpn-check` aprovados.
+- Risks: ShellCheck local indisponível; Windows/WSL2 continuam pendentes de validação real.
 - Next context: validar Windows/WSL2 e executar os smoke tests restantes.
 
 ## Recent Entries

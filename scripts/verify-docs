@@ -144,6 +144,52 @@ grep -Fq 'OPENCODE_GUI_PORT' "$README_FILE" || {
   fails=$((fails + 1))
 }
 
+# Trava de drift: verificação automática do OpenCode (check|watch|autocheck).
+grep -Fq 'vpn-opencode check' "$README_FILE" || {
+  echo "Erro: verificação do OpenCode (vpn-opencode check) sem documentação no README." >&2
+  fails=$((fails + 1))
+}
+grep -Fq 'vpn-opencode watch' "$README_FILE" || {
+  echo "Erro: supervisor do OpenCode (vpn-opencode watch) sem documentação no README." >&2
+  fails=$((fails + 1))
+}
+grep -Fq 'OPENCODE_AUTOCHECK' "$README_FILE" || {
+  echo "Erro: sonda do OpenCode no auto-reconnect (OPENCODE_AUTOCHECK) sem documentação no README." >&2
+  fails=$((fails + 1))
+}
+grep -Fq 'OPENCODE_AUTOCHECK' "$ROOT_DIR/.env.example" || {
+  echo "Erro: OPENCODE_AUTOCHECK sem exemplo em .env.example." >&2
+  fails=$((fails + 1))
+}
+grep -Fq 'OPENCODE_WATCH_INTERVAL' "$ROOT_DIR/.env.example" || {
+  echo "Erro: OPENCODE_WATCH_INTERVAL sem exemplo em .env.example." >&2
+  fails=$((fails + 1))
+}
+grep -Fq 'OPENCODE_RESTART_MAX' "$ROOT_DIR/.env.example" || {
+  echo "Erro: OPENCODE_RESTART_MAX sem exemplo em .env.example." >&2
+  fails=$((fails + 1))
+}
+grep -Fq 'check|watch' "$ROOT_DIR/scripts/vpn-opencode" || {
+  echo "Erro: vpn-opencode sem modos check|watch." >&2
+  fails=$((fails + 1))
+}
+grep -Fq 'OPENCODE_AUTOCHECK' "$ROOT_DIR/scripts/vpn-auto-reconnect" || {
+  echo "Erro: vpn-auto-reconnect sem sonda opt-in do OpenCode (OPENCODE_AUTOCHECK)." >&2
+  fails=$((fails + 1))
+}
+grep -Fq 'vpn-opencode:/usr/local/bin/vpn-opencode' "$ROOT_DIR/docker-compose.yml" || {
+  echo "Erro: vpn-opencode sem mount no Compose (sonda indisponível no auto-reconnect)." >&2
+  fails=$((fails + 1))
+}
+grep -Fq 'OPENCODE_AUTOCHECK' "$ROOT_DIR/docker-compose.yml" || {
+  echo "Erro: OPENCODE_AUTOCHECK sem repasse no Compose." >&2
+  fails=$((fails + 1))
+}
+grep -Fq 'OpenCode' "$ROOT_DIR/scripts/vpn-top" || {
+  echo "Erro: vpn-top sem seção OpenCode." >&2
+  fails=$((fails + 1))
+}
+
 grep -Fq 'VPN_ROTATE_SERVERS' "$README_FILE" || {
   echo "Erro: rotação automática de servidor não está documentada." >&2
   fails=$((fails + 1))

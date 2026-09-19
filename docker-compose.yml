@@ -18,6 +18,10 @@ services:
       - CHOWN
       - SETUID
       - SETGID
+      # Permite ao processo supervisor do Gluetun (root) enviar sinais
+      # (SIGTERM/SIGKILL) para encerrar processos filhos (openvpn/wireguard)
+      # que rodam sob UID não-root.
+      - KILL
     cap_drop:
       - ALL
     security_opt:
@@ -118,6 +122,10 @@ services:
       VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE: ${VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE:-3}
       # Hosts locais mapeados (opt-in): o vpn-check valida cada nome=ip.
       LOCAL_HOSTS: ${LOCAL_HOSTS:-}
+      # Observabilidade do OpenCode (opt-in; só sonda, nunca reinicia aqui).
+      OPENCODE_GUI_PORT: ${OPENCODE_GUI_PORT:-10001}
+      OPENCODE_QUOTA_PATTERNS: ${OPENCODE_QUOTA_PATTERNS:-}
+      OPENCODE_CHECK_LOG_LINES: ${OPENCODE_CHECK_LOG_LINES:-200}
       # Sessão SSH do host, quando existir (senão /dev/null, inofensivo).
       SSH_AUTH_SOCK: /run/vpn-ssh-agent.sock
     volumes:
@@ -174,12 +182,18 @@ services:
       VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE: ${VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE:-3}
       # Hosts locais mapeados (opt-in): o vpn-check valida cada nome=ip.
       LOCAL_HOSTS: ${LOCAL_HOSTS:-}
+      # Sonda do OpenCode (opt-in; alerta puro, sem reconnect do túnel).
+      OPENCODE_AUTOCHECK: ${OPENCODE_AUTOCHECK:-false}
+      OPENCODE_GUI_PORT: ${OPENCODE_GUI_PORT:-10001}
+      OPENCODE_QUOTA_PATTERNS: ${OPENCODE_QUOTA_PATTERNS:-}
+      OPENCODE_CHECK_LOG_LINES: ${OPENCODE_CHECK_LOG_LINES:-200}
     volumes:
       - ./scripts/vpn-status:/usr/local/bin/vpn-status:ro
       - ./scripts/vpn-reconnect:/usr/local/bin/vpn-reconnect:ro
       - ./scripts/vpn-check:/usr/local/bin/vpn-check:ro
       - ./scripts/vpn-server-rotate:/usr/local/bin/vpn-server-rotate:ro
       - ./scripts/vpn-auto-reconnect:/usr/local/bin/vpn-auto-reconnect:ro
+      - ./scripts/vpn-opencode:/usr/local/bin/vpn-opencode:ro
     depends_on:
       vpn:
         condition: service_healthy

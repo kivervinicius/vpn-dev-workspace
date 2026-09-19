@@ -9,6 +9,8 @@ readonly RETRY_SECONDS="${VPN_RECONNECT_RETRY_SECONDS:-30}"
 readonly ROTATE_ENABLED_RAW="${VPN_ROTATE_SERVERS:-false}"
 readonly ATTEMPTS_BEFORE_ROTATE="${VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE:-3}"
 readonly ROTATE_INTERVAL_SECONDS="${VPN_ROTATE_INTERVAL_SECONDS:-0}"
+readonly OPENCODE_AUTOCHECK_RAW="${OPENCODE_AUTOCHECK:-false}"
+readonly OPENCODE_PORT="${OPENCODE_GUI_PORT:-10001}"
 consecutive_failures=0
 
 # Aceita true/1/yes (qualquer caixa); resto = desligado.
@@ -16,11 +18,16 @@ case "${ROTATE_ENABLED_RAW,,}" in
   true|1|yes) ROTATE_ON_FAILURE=true ;;
   *) ROTATE_ON_FAILURE=false ;;
 esac
+case "${OPENCODE_AUTOCHECK_RAW,,}" in
+  true|1|yes) OPENCODE_AUTOCHECK=true ;;
+  *) OPENCODE_AUTOCHECK=false ;;
+esac
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   echo "Uso: vpn-auto-reconnect [--help]" >&2
   echo "Daemon: valida saúde a cada VPN_RECONNECT_INTERVAL_SECONDS e recupera." >&2
   echo "Opt-in rotação: VPN_ROTATE_SERVERS=true (após VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE falhas)." >&2
+  echo "Opt-in OpenCode: OPENCODE_AUTOCHECK=true (só alerta down|quota, sem reconnect do túnel)." >&2
   exit 0
 fi
 
@@ -56,6 +63,16 @@ resolve_helper() {
 VPN_CHECK_BIN="$(resolve_helper vpn-check)"
 VPN_RECONNECT_BIN="$(resolve_helper vpn-reconnect)"
 
+resolve_helper_optional() {
+  if command -v "$1" >/dev/null 2>&1; then
+    command -v "$1"
+  elif [[ -x "/usr/local/bin/$1" ]]; then
+    printf '/usr/local/bin/%s' "$1"
+  else
+    return 1
+  fi
+}
+
 is_healthy() {
   "$VPN_CHECK_BIN" >/dev/null 2>&1
 }
@@ -63,6 +80,24 @@ is_healthy() {
 # Saúde leve para o loop (só túnel+IP): evita reconnect por blip de DNS/hosts.
 is_critical_healthy() {
   "$VPN_CHECK_BIN" --only tunnel -q >/dev/null 2>&1
+}
+
+# Sonda do OpenCode (alerta puro): nunca dispara reconnect do túnel e nunca
+# reinicia web/serve daqui (sem socket Docker). O restart vive no
+# `vpn-opencode watch` (host-side). Retorno sempre 0 para não derrubar o loop.
+opencode_notice() {
+  $OPENCODE_AUTOCHECK || return 0
+  local helper=""
+  helper="$(resolve_helper_optional vpn-opencode 2>/dev/null || true)"
+  if [[ -z "$helper" ]]; then
+    echo "Aviso: OPENCODE_AUTOCHECK ligado mas helper vpn-opencode ausente; pulando sonda OpenCode." >&2
+    return 0
+  fi
+  if "$helper" check --port "$OPENCODE_PORT" -q >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "Aviso: OpenCode não-ok na porta ${OPENCODE_PORT} (down|quota); túnel segue sem reconnect (detalhe: vpn-opencode check --port ${OPENCODE_PORT})." >&2
+  return 0
 }
 
 backoff_sleep() {
@@ -133,6 +168,10 @@ validate_interval VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE "$ATTEMPTS_BEFORE_ROTATE"
 if ((ROTATE_INTERVAL_SECONDS > 0)); then
   validate_interval VPN_ROTATE_INTERVAL_SECONDS "$ROTATE_INTERVAL_SECONDS"
 fi
+[[ "$OPENCODE_PORT" =~ ^[1-9][0-9]{0,4}$ && "$OPENCODE_PORT" -le 65535 ]] || {
+  echo "Erro: OPENCODE_GUI_PORT inválida: $OPENCODE_PORT (1-65535)." >&2
+  exit 2
+}
 
 set_state starting
 if is_healthy; then
@@ -140,19 +179,24 @@ if is_healthy; then
   consecutive_failures=0
   write_count
   echo "VPN saudável; manutenção automática a cada ${RECONNECT_INTERVAL_SECONDS}s."
+  opencode_notice
 else
   recover_until_healthy
+  opencode_notice
 fi
 
 while true; do
   sleep "$RECONNECT_INTERVAL_SECONDS"
   if ! is_critical_healthy; then
     recover_until_healthy
+    opencode_notice
   else
     # Túnel ok: checagem completa só informa (sem reconnect por blip de DNS).
     if ! is_healthy; then
       echo "Aviso: checagem completa falhou com túnel ativo (provável blip de DNS/hosts); sem reconectar." >&2
     fi
+    # OpenCode: só alerta (down|quota), sem reconnect do túnel e sem restart.
+    opencode_notice
     maybe_periodic_rotate
   fi
 done

@@ -215,6 +215,9 @@ O helper `vpn-opencode` roda o OpenCode dentro do container (tráfego de LLM 100
 
 - Porta: `OPENCODE_GUI_PORT` (padrão `10001`); validada dentro de `VPN_PORT_RANGE`.
 - Gerenciar: `vpn-opencode status|logs [--port P]`, `vpn-opencode stop [--port P]`, fundo com `web|serve --detach`.
+- Verificação: `vpn-opencode check [--port P] [--json|-q]` distingue `ok|down|quota` (exit `0` ok / `1` down|quota); `vpn-top` mostra a seção OpenCode.
+- Supervisor (opt-in, host-side): `vpn-opencode watch [--mode web|serve] [--interval N] [--restart-max N]` — `down` = alerta + restart limitado; `quota` (diálogo "quota acabou") = alerta puro, zero restart.
+- Sonda no auto-reconnect (opt-in, sem socket Docker): `OPENCODE_AUTOCHECK=true` só alerta `down|quota` no log, sem reconectar o túnel. Restart vive no `watch`.
 - Senha (basic auth, usuário `opencode`): arquivo `OPENCODE_GUI_PASSWORD_FILE` (padrão `.secrets/opencode_gui_password`). Sem o arquivo, o painel abre sem senha — apenas para uso local.
 - O estado é compartilhado com o CLI: o mesmo `$HOME` e os mesmos projetos são usados por `opencode` no terminal e pela GUI.
 

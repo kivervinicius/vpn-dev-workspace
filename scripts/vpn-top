@@ -4,7 +4,17 @@ set -Eeuo pipefail
 readonly API_URL="${GLUETUN_API_URL:-http://127.0.0.1:8000}"
 readonly API_KEY_FILE="${GLUETUN_API_KEY_FILE:-/run/secrets/gluetun_api_key}"
 readonly RECONNECT_STATE_FILE=/tmp/vpn-auto-reconnect.state
+readonly OPENCODE_PORT="${OPENCODE_GUI_PORT:-10001}"
 readonly CURL_TIMEOUT_ARGS=(--connect-timeout 5 --max-time 10)
+
+opencode_tcp_ok() {
+  local p="$1"
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 5 bash -c "exec 3<>/dev/tcp/127.0.0.1/${p}" 2>/dev/null
+  else
+    bash -c "exec 3<>/dev/tcp/127.0.0.1/${p}" 2>/dev/null
+  fi
+}
 
 usage() {
   echo "Uso: vpn-top [--json] [--no-color]" >&2
@@ -39,13 +49,31 @@ if $output_json; then
   dns_data="$(jget "${API_URL}/v1/dns/status")"
   auto_state=""
   [[ -f "$RECONNECT_STATE_FILE" ]] && auto_state="$(tr -d '\r\n' < "$RECONNECT_STATE_FILE" | head -n 1)"
+  opencode_json='null'
+  opencode_helper=""
+  if command -v vpn-opencode >/dev/null 2>&1; then opencode_helper="$(command -v vpn-opencode)";
+  elif [[ -x "/usr/local/bin/vpn-opencode" ]]; then opencode_helper="/usr/local/bin/vpn-opencode"; fi
+  if [[ -n "$opencode_helper" ]]; then
+    probe_out="$("$opencode_helper" check --port "$OPENCODE_PORT" --json 2>/dev/null || true)"
+    if printf '%s' "$probe_out" | jq -e 'has("status")' >/dev/null 2>&1; then
+      opencode_json="$probe_out"
+    fi
+  fi
+  if [[ "$opencode_json" == 'null' ]]; then
+    if opencode_tcp_ok "$OPENCODE_PORT"; then
+      opencode_json="$(jq -nc --argjson port "$OPENCODE_PORT" '{status: "ok", port: $port, detail: "tcp-aberto"}')"
+    else
+      opencode_json="$(jq -nc --argjson port "$OPENCODE_PORT" '{status: "down", port: $port, detail: "tcp-fechado"}')"
+    fi
+  fi
   jq -nc \
     --argjson vpn_status "${vpn_status:-null}" \
     --argjson settings "${settings:-null}" \
     --argjson public_ip "${ip_data:-null}" \
     --argjson dns "${dns_data:-null}" \
     --arg auto_reconnect "$auto_state" \
-    '{vpn: $vpn_status, settings: $settings, public_ip: $public_ip, dns: $dns, auto_reconnect: $auto_reconnect}'
+    --argjson opencode "$opencode_json" \
+    '{vpn: $vpn_status, settings: $settings, public_ip: $public_ip, dns: $dns, auto_reconnect: $auto_reconnect, opencode: $opencode}'
   exit 0
 fi
 
@@ -162,4 +190,15 @@ if [[ -f "$RECONNECT_STATE_FILE" ]]; then
     "${VPN_RECONNECT_RETRY_SECONDS:-30}"
 else
   printf '%sEstado indisponível fora do ambiente (host).%s\n' "$C_YELLOW" "$C_RESET"
+fi
+
+echo
+
+section "OpenCode"
+if opencode_tcp_ok "$OPENCODE_PORT"; then
+  printf 'Painel:   %souvindo em 127.0.0.1:%s%s\n' "$C_GREEN" "$OPENCODE_PORT" "$C_RESET"
+  printf 'Detalhe:  vpn-opencode check --port %s (quota separa down de crédito esgotado)\n' "$OPENCODE_PORT"
+else
+  printf 'Painel:   %snada ouvindo em 127.0.0.1:%s%s\n' "$C_RED" "$OPENCODE_PORT" "$C_RESET"
+  printf 'Ação:     vpn-opencode check --port %s; auto: vpn-opencode watch --port %s\n' "$OPENCODE_PORT" "$OPENCODE_PORT"
 fi

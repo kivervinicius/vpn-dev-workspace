@@ -26,32 +26,47 @@ read_compose_value() {
 }
 
 usage() {
-  echo "Uso: vpn-opencode <web|serve|stop|status|logs> [opções]" >&2
+  echo "Uso: vpn-opencode <web|serve|stop|status|logs|check|watch> [opções]" >&2
   echo "  web [--detach] [--port P]   painel web (foreground; -d solta no fundo)" >&2
   echo "  serve [--detach] [--port P] ponta para o Desktop App" >&2
   echo "  stop [--port P]             encerra web/serve na porta" >&2
   echo "  status [--port P]           diz se há web/serve ouvindo a porta" >&2
   echo "  logs [--tail N] [--port P]  logs do terminal (útil com --detach)" >&2
+  echo "  check [--port P] [--json|-q] [--log-lines N]  verifica ok|down|quota (0/1)" >&2
+  echo "  watch [--port P] [--mode web|serve] [--interval N] [--restart-max N] [--log-lines N] [-q]" >&2
+  echo "    supervisor host-side: down=alerta+restart limitado; quota=alerta puro sem restart" >&2
   echo "Porta padrão: \${OPENCODE_GUI_PORT:-10001} (deve estar na VPN_PORT_RANGE)." >&2
   exit 0
 }
 
 mode="${1:-}"
 case "$mode" in
-  web|serve|stop|status|logs) ;;
+  web|serve|stop|status|logs|check|watch) ;;
   -h|--help|"") usage ;;
-  *) echo "Erro: modo desconhecido: $mode" >&2; echo "Uso: vpn-opencode <web|serve|stop|status|logs>" >&2; exit 2 ;;
+  *) echo "Erro: modo desconhecido: $mode" >&2; echo "Uso: vpn-opencode <web|serve|stop|status|logs|check|watch>" >&2; exit 2 ;;
 esac
 
 detach=false
 port="${OPENCODE_GUI_PORT:-10001}"
 tail_n="50"
+output_json=false
+quiet=false
+log_lines="${OPENCODE_CHECK_LOG_LINES:-200}"
+watch_interval="${OPENCODE_WATCH_INTERVAL:-30}"
+restart_max="${OPENCODE_RESTART_MAX:-3}"
+restart_mode="${OPENCODE_WATCH_MODE:-serve}"
 shift
 while (($# > 0)); do
   case "$1" in
     -d|--detach) detach=true; shift ;;
     --port) port="${2:-}"; [[ -n "$port" ]] || { echo "Erro: --port exige um valor." >&2; exit 2; }; shift 2 ;;
     --tail) tail_n="${2:-}"; [[ "$tail_n" =~ ^[1-9][0-9]*$ ]] || { echo "Erro: --tail exige inteiro positivo." >&2; exit 2; }; shift 2 ;;
+    --json) output_json=true; shift ;;
+    -q|--quiet) quiet=true; shift ;;
+    --log-lines) log_lines="${2:-}"; [[ "$log_lines" =~ ^[1-9][0-9]*$ ]] || { echo "Erro: --log-lines exige inteiro positivo." >&2; exit 2; }; shift 2 ;;
+    --interval) watch_interval="${2:-}"; [[ "$watch_interval" =~ ^[1-9][0-9]*$ ]] || { echo "Erro: --interval exige inteiro positivo." >&2; exit 2; }; shift 2 ;;
+    --restart-max) restart_max="${2:-}"; [[ "$restart_max" =~ ^[0-9]+$ ]] || { echo "Erro: --restart-max exige inteiro >=0." >&2; exit 2; }; shift 2 ;;
+    --mode) restart_mode="${2:-}"; [[ "$restart_mode" == "web" || "$restart_mode" == "serve" ]] || { echo "Erro: --mode exige web|serve." >&2; exit 2; }; shift 2 ;;
     -h|--help) usage ;;
     *) echo "Erro: opção desconhecida: $1" >&2; exit 2 ;;
   esac
@@ -73,16 +88,184 @@ elif [[ "$port_range" =~ ^[1-9][0-9]{0,4}$ ]]; then
   fi
 fi
 
+# Padrões de quota/crédito esgotado (sobrescreva via OPENCODE_QUOTA_PATTERNS).
+# Cobre diálogo "quota acabou" + erros típicos de billing do LLM.
+QUOTA_PATTERNS="${OPENCODE_QUOTA_PATTERNS:-quota|billing|insufficient|exceeded|credit.*exhaust|exhaust.*credit|quota.*exceed|exceed.*quota|payment required|out of credit|no credit}"
+
 compose=(docker compose --profile vpn -f "${ROOT_DIR}/docker-compose.yml")
 
-need docker
-terminal_cid="$("${compose[@]}" ps -q terminal 2>/dev/null || true)"
-[[ -n "$terminal_cid" ]] || { echo "Erro: terminal não está ativo; inicie com ./scripts/vpn-switch <perfil>." >&2; exit 1; }
+have_docker=false
+terminal_cid=""
+if command -v docker >/dev/null 2>&1; then
+  have_docker=true
+  terminal_cid="$("${compose[@]}" ps -q terminal 2>/dev/null || true)"
+fi
 
 proc_match="opencode \(web\|serve\).*--port ${port}"
 
+tcp_direct_ok() {
+  local p="$1"
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 5 bash -c "exec 3<>/dev/tcp/127.0.0.1/${p}" 2>/dev/null
+  else
+    bash -c "exec 3<>/dev/tcp/127.0.0.1/${p}" 2>/dev/null
+  fi
+}
+
+tcp_container_ok() {
+  local cid="$1" p="$2"
+  [[ -n "$cid" ]] || return 1
+  docker exec "$cid" bash -c "exec 3<>/dev/tcp/127.0.0.1/${p}" 2>/dev/null
+}
+
+http_fetch_body() {
+  local p="$1" out=""
+  local user="${OPENCODE_SERVER_USER:-opencode}"
+  local pass_file="${OPENCODE_GUI_PASSWORD_FILE:-${ROOT_DIR}/.secrets/opencode_gui_password}"
+  [[ "$pass_file" != /* ]] && pass_file="${ROOT_DIR}/${pass_file}"
+  # Sem --fail: 401 também significa "vivo"; o corpo interessa para quota.
+  out="$(curl --silent --show-error --connect-timeout 5 --max-time 10 "http://127.0.0.1:${p}/" 2>/dev/null || true)"
+  if [[ -r "$pass_file" ]]; then
+    local pass=""
+    pass="$(tr -d '\r\n' < "$pass_file" 2>/dev/null || true)"
+    if [[ -n "$pass" ]]; then
+      local auth_out=""
+      auth_out="$(curl --silent --show-error --connect-timeout 5 --max-time 10 -u "${user}:${pass}" "http://127.0.0.1:${p}/" 2>/dev/null || true)"
+      [[ -n "$auth_out" ]] && out="${out}"$'\n'"${auth_out}"
+    fi
+  fi
+  printf '%s' "$out"
+}
+
+quota_in_text() {
+  local text="$1"
+  [[ -n "$text" ]] || return 1
+  printf '%s' "$text" | grep -Ei -m1 -q "(${QUOTA_PATTERNS})"
+}
+
+# do_check imprime e retorna 0=ok, 1=down|quota. Nunca sai 2 aqui (uso já validado).
+do_check() {
+  local p="$1" lines="$2" json="$3" q="$4"
+  local status="down" detail="tcp-fechado" body="" logs=""
+  local tcp_ok=false
+
+  if tcp_direct_ok "$p"; then
+    tcp_ok=true
+  elif $have_docker && [[ -n "$terminal_cid" ]] && tcp_container_ok "$terminal_cid" "$p"; then
+    tcp_ok=true
+  fi
+
+  if ! $tcp_ok; then
+    status="down"; detail="tcp-fechado"
+  else
+    if command -v curl >/dev/null 2>&1; then
+      body="$(http_fetch_body "$p")"
+    fi
+    # Logs só no host com docker; dentro do container, pula sem falhar.
+    if $have_docker && [[ -n "$terminal_cid" ]]; then
+      logs="$("${compose[@]}" logs --tail="$lines" terminal 2>/dev/null | grep -Ei -m1 "(${QUOTA_PATTERNS})" || true)"
+    fi
+    if [[ -n "$logs" ]]; then
+      status="quota"; detail="quota-pattern-in-logs"
+    elif [[ -n "$body" ]] && quota_in_text "$body"; then
+      status="quota"; detail="quota-pattern-in-http"
+    elif [[ -z "$body" ]]; then
+      # TCP aberto mas HTTP vazio: ainda conta como down (processo preso?).
+      status="down"; detail="tcp-aberto-http-falhou"
+    else
+      status="ok"; detail="ouvindo"
+    fi
+  fi
+
+  if [[ "$json" == true ]]; then
+    need jq
+    jq -nc --arg st "$status" --argjson port "$p" --arg detail "$detail" '{status: $st, port: $port, detail: $detail}'
+  elif [[ "$q" != true ]]; then
+    case "$status" in
+      ok) echo "OpenCode ${status} em 127.0.0.1:${p} (${detail})." ;;
+      quota) echo "ALERTA: OpenCode quota esgotada em 127.0.0.1:${p} (${detail}; sem restart — recarregue o crédito)." >&2 ;;
+      *) echo "ALERTA: OpenCode ${status} em 127.0.0.1:${p} (${detail})." >&2 ;;
+    esac
+  fi
+
+  [[ "$status" == "ok" ]]
+}
+
+load_server_env() {
+  local pass_file="${OPENCODE_GUI_PASSWORD_FILE:-${ROOT_DIR}/.secrets/opencode_gui_password}"
+  if [[ "$pass_file" != /* ]]; then
+    pass_file="${ROOT_DIR}/${pass_file}"
+  fi
+  if [[ -r "$pass_file" ]]; then
+    export OPENCODE_SERVER_PASSWORD="$(tr -d '\r\n' < "$pass_file")"
+    export OPENCODE_SERVER_USER="${OPENCODE_SERVER_USER:-opencode}"
+  else
+    echo "Aviso: sem arquivo de senha em ${pass_file}; o painel abre sem autenticação (apenas local)." >&2
+  fi
+}
+
+start_detached() {
+  local m="$1" p="$2"
+  local env_args=()
+  if [[ -n "${OPENCODE_SERVER_PASSWORD:-}" ]]; then env_args+=(-e OPENCODE_SERVER_PASSWORD); fi
+  if [[ -n "${OPENCODE_SERVER_USER:-}" ]]; then env_args+=(-e OPENCODE_SERVER_USER); fi
+  docker compose --profile vpn -f "${ROOT_DIR}/docker-compose.yml" exec -d \
+    "${env_args[@]}" \
+    terminal opencode "$m" --port "$p" --hostname 0.0.0.0
+}
+
+do_watch() {
+  local p="$1" m="$2" interval="$3" max="$4" lines="$5" q="$6"
+  need docker
+  [[ -n "$terminal_cid" ]] || { echo "Erro: terminal não está ativo; inicie com ./scripts/vpn-switch <perfil>." >&2; exit 1; }
+  trap 'echo "vpn-opencode watch: encerrando (sinal recebido)."; exit 0' TERM INT
+  local restarts=0 down_streak=0
+  echo "vpn-opencode watch: porta ${p} modo ${m} a cada ${interval}s (max restarts: ${max}; quota=nunca reinicia)."
+  while true; do
+    if do_check "$p" "$lines" false "$q"; then
+      down_streak=0
+      # Não zera restarts aqui de propósito? Zera sim ao voltar a ok,
+      # para permitir nova janela de recuperação após queda transitória.
+      restarts=0
+    else
+      local probe_json=""
+      probe_json="$(do_check "$p" "$lines" true true 2>/dev/null || true)"
+      local st=""
+      st="$(printf '%s' "$probe_json" | grep -o '"status":"[a-z]*"' | cut -d'"' -f4 || true)"
+      if [[ "$st" == "quota" ]]; then
+        echo "ALERTA: quota esgotada na porta ${p} (alerta puro, zero restart; recarregue o crédito)." >&2
+      else
+        down_streak=$((down_streak + 1))
+        if (( restarts < max )); then
+          echo "ALERTA: OpenCode down na porta ${p} (tentativa ${down_streak}); reiniciando ${m}..." >&2
+          load_server_env
+          if start_detached "$m" "$p" >/dev/null 2>&1; then
+            restarts=$((restarts + 1))
+            echo "Reiniciado ${m} na porta ${p} (${restarts}/${max})." >&2
+          else
+            echo "ALERTA: falha ao reiniciar ${m} na porta ${p}." >&2
+          fi
+        else
+          echo "ALERTA: limite de restarts atingido (${max}); sem novas tentativas até voltar a ok." >&2
+        fi
+      fi
+    fi
+    sleep "$interval"
+  done
+}
+
 case "$mode" in
+  check)
+    if $output_json; then need jq; fi
+    # check é leve: funciona no host e dentro dos containers (sem docker).
+    do_check "$port" "$log_lines" "$output_json" "$quiet"
+    ;;
+  watch)
+    do_watch "$port" "$restart_mode" "$watch_interval" "$restart_max" "$log_lines" "$quiet"
+    ;;
   status)
+    need docker
+    [[ -n "$terminal_cid" ]] || { echo "Erro: terminal não está ativo; inicie com ./scripts/vpn-switch <perfil>." >&2; exit 1; }
     if docker exec "$terminal_cid" bash -c "exec 3<>/dev/tcp/127.0.0.1/${port}" 2>/dev/null; then
       echo "OpenCode ouvindo em 127.0.0.1:${port} (pela VPN)."
     else
@@ -91,6 +274,8 @@ case "$mode" in
     fi
     ;;
   stop)
+    need docker
+    [[ -n "$terminal_cid" ]] || { echo "Erro: terminal não está ativo; inicie com ./scripts/vpn-switch <perfil>." >&2; exit 1; }
     stopped="$(docker exec "$terminal_cid" sh -c 'n=0; for d in /proc/[0-9]*; do if tr "\0" " " < "$d/cmdline" 2>/dev/null | grep -q "'"${proc_match}"'"; then kill "${d#/proc/}" 2>/dev/null && n=$((n+1)); fi; done; printf "%s" "$n"')"
     if (( stopped > 0 )); then
       echo "Encerrado(s) ${stopped} processo(s) na porta ${port}."
@@ -100,9 +285,12 @@ case "$mode" in
     fi
     ;;
   logs)
+    need docker
     "${compose[@]}" logs --tail="$tail_n" terminal
     ;;
   web|serve)
+    need docker
+    [[ -n "$terminal_cid" ]] || { echo "Erro: terminal não está ativo; inicie com ./scripts/vpn-switch <perfil>." >&2; exit 1; }
     vpn_container="$("${compose[@]}" ps -q vpn 2>/dev/null || true)"
     [[ -n "$vpn_container" ]] || { echo "Erro: VPN não está ativa; inicie com ./scripts/vpn-switch <perfil>." >&2; exit 1; }
     vpn_healthy="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}starting{{end}}' "$vpn_container" 2>/dev/null || true)"

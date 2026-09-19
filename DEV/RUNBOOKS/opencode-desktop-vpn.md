@@ -87,3 +87,18 @@ Ao atualizar o Desktop, atualize na MESMA alteração:
 | Rotação aleatória cai em servidor morto | provedor de acesso bloqueia faixas (ex: 185.153.176.x) | `VPN_SERVER_HOSTNAMES` com servidores conhecidos |
 | `vpn-check` mostra DNS "starting" | endpoint do Gluetun com upstream plain | normal; resolução é validada à parte |
 | Nomes `.omega.local` NXDOMAIN no túnel | DNS da LAN não conhece; vivem no `/etc/hosts` do host | alcançar por IP; `INTERNAL_TEST_HOST` como IP |
+| Diálogo "quota acabou" no OpenCode | crédito do provider esgotado | recarregar crédito; `check` confirma `quota`; `watch` nunca reinicia quota |
+| `vpn-opencode check` diz `down` | `web/serve` morreu ou porta fechada | `watch` reinicia sozinho (limitado) ou suba manual com `web|serve --detach` |
+
+## 7. Verificação automática (opt-in)
+
+```bash
+./scripts/vpn-opencode check --port 10001        # ok (0) | down|quota (1); --json para automação
+./scripts/vpn-opencode check --port 10001 --json # {"status":"ok|down|quota","port":10001,"detail":"..."}
+./scripts/vpn-opencode watch --mode serve --interval 30 --restart-max 3
+# down = ALERTA + restart limitado; quota = ALERTA puro, zero restart.
+```
+
+- Sonda no `vpn-auto-reconnect` (só alerta, sem socket Docker, sem reconnect do túnel): `.env` com `OPENCODE_AUTOCHECK=true`.
+- `vpn-top` mostra a seção OpenCode (TCP + detalhe via `check` quando disponível).
+- Padrões de quota sobrescrevíveis via `OPENCODE_QUOTA_PATTERNS`; linhas varridas via `OPENCODE_CHECK_LOG_LINES`.

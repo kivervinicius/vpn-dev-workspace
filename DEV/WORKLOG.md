@@ -2,6 +2,32 @@
 
 Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for older entries after compaction.
 
+## 2026-09-19 - Verificação automática do OpenCode (quota=alerta puro)
+
+- Changed: `scripts/vpn-opencode` ganha `check` (`ok|down|quota`, exit 0/1, `--json|-q`, padrões via `OPENCODE_QUOTA_PATTERNS`, varredura de logs via `--log-lines`) e `watch` host-side (`down`=alerta+restart limitado com `--restart-max`, `quota`=alerta puro zero restart); `scripts/vpn-auto-reconnect` ganha sonda opt-in `OPENCODE_AUTOCHECK` (só alerta, sem socket Docker, sem reconnect do túnel) com `vpn-opencode` montado no Compose; `scripts/vpn-top` ganha seção + campo `opencode`; `scripts/vpn.ps1 opencode` ganha `check|watch`; `.env.example`/`README`/runbook/specs/testing documentam; `verify-docs`/`verify-compose` travam drift.
+- Why: o projeto só verificava o túnel VPN; queda do `web/serve` e diálogo "quota acabou" passavam despercebidos. Restart não cria crédito, por isso quota nunca reinicia.
+- Verified: `bash -n` nos scripts alterados, `sh -n vpn-entrypoint.sh`, `git diff --check`, `./scripts/verify-docs` (novas travas passam), matriz `--help` exit 0, `check` em porta fechada (`down`, exit 1), responder HTTP com `quota exceeded` (`quota`, exit 1) e corpo neutro (`ok`, exit 0), `vpn-top --json` inclui `.opencode`; `verify-compose`/build/ShellCheck pendentes (sem Docker/ShellCheck no ambiente de edição — CI/host).
+- Next context: runtime real no host (`vpn-switch`, `web|serve --detach`, `check --json`, matar processo p/ `watch` recuperar, `OPENCODE_AUTOCHECK=true`, `vpn-top`), validar `vpn.ps1 opencode check|watch` em Windows real.
+
+## 2026-09-19 - Adição de KILL capability no Gluetun para reconexão
+
+- Changed: adicionada capability `KILL` ao `cap_add` do serviço `vpn` em
+  `docker-compose.yml`; `scripts/verify-compose` atualizado para validar a presença
+  de `KILL` em todos os perfis.
+- Why: com `cap_drop: ALL`, o processo supervisor do Gluetun (root/UID 0) não
+  possuía a capability `KILL` necessária para enviar sinais (`SIGTERM`/`SIGKILL`)
+  ao processo filho do OpenVPN (`openvpn2.6`), executado como `nonrootuser`
+  (UID 1000). Durante o `vpn-reconnect`, a chamada `PUT /v1/vpn/status` com
+  `{"status":"stopped"}` travava aguardando o processo terminar, deixando o Gluetun
+  em estado perpétuo `"stopping"` e causando timeout de 10s no curl na chamada
+  seguinte (`status: running`).
+- Verified: `./scripts/verify-compose` e `./scripts/verify-docs` passaram;
+  `./scripts/vpn-switch nordvpn-openvpn` recriou os contêineres saudáveis;
+  `docker exec vpn-dev-workspace-terminal-1 vpn-reconnect` executado com sucesso
+  duas vezes consecutivas (obteve novos IPs públicos em ~9s); `vpn-status` e
+  `vpn-check` passaram com 100% de sucesso.
+- Next context: validar runtime em Windows/WSL2.
+
 ## 2026-09-19 - Secrets 0600 e ciclo de vida pelo vpn-switch
 
 - Changed: `vpn` ganhou `DAC_READ_SEARCH`/`DAC_OVERRIDE` para ler e reescrever

@@ -34,11 +34,25 @@ compose_env=(
   "WINDOWS_SSH_BRIDGE_TOKEN=00000000000000000000000000000000"
 )
 
+# Sonda do OpenCode no auto-reconnect: mount compartilhado + env opt-in (sem Docker).
+grep -Fq './scripts/vpn-opencode:/usr/local/bin/vpn-opencode:ro' "$COMPOSE_FILE" || {
+  echo "Erro: vpn-opencode sem mount no Compose (sonda indisponível no auto-reconnect)." >&2
+  exit 1
+}
+grep -Fq 'OPENCODE_AUTOCHECK' "$COMPOSE_FILE" || {
+  echo "Erro: OPENCODE_AUTOCHECK sem repasse no Compose." >&2
+  exit 1
+}
+grep -Fq 'OPENCODE_GUI_PORT' "$COMPOSE_FILE" || {
+  echo "Erro: OPENCODE_GUI_PORT sem repasse no Compose." >&2
+  exit 1
+}
+
 for profile_file in "${ROOT_DIR}"/profiles/*.yml; do
   profile="$(basename "$profile_file" .yml)"
   echo "Validando perfil ${profile}..."
   config="$("${compose_env[@]}" docker compose --profile vpn -f "$COMPOSE_FILE" -f "$profile_file" config)"
-  for capability in DAC_READ_SEARCH DAC_OVERRIDE CHOWN SETUID SETGID; do
+  for capability in DAC_READ_SEARCH DAC_OVERRIDE CHOWN SETUID SETGID KILL; do
     grep -Fq "$capability" <<<"$config" || {
       echo "Erro: serviço vpn sem ${capability} exigida pelo Gluetun: ${profile}." >&2
       exit 1
