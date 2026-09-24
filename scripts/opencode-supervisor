@@ -13,6 +13,7 @@ READY_ATTEMPTS="${OPENCODE_READY_ATTEMPTS:-30}"
 READY_DELAY="${OPENCODE_READY_DELAY_SECONDS:-2}"
 LOG_FILE="${OPENCODE_SUPERVISOR_LOG_FILE:-/tmp/opencode-supervisor/opencode.log}"
 PID_FILE="${OPENCODE_SUPERVISOR_PID_FILE:-/tmp/opencode-supervisor/opencode.pid}"
+FREE_TIER_LIMIT_PATTERNS="${OPENCODE_FREE_TIER_LIMIT_PATTERNS:-freeusagelimiterror|free_tier_limit|free limit reached|free usage exceeded.*subscribe to go|subscribe to go}"
 ACCOUNT_LIMIT_PATTERNS="${OPENCODE_ACCOUNT_LIMIT_PATTERNS:-account_rate_limit|go limit reached|weekly usage limit reached|monthly usage limit reached|usage limit reached.*reset}"
 RATE_LIMIT_PATTERNS="${OPENCODE_RATE_LIMIT_PATTERNS:-${OPENCODE_LIMIT_PATTERNS:-provider rate limit exceeded|too many requests|too_many_requests|http[^0-9]*429|status[^0-9]*429|rate[ -]?limit exceeded}}"
 DISCONNECT_PATTERNS="${OPENCODE_DISCONNECT_PATTERNS:-network connection lost|connection lost|connection reset|econnreset|etimedout|network error|network request failed|fetch failed|socket hang up|provider.*disconnected|upstream.*disconnected|stream.*disconnected}"
@@ -33,6 +34,7 @@ Executa e supervisiona OpenCode dentro da VPN.
 - queda do processo com VPN saudável: reinicia somente OpenCode;
 - desconexão/erro de rede: rotaciona VPN, aguarda saúde e reinicia OpenCode;
 - provider rate limit/429: rotaciona VPN, aguarda saúde e reinicia OpenCode;
+- free tier limit/banner "subscribe to Go": mantém o app vivo; VPN não altera a franquia da conta;
 - Go account limit: mantém o app vivo; VPN não altera o limite da conta;
 - limita rotações por janela/cooldown para evitar loops.
 
@@ -43,6 +45,7 @@ Configuração principal:
   OPENCODE_RECOVERY_COOLDOWN_SECONDS=30
   OPENCODE_RECOVERY_WINDOW_SECONDS=900
   OPENCODE_RECOVERY_MAX_ROTATIONS=3
+  OPENCODE_FREE_TIER_LIMIT_PATTERNS=<regex>
   OPENCODE_ACCOUNT_LIMIT_PATTERNS=<regex>
   OPENCODE_RATE_LIMIT_PATTERNS=<regex>
   OPENCODE_DISCONNECT_PATTERNS=<regex>
@@ -51,7 +54,9 @@ EOF
 
 classify_text() {
   local text="$1"
-  if [[ -n "$text" ]] && printf '%s\n' "$text" | grep -Eiq "($ACCOUNT_LIMIT_PATTERNS)"; then
+  if [[ -n "$text" ]] && printf '%s\n' "$text" | grep -Eiq "($FREE_TIER_LIMIT_PATTERNS)"; then
+    printf 'free_tier_limit\n'
+  elif [[ -n "$text" ]] && printf '%s\n' "$text" | grep -Eiq "($ACCOUNT_LIMIT_PATTERNS)"; then
     printf 'account_limit\n'
   elif [[ -n "$text" ]] && printf '%s\n' "$text" | grep -Eiq "($RATE_LIMIT_PATTERNS)"; then
     printf 'rate_limit\n'
@@ -328,6 +333,10 @@ while true; do
   new_logs="$(read_new_logs)"
   event="$(classify_text "$new_logs")"
   case "$event" in
+    free_tier_limit)
+      echo "OpenCode atingiu o limite da franquia gratuita (banner subscribe to Go); rotação de VPN não altera free_tier_limit. Mantendo o processo vivo para troca de conta/plano/provider ou reset da própria conta." >&2
+      continue
+      ;;
     account_limit)
       echo "OpenCode Go atingiu limite de conta; rotação de VPN não altera account_rate_limit. Mantendo o processo vivo até o reset/fallback do próprio OpenCode." >&2
       continue
