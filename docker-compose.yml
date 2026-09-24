@@ -219,7 +219,7 @@ services:
         HOST_GID: ${HOST_GID:-1000}
     network_mode: "service:vpn"
     init: true
-    command: ["/usr/local/bin/opencode-supervisor"]
+    command: ["bash", "/usr/local/bin/opencode-supervisor"]
     cap_drop:
       - ALL
     security_opt:
