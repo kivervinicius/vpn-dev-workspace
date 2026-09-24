@@ -79,6 +79,15 @@ Describe 'vpn.ps1 Windows interface' {
         $log | Should -Match '--json'
     }
 
+    It 'encaminha status do supervisor OpenCode ao perfil opencode' {
+        Remove-Item -LiteralPath $script:MockLog -Force -ErrorAction SilentlyContinue
+        $result = Invoke-VpnTest @('opencode', 'supervise-status')
+        $result.Code | Should -Be 0
+        $log = Get-Content -LiteralPath $script:MockLog -Raw
+        $log | Should -Match '--profile opencode'
+        $log | Should -Match 'opencode-supervisor'
+    }
+
     It 'rejeita Compose abaixo da versão necessária' {
         $old = $env:MOCK_COMPOSE_VERSION
         $env:MOCK_COMPOSE_VERSION = 'v2.24.3'
