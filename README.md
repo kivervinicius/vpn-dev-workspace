@@ -50,6 +50,8 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\vpn.ps1 reconnect
 .\scripts\vpn.ps1 rotate --list
 .\scripts\vpn.ps1 opencode web
+.\scripts\vpn.ps1 opencode supervise --mode serve
+.\scripts\vpn.ps1 opencode supervise-status
 .\scripts\vpn.ps1 hosts-import --domain omega
 .\scripts\vpn.ps1 hosts-apply
 .\scripts\vpn.ps1 stop
@@ -185,7 +187,7 @@ LOCAL_HOSTS=gitlab.omega=192.168.30.5,registry.omega=192.168.30.6
 
 - O `vpn-switch` gera um snippet a partir de `LOCAL_HOSTS` e injeta no `/etc/hosts` do terminal pós-up (idempotente; `extra_hosts` é rejeitado pelo Docker com `network_mode`, por isso a injeção pós-up).
 - Para importar do `/etc/hosts` do host por domínio: `./scripts/vpn-hosts-import --domain omega` (só sugere a linha — você cola no `.env`).
-- Reaplicar após `restart` manual: `./scripts/vpn-hosts-apply` (o `vpn-switch` sempre reaplica; `down`/`recreate` perde as entradas).
+- Reaplicar após `restart` manual: `./scripts/vpn-hosts-apply` (o `vpn-switch` sempre reaplica; `down`/`recreate` perde as entradas). Se `opencode-supervisor` estiver ativo, ele também recebe os mesmos `LOCAL_HOSTS`.
 - O `vpn-check` valida que cada nome resolve para o IP declarado.
 - O mapeamento resolve só o **nome**; o **alcance** continua exigindo a sub-rede em `FIREWALL_SUBNETS` (acima). Se o IP mudar na LAN, atualize o mapeamento (o import facilita o re-sync).
 
