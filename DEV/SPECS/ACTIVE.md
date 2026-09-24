@@ -13,7 +13,7 @@
 - Gluetun v3.41.3 (digest fixado), `jq` na imagem e DNS resolvido pelo túnel (`dns: 127.0.0.1`).
 - Acesso opcional à rede interna do host: `FIREWALL_SUBNETS` (sub-rede da LAN detectada pelo `vpn-switch` + extras), `INTERNAL_DNS`/`INTERNAL_DNS_EXEMPT_HOSTNAMES` para nomes internos e `INTERNAL_TEST_HOST` no `vpn-check`.
 - Paridade de home: `HOST_UID`/`HOST_GID` na imagem e mounts opcionais de `SSH_AUTH_SOCK` e `RUN_USER_DIR` no terminal.
-- GUI do OpenCode pela VPN: `scripts/vpn-opencode` com `web` e `serve` na faixa publicada, senha via `OPENCODE_GUI_PASSWORD_FILE`, verificação `check` (`ok|down|quota`), supervisor opt-in `watch` (`down`=restart limitado, `quota`=alerta puro) e sonda opt-in no `vpn-auto-reconnect` (`OPENCODE_AUTOCHECK`, sem socket Docker, sem reconnect do túnel).
+- GUI do OpenCode pela VPN: `scripts/vpn-opencode` mantém `web`/`serve` diretos e adiciona `supervise`; o serviço `opencode-supervisor` possui o processo OpenCode dentro do namespace da VPN, sem Docker socket. Queda simples reinicia só o app; desconexão/limite/quota/429 dispara rotação pelo Control Server do Gluetun, aguarda túnel saudável e sobe novamente o OpenCode, com cooldown/janela/máximo de rotações. `OPENCODE_AUTOCHECK` permanece apenas observacional.
 - Robustez dos scripts: timeouts em todo I/O de rede (`--connect-timeout/--max-time`, `timeout 5` no TCP), checagem explícita de dependências (`need()`), sem aborts crípticos de `set -e`, `trap` em loops/sleeps longos, validações de porta/intervalo.
 - Docs como contrato: `TESTING.md` preenchido, `BACKLOG.md` com pendências triadas, `verify-docs` trava drifts (versões, `SERVER_HOSTNAMES`, `PATH` host-first, `INTERNAL_TEST_PORT`, `LOCAL_HOSTS`).
 - Hosts locais: `LOCAL_HOSTS` (`nome=ip`) vira snippet injetado no `/etc/hosts` do terminal pós-up via `vpn-switch` (sem Gluetun/DNS envolvido); `vpn-hosts-import --domain` sugere a linha a partir do `/etc/hosts` do host; `vpn-check` valida cada mapeamento.
@@ -62,6 +62,6 @@
 
 ## Status
 
-- State: kill-capability-reconnect-fixed (runtime Linux validado; Windows/WSL2 pendentes)
+- State: opencode-vpn-self-heal-implemented (CI e runtime de recuperação pendentes de validação)
 - Owner: Codex
-- Last updated: 2026-09-19
+- Last updated: 2026-09-24
