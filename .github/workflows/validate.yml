@@ -21,6 +21,9 @@ jobs:
         run: |
           test "$(bash ./scripts/opencode-supervisor --classify '429 Too Many Requests')" = "rate_limit"
           test "$(bash ./scripts/opencode-supervisor --classify 'Provider rate limit exceeded')" = "rate_limit"
+          test "$(bash ./scripts/opencode-supervisor --classify 'FreeUsageLimitError: Free usage exceeded, subscribe to Go')" = "free_tier_limit"
+          test "$(bash ./scripts/opencode-supervisor --classify 'Free limit reached')" = "free_tier_limit"
+          test "$(bash ./scripts/opencode-supervisor --classify 'reason=free_tier_limit')" = "free_tier_limit"
           test "$(bash ./scripts/opencode-supervisor --classify 'Go limit reached: usage limit reached. It will reset in 5 days')" = "account_limit"
           test "$(bash ./scripts/opencode-supervisor --classify 'connection lost while streaming')" = "disconnect"
           test "$(bash ./scripts/opencode-supervisor --classify 'normal request completed')" = "none"
