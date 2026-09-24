@@ -186,7 +186,7 @@ do_check() {
   elif [[ "$q" != true ]]; then
     case "$status" in
       ok) echo "OpenCode ${status} em 127.0.0.1:${p} (${detail})." ;;
-      quota) echo "ALERTA: OpenCode quota esgotada em 127.0.0.1:${p} (${detail}; sem restart — recarregue o crédito)." >&2 ;;
+      quota) echo "ALERTA: OpenCode sinalizou limite/quota em 127.0.0.1:${p} (${detail}); o supervisor persistente rotaciona a VPN quando ativo." >&2 ;;
       *) echo "ALERTA: OpenCode ${status} em 127.0.0.1:${p} (${detail})." >&2 ;;
     esac
   fi
@@ -215,46 +215,6 @@ start_detached() {
   docker compose --profile vpn -f "${ROOT_DIR}/docker-compose.yml" exec -d \
     "${env_args[@]}" \
     terminal opencode "$m" --port "$p" --hostname 0.0.0.0
-}
-
-do_watch() {
-  local p="$1" m="$2" interval="$3" max="$4" lines="$5" q="$6"
-  need docker
-  [[ -n "$terminal_cid" ]] || { echo "Erro: terminal não está ativo; inicie com ./scripts/vpn-switch <perfil>." >&2; exit 1; }
-  trap 'echo "vpn-opencode watch: encerrando (sinal recebido)."; exit 0' TERM INT
-  local restarts=0 down_streak=0
-  echo "vpn-opencode watch: porta ${p} modo ${m} a cada ${interval}s (max restarts: ${max}; quota=nunca reinicia)."
-  while true; do
-    if do_check "$p" "$lines" false "$q"; then
-      down_streak=0
-      # Não zera restarts aqui de propósito? Zera sim ao voltar a ok,
-      # para permitir nova janela de recuperação após queda transitória.
-      restarts=0
-    else
-      local probe_json=""
-      probe_json="$(do_check "$p" "$lines" true true 2>/dev/null || true)"
-      local st=""
-      st="$(printf '%s' "$probe_json" | grep -o '"status":"[a-z]*"' | cut -d'"' -f4 || true)"
-      if [[ "$st" == "quota" ]]; then
-        echo "ALERTA: quota esgotada na porta ${p} (alerta puro, zero restart; recarregue o crédito)." >&2
-      else
-        down_streak=$((down_streak + 1))
-        if (( restarts < max )); then
-          echo "ALERTA: OpenCode down na porta ${p} (tentativa ${down_streak}); reiniciando ${m}..." >&2
-          load_server_env
-          if start_detached "$m" "$p" >/dev/null 2>&1; then
-            restarts=$((restarts + 1))
-            echo "Reiniciado ${m} na porta ${p} (${restarts}/${max})." >&2
-          else
-            echo "ALERTA: falha ao reiniciar ${m} na porta ${p}." >&2
-          fi
-        else
-          echo "ALERTA: limite de restarts atingido (${max}); sem novas tentativas até voltar a ok." >&2
-        fi
-      fi
-    fi
-    sleep "$interval"
-  done
 }
 
 case "$mode" in
