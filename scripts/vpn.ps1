@@ -491,47 +491,12 @@ function Invoke-OpenCodeCheck {
     if ($AsJson) { (@{ status = $probe.Status; port = $Port; detail = $probe.Detail } | ConvertTo-Json -Compress) | Write-Output }
     elseif (-not $Quiet) {
         if ($probe.Status -eq 'ok') { Write-Output "OpenCode ok em 127.0.0.1:$Port ($($probe.Detail))." }
-        elseif ($probe.Status -eq 'quota') { [Console]::Error.WriteLine("ALERTA: OpenCode quota esgotada em 127.0.0.1:$Port ($($probe.Detail); sem restart — recarregue o crédito).") }
+        elseif ($probe.Status -eq 'quota') { [Console]::Error.WriteLine("ALERTA: OpenCode sinalizou limite/quota em 127.0.0.1:$Port ($($probe.Detail)); o supervisor persistente classifica a causa e aplica a política adequada.") }
         else { [Console]::Error.WriteLine("ALERTA: OpenCode $($probe.Status) em 127.0.0.1:$Port ($($probe.Detail)).") }
     }
     if ($probe.Status -eq 'ok') { exit 0 } else { exit 1 }
 }
 
-function Invoke-OpenCodeWatch {
-    param([int]$Port, [string]$RestartMode, [int]$Interval, [int]$RestartMax, [string]$LogLines, [bool]$Quiet)
-    Ensure-DockerCompose; Set-ActiveComposeEnvironment | Out-Null
-    $compose = Get-ComposeArguments
-    Write-Output "vpn-opencode watch: porta $Port modo $RestartMode a cada ${Interval}s (max restarts: $RestartMax; quota=nunca reinicia)."
-    $restarts = 0
-    try {
-        while ($true) {
-            $probe = Get-OpenCodeProbe -Port $Port -LogLines $LogLines
-            if ($probe.Status -eq 'ok') { $restarts = 0; if (-not $Quiet) { Write-Output "OpenCode ok em 127.0.0.1:$Port." } }
-            elseif ($probe.Status -eq 'quota') {
-                [Console]::Error.WriteLine("ALERTA: quota esgotada na porta $Port ($($probe.Detail); alerta puro, zero restart; recarregue o crédito).")
-            } elseif ($restarts -lt $RestartMax) {
-                [Console]::Error.WriteLine("ALERTA: OpenCode down na porta $Port ($($probe.Detail)); reiniciando $RestartMode...")
-                try {
-                    $passwordPath = Get-ConfigValue 'OPENCODE_GUI_PASSWORD_FILE' (Join-Path $script:RootDir '.secrets\opencode_gui_password')
-                    $passwordPath = Resolve-ProjectPath $passwordPath
-                    $exec = @('exec', '-d')
-                    if (Test-Path -LiteralPath $passwordPath -PathType Leaf) {
-                        $password = (Get-Content -LiteralPath $passwordPath -Raw).Trim()
-                        if ($password) { $exec += @('-e', "OPENCODE_SERVER_PASSWORD=$password", '-e', 'OPENCODE_SERVER_USER=opencode') }
-                    }
-                    $exec += @('terminal', 'opencode', $RestartMode, '--port', [string]$Port, '--hostname', '0.0.0.0')
-                    & docker compose @($compose + $exec) | Out-Null
-                    if ($LASTEXITCODE -ne 0) { throw "docker compose exec falhou ($LASTEXITCODE)." }
-                    $restarts++
-                    [Console]::Error.WriteLine("Reiniciado $RestartMode na porta $Port ($restarts/$RestartMax).")
-                } catch { [Console]::Error.WriteLine("ALERTA: falha ao reiniciar $RestartMode na porta $Port ($($_.Exception.Message)).") }
-            } else {
-                [Console]::Error.WriteLine("ALERTA: limite de restarts atingido ($RestartMax); sem novas tentativas até voltar a ok.")
-            }
-            Start-Sleep -Seconds $Interval
-        }
-    } finally { Write-Output 'vpn-opencode watch: encerrando.' }
-}
 
 function Invoke-OpenCode {
     param([string[]]$Arguments)
