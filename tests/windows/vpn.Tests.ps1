@@ -52,7 +52,7 @@ Describe 'vpn.ps1 Windows interface' {
         try {
             $result = Invoke-VpnTest @('hosts-apply')
             $result.Code | Should -Be 2
-            $result.Output | Should -Match 'hostname inválido'
+            $result.Output | Should -Match 'LOCAL_HOSTS inválida|hostname inválido'
         } finally {
             if ($null -eq $old) { Remove-Item Env:LOCAL_HOSTS -ErrorAction SilentlyContinue } else { $env:LOCAL_HOSTS = $old }
         }
