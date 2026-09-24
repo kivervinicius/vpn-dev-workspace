@@ -11,8 +11,11 @@ WINDOW_SECONDS="${OPENCODE_RECOVERY_WINDOW_SECONDS:-900}"
 MAX_ROTATIONS="${OPENCODE_RECOVERY_MAX_ROTATIONS:-3}"
 READY_ATTEMPTS="${OPENCODE_READY_ATTEMPTS:-30}"
 READY_DELAY="${OPENCODE_READY_DELAY_SECONDS:-2}"
+VPN_READY_ATTEMPTS="${OPENCODE_VPN_READY_ATTEMPTS:-30}"
+VPN_READY_DELAY="${OPENCODE_VPN_READY_DELAY_SECONDS:-2}"
 LOG_FILE="${OPENCODE_SUPERVISOR_LOG_FILE:-/tmp/opencode-supervisor/opencode.log}"
 PID_FILE="${OPENCODE_SUPERVISOR_PID_FILE:-/tmp/opencode-supervisor/opencode.pid}"
+SESSION_STATE_FILE="${OPENCODE_SUPERVISOR_SESSION_FILE:-/tmp/opencode-supervisor/resume-session}"
 FREE_TIER_LIMIT_PATTERNS="${OPENCODE_FREE_TIER_LIMIT_PATTERNS:-freeusagelimiterror|free_tier_limit|free limit reached|free usage exceeded.*subscribe to go|subscribe to go}"
 ACCOUNT_LIMIT_PATTERNS="${OPENCODE_ACCOUNT_LIMIT_PATTERNS:-account_rate_limit|go limit reached|weekly usage limit reached|monthly usage limit reached|usage limit reached.*reset}"
 RATE_LIMIT_PATTERNS="${OPENCODE_RATE_LIMIT_PATTERNS:-${OPENCODE_LIMIT_PATTERNS:-provider rate limit exceeded|too many requests|too_many_requests|http[^0-9]*429|status[^0-9]*429|rate[ -]?limit exceeded}}"
@@ -25,6 +28,7 @@ rotations=0
 window_started="$(date +%s)"
 last_recovery=0
 pending_vpn_reason=""
+resume_session_id=""
 
 usage() {
   cat >&2 <<'EOF'
@@ -45,6 +49,11 @@ Configuração principal:
   OPENCODE_RECOVERY_COOLDOWN_SECONDS=30
   OPENCODE_RECOVERY_WINDOW_SECONDS=900
   OPENCODE_RECOVERY_MAX_ROTATIONS=3
+  OPENCODE_READY_ATTEMPTS=30
+  OPENCODE_READY_DELAY_SECONDS=2
+  OPENCODE_VPN_READY_ATTEMPTS=30
+  OPENCODE_VPN_READY_DELAY_SECONDS=2
+  OPENCODE_SUPERVISOR_SESSION_FILE=/tmp/opencode-supervisor/resume-session
   OPENCODE_FREE_TIER_LIMIT_PATTERNS=<regex>
   OPENCODE_ACCOUNT_LIMIT_PATTERNS=<regex>
   OPENCODE_RATE_LIMIT_PATTERNS=<regex>
@@ -104,6 +113,7 @@ validate_nonnegative() {
 
 need curl
 need grep
+need jq
 need opencode
 
 [[ "$MODE" == "serve" || "$MODE" == "web" ]] || { echo "Erro: OPENCODE_SUPERVISOR_MODE deve ser serve|web." >&2; exit 2; }
@@ -114,8 +124,10 @@ validate_positive OPENCODE_RECOVERY_WINDOW_SECONDS "$WINDOW_SECONDS"
 validate_positive OPENCODE_RECOVERY_MAX_ROTATIONS "$MAX_ROTATIONS"
 validate_positive OPENCODE_READY_ATTEMPTS "$READY_ATTEMPTS"
 validate_nonnegative OPENCODE_READY_DELAY_SECONDS "$READY_DELAY"
+validate_positive OPENCODE_VPN_READY_ATTEMPTS "$VPN_READY_ATTEMPTS"
+validate_nonnegative OPENCODE_VPN_READY_DELAY_SECONDS "$VPN_READY_DELAY"
 
-mkdir -p "$(dirname "$LOG_FILE")" "$(dirname "$PID_FILE")"
+mkdir -p "$(dirname "$LOG_FILE")" "$(dirname "$PID_FILE")" "$(dirname "$SESSION_STATE_FILE")"
 touch "$LOG_FILE"
 
 load_server_auth() {
@@ -198,10 +210,71 @@ read_new_logs() {
   printf '%s' "$chunk"
 }
 
+capture_resume_session() {
+  local json id
+  json="$(opencode session list --format json -n 1 2>/dev/null || true)"
+  id="$(printf '%s' "$json" | jq -r 'if type == "array" and length > 0 then .[0].id // empty else empty end' 2>/dev/null || true)"
+  if [[ -n "$id" && "$id" != "null" ]]; then
+    resume_session_id="$id"
+    printf '%s\n' "$resume_session_id" > "$SESSION_STATE_FILE"
+    echo "Sessão OpenCode preservada para retomada de contexto: ${resume_session_id}."
+    return 0
+  fi
+
+  resume_session_id=""
+  rm -f "$SESSION_STATE_FILE"
+  return 0
+}
+
+verify_resume_session() {
+  local target json
+  target="$resume_session_id"
+  if [[ -z "$target" && -r "$SESSION_STATE_FILE" ]]; then
+    target="$(tr -d '\r\n' < "$SESSION_STATE_FILE" 2>/dev/null || true)"
+  fi
+  [[ -n "$target" ]] || return 0
+
+  json="$(opencode session list --format json -n 50 2>/dev/null || true)"
+  if printf '%s' "$json" | jq -e --arg id "$target" 'any(.[]?; .id == $id)' >/dev/null 2>&1; then
+    echo "Contexto preservado: sessão ${target} continua disponível após a recuperação."
+    return 0
+  fi
+
+  echo "Aviso: a sessão ${target} não apareceu na listagem após reiniciar o OpenCode; nenhuma requisição será repetida automaticamente." >&2
+  return 1
+}
+
 vpn_is_healthy() {
   local helper
   helper="$(resolve_helper vpn-check)" || return 1
   "$helper" --only tunnel -q >/dev/null 2>&1
+}
+
+wait_vpn_ready() {
+  local attempt
+  for ((attempt=1; attempt<=VPN_READY_ATTEMPTS; attempt++)); do
+    if vpn_is_healthy; then
+      echo "VPN saudável após recuperação."
+      return 0
+    fi
+    if (( attempt < VPN_READY_ATTEMPTS )); then
+      sleep "$VPN_READY_DELAY"
+    fi
+  done
+  echo "VPN não ficou saudável após ${VPN_READY_ATTEMPTS} tentativas." >&2
+  return 1
+}
+
+wait_recovery_cooldown() {
+  local now elapsed remaining
+  (( COOLDOWN > 0 )) || return 0
+  now="$(date +%s)"
+  elapsed=$((now - last_recovery))
+  remaining=$((COOLDOWN - elapsed))
+  if (( remaining > 0 )); then
+    echo "Aguardando ${remaining}s antes de tentar outro servidor VPN..." >&2
+    sleep "$remaining"
+  fi
 }
 
 reset_rotation_window_if_needed() {
@@ -259,28 +332,33 @@ rotate_vpn() {
 
 recover_with_vpn() {
   local reason="$1"
-  if ! rotation_allowed; then
-    pending_vpn_reason="$reason"
-    echo "Recuperação por VPN bloqueada temporariamente (${reason}); será tentada novamente após cooldown/janela." >&2
-    return 1
-  fi
 
   pending_vpn_reason=""
   echo "Recuperação OpenCode acionada por: ${reason}."
+  capture_resume_session
   stop_opencode
 
-  if ! rotate_vpn; then
-    echo "Falha ao recuperar a VPN; OpenCode não será iniciado fora de um túnel confirmado." >&2
-    return 1
-  fi
+  while true; do
+    if ! rotation_allowed; then
+      pending_vpn_reason="$reason"
+      echo "Recuperação por VPN pausada pelo anti-loop (${reason}); será retomada após cooldown/janela." >&2
+      return 1
+    fi
 
-  if ! vpn_is_healthy; then
-    echo "VPN ainda não está saudável após a rotação; aguardando próximo ciclo." >&2
-    return 1
-  fi
+    if rotate_vpn && wait_vpn_ready; then
+      start_opencode
+      if wait_ready; then
+        verify_resume_session || true
+        return 0
+      fi
 
-  start_opencode
-  wait_ready
+      echo "OpenCode não ficou pronto apesar da VPN saudável; a sessão persistida foi mantida e o supervisor tentará recuperar o processo no próximo ciclo." >&2
+      return 1
+    fi
+
+    echo "Servidor VPN ainda indisponível; tentando outro servidor dentro da política anti-loop." >&2
+    wait_recovery_cooldown
+  done
 }
 
 recover_process_only() {
