@@ -18,17 +18,17 @@ exit /b 0
     $env:Path = $script:MockBin + ';' + $env:Path
     $env:MOCK_DOCKER_LOG = $script:MockLog
     $env:MOCK_COMPOSE_VERSION = 'v2.24.4'
+
+    function Invoke-VpnTest {
+        param([string[]]$Arguments)
+        $output = @(& $script:PowerShellExecutable -NoProfile -ExecutionPolicy Bypass -File $script:VpnScript @Arguments 2>&1)
+        [pscustomobject]@{ Code = $LASTEXITCODE; Output = ($output -join "`n") }
+    }
 }
 
 AfterAll {
     $env:Path = $script:OldPath
     Remove-Item -LiteralPath $script:TempRoot -Recurse -Force -ErrorAction SilentlyContinue
-}
-
-function Invoke-VpnTest {
-    param([string[]]$Arguments)
-    $output = @(& $script:PowerShellExecutable -NoProfile -ExecutionPolicy Bypass -File $script:VpnScript @Arguments 2>&1)
-    [pscustomobject]@{ Code = $LASTEXITCODE; Output = ($output -join "`n") }
 }
 
 Describe 'vpn.ps1 Windows interface' {
