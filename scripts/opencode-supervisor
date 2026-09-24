@@ -15,7 +15,7 @@ LOG_FILE="${OPENCODE_SUPERVISOR_LOG_FILE:-/tmp/opencode-supervisor/opencode.log}
 PID_FILE="${OPENCODE_SUPERVISOR_PID_FILE:-/tmp/opencode-supervisor/opencode.pid}"
 ACCOUNT_LIMIT_PATTERNS="${OPENCODE_ACCOUNT_LIMIT_PATTERNS:-account_rate_limit|go limit reached|weekly usage limit reached|monthly usage limit reached|usage limit reached.*reset}"
 RATE_LIMIT_PATTERNS="${OPENCODE_RATE_LIMIT_PATTERNS:-${OPENCODE_LIMIT_PATTERNS:-provider rate limit exceeded|too many requests|too_many_requests|http[^0-9]*429|status[^0-9]*429|rate[ -]?limit exceeded}}"
-DISCONNECT_PATTERNS="${OPENCODE_DISCONNECT_PATTERNS:-disconnected|connection lost|connection reset|econnreset|etimedout|network error|network request failed|fetch failed|socket hang up|connection closed|connection refused}"
+DISCONNECT_PATTERNS="${OPENCODE_DISCONNECT_PATTERNS:-network connection lost|connection lost|connection reset|econnreset|etimedout|network error|network request failed|fetch failed|socket hang up|provider.*disconnected|upstream.*disconnected|stream.*disconnected}"
 PASSWORD_FILE="${OPENCODE_GUI_PASSWORD_FILE:-/run/secrets/opencode_gui_password}"
 
 child_pid=""
@@ -23,6 +23,7 @@ log_offset=0
 rotations=0
 window_started="$(date +%s)"
 last_recovery=0
+pending_vpn_reason=""
 
 usage() {
   cat >&2 <<'EOF'
@@ -31,7 +32,7 @@ Uso: opencode-supervisor [--help] [--classify <texto>]
 Executa e supervisiona OpenCode dentro da VPN.
 - queda do processo com VPN saudável: reinicia somente OpenCode;
 - desconexão/erro de rede: rotaciona VPN, aguarda saúde e reinicia OpenCode;
-- limite/quota/429: rotaciona VPN, aguarda saúde e reinicia OpenCode;
+- provider rate limit/429: rotaciona VPN, aguarda saúde e reinicia OpenCode;\n- Go account limit: mantém o app vivo; VPN não altera o limite da conta;
 - limita rotações por janela para evitar loop quando o limite for de conta.
 
 Configuração principal:
@@ -49,17 +50,14 @@ EOF
 
 classify_text() {
   local text="$1"
-  if [[ -n "$text" ]] && printf '%s
-' "$text" | grep -Eiq "($DISCONNECT_PATTERNS)"; then
-    printf 'disconnect
-'
-  elif [[ -n "$text" ]] && printf '%s
-' "$text" | grep -Eiq "($LIMIT_PATTERNS)"; then
-    printf 'limit
-'
+  if [[ -n "$text" ]] && printf '%s\\n' "$text" | grep -Eiq "($ACCOUNT_LIMIT_PATTERNS)"; then
+    printf 'account_limit\\n'
+  elif [[ -n "$text" ]] && printf '%s\\n' "$text" | grep -Eiq "($RATE_LIMIT_PATTERNS)"; then
+    printf 'rate_limit\\n'
+  elif [[ -n "$text" ]] && printf '%s\\n' "$text" | grep -Eiq "($DISCONNECT_PATTERNS)"; then
+    printf 'disconnect\\n'
   else
-    printf 'none
-'
+    printf 'none\\n'
   fi
 }
 
@@ -254,10 +252,12 @@ rotate_vpn() {
 recover_with_vpn() {
   local reason="$1"
   if ! rotation_allowed; then
-    echo "Recuperação por VPN bloqueada temporariamente (${reason}); OpenCode permanece supervisionado." >&2
+    pending_vpn_reason="$reason"
+    echo "Recuperação por VPN bloqueada temporariamente (${reason}); será tentada novamente após cooldown/janela." >&2
     return 1
   fi
 
+  pending_vpn_reason=""
   echo "Recuperação OpenCode acionada por: ${reason}."
   stop_opencode
 
@@ -302,6 +302,16 @@ echo "Supervisor ativo: mode=${MODE}, port=${PORT}, interval=${INTERVAL}s, max-r
 
 while true; do
   sleep "$INTERVAL"
+
+  if [[ -n "$pending_vpn_reason" ]]; then
+    pending_reason="$pending_vpn_reason"
+    if recover_with_vpn "$pending_reason"; then
+      continue
+    fi
+    if [[ -n "$pending_vpn_reason" ]]; then
+      continue
+    fi
+  fi
 
   if [[ -z "$child_pid" ]] || ! kill -0 "$child_pid" 2>/dev/null; then
     if vpn_is_healthy; then
