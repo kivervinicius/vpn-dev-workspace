@@ -114,7 +114,10 @@ mkdir -p "$(dirname "$LOG_FILE")" "$(dirname "$PID_FILE")"
 touch "$LOG_FILE"
 
 load_server_auth() {
-  unset OPENCODE_SERVER_PASSWORD || true
+  if [[ -n "${OPENCODE_SERVER_PASSWORD:-}" ]]; then
+    export OPENCODE_SERVER_USER="${OPENCODE_SERVER_USER:-opencode}"
+    return
+  fi
   if [[ -r "$PASSWORD_FILE" ]]; then
     local pass
     pass="$(tr -d '\r\n' < "$PASSWORD_FILE" 2>/dev/null || true)"
