@@ -26,24 +26,26 @@ read_compose_value() {
 }
 
 usage() {
-  echo "Uso: vpn-opencode <web|serve|stop|status|logs|check|watch> [opções]" >&2
+  echo "Uso: vpn-opencode <web|serve|supervise|supervise-stop|supervise-status|supervise-logs|stop|status|logs|check|watch> [opções]" >&2
   echo "  web [--detach] [--port P]   painel web (foreground; -d solta no fundo)" >&2
   echo "  serve [--detach] [--port P] ponta para o Desktop App" >&2
   echo "  stop [--port P]             encerra web/serve na porta" >&2
   echo "  status [--port P]           diz se há web/serve ouvindo a porta" >&2
   echo "  logs [--tail N] [--port P]  logs do terminal (útil com --detach)" >&2
   echo "  check [--port P] [--json|-q] [--log-lines N]  verifica ok|down|quota (0/1)" >&2
-  echo "  watch [--port P] [--mode web|serve] [--interval N] [--restart-max N] [--log-lines N] [-q]" >&2
-  echo "    supervisor host-side: down=alerta+restart limitado; quota=alerta puro sem restart" >&2
+  echo "  supervise [--port P] [--mode web|serve] [--interval N] [--restart-max N]" >&2
+  echo "    inicia supervisor persistente: desconexão/limite => rotaciona VPN + retoma OpenCode" >&2
+  echo "  supervise-stop|supervise-status|supervise-logs  gerencia o supervisor persistente" >&2
+  echo "  watch [opções]              compatibilidade: inicia supervise e acompanha os logs" >&2
   echo "Porta padrão: \${OPENCODE_GUI_PORT:-10001} (deve estar na VPN_PORT_RANGE)." >&2
   exit 0
 }
 
 mode="${1:-}"
 case "$mode" in
-  web|serve|stop|status|logs|check|watch) ;;
+  web|serve|supervise|supervise-stop|supervise-status|supervise-logs|stop|status|logs|check|watch) ;;
   -h|--help|"") usage ;;
-  *) echo "Erro: modo desconhecido: $mode" >&2; echo "Uso: vpn-opencode <web|serve|stop|status|logs|check|watch>" >&2; exit 2 ;;
+  *) echo "Erro: modo desconhecido: $mode" >&2; echo "Uso: vpn-opencode <web|serve|supervise|supervise-stop|supervise-status|supervise-logs|stop|status|logs|check|watch>" >&2; exit 2 ;;
 esac
 
 detach=false
@@ -93,6 +95,7 @@ fi
 QUOTA_PATTERNS="${OPENCODE_QUOTA_PATTERNS:-quota|billing|insufficient|exceeded|credit.*exhaust|exhaust.*credit|quota.*exceed|exceed.*quota|payment required|out of credit|no credit}"
 
 compose=(docker compose --profile vpn -f "${ROOT_DIR}/docker-compose.yml")
+supervisor_compose=(docker compose --profile vpn --profile opencode -f "${ROOT_DIR}/docker-compose.yml")
 
 have_docker=false
 terminal_cid=""
@@ -255,13 +258,43 @@ do_watch() {
 }
 
 case "$mode" in
+  supervise)
+    need docker
+    vpn_container="$("${compose[@]}" ps -q vpn 2>/dev/null || true)"
+    [[ -n "$vpn_container" ]] || { echo "Erro: VPN não está ativa; inicie com ./scripts/vpn-switch <perfil>." >&2; exit 1; }
+    vpn_healthy="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}starting{{end}}' "$vpn_container" 2>/dev/null || true)"
+    [[ "$vpn_healthy" == "healthy" ]] || { echo "Erro: VPN ainda não está saudável (status: ${vpn_healthy})." >&2; exit 1; }
+    echo "Iniciando supervisor persistente do OpenCode (${restart_mode}, porta ${port})..."
+    OPENCODE_SUPERVISOR_MODE="$restart_mode"     OPENCODE_GUI_PORT="$port"     OPENCODE_SUPERVISOR_INTERVAL_SECONDS="$watch_interval"     OPENCODE_RECOVERY_MAX_ROTATIONS="$restart_max"       "${supervisor_compose[@]}" up -d --no-deps --force-recreate opencode-supervisor
+    echo "Supervisor iniciado. Logs: ./scripts/vpn-opencode supervise-logs"
+    ;;
+  supervise-stop)
+    need docker
+    "${supervisor_compose[@]}" stop opencode-supervisor >/dev/null 2>&1 || true
+    "${supervisor_compose[@]}" rm -f opencode-supervisor >/dev/null 2>&1 || true
+    echo "Supervisor do OpenCode encerrado."
+    ;;
+  supervise-status)
+    need docker
+    "${supervisor_compose[@]}" ps opencode-supervisor
+    ;;
+  supervise-logs)
+    need docker
+    exec "${supervisor_compose[@]}" logs -f --tail="$tail_n" opencode-supervisor
+    ;;
+  watch)
+    need docker
+    vpn_container="$("${compose[@]}" ps -q vpn 2>/dev/null || true)"
+    [[ -n "$vpn_container" ]] || { echo "Erro: VPN não está ativa; inicie com ./scripts/vpn-switch <perfil>." >&2; exit 1; }
+    vpn_healthy="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}starting{{end}}' "$vpn_container" 2>/dev/null || true)"
+    [[ "$vpn_healthy" == "healthy" ]] || { echo "Erro: VPN ainda não está saudável (status: ${vpn_healthy})." >&2; exit 1; }
+    OPENCODE_SUPERVISOR_MODE="$restart_mode"     OPENCODE_GUI_PORT="$port"     OPENCODE_SUPERVISOR_INTERVAL_SECONDS="$watch_interval"     OPENCODE_RECOVERY_MAX_ROTATIONS="$restart_max"       "${supervisor_compose[@]}" up -d --no-deps --force-recreate opencode-supervisor
+    exec "${supervisor_compose[@]}" logs -f --tail="$tail_n" opencode-supervisor
+    ;;
   check)
     if $output_json; then need jq; fi
     # check é leve: funciona no host e dentro dos containers (sem docker).
     do_check "$port" "$log_lines" "$output_json" "$quiet"
-    ;;
-  watch)
-    do_watch "$port" "$restart_mode" "$watch_interval" "$restart_max" "$log_lines" "$quiet"
     ;;
   status)
     need docker
@@ -275,7 +308,9 @@ case "$mode" in
     ;;
   stop)
     need docker
-    [[ -n "$terminal_cid" ]] || { echo "Erro: terminal não está ativo; inicie com ./scripts/vpn-switch <perfil>." >&2; exit 1; }
+    "${supervisor_compose[@]}" stop opencode-supervisor >/dev/null 2>&1 || true
+    "${supervisor_compose[@]}" rm -f opencode-supervisor >/dev/null 2>&1 || true
+    [[ -n "$terminal_cid" ]] || { echo "Supervisor encerrado; terminal não está ativo." >&2; exit 0; }
     stopped="$(docker exec "$terminal_cid" sh -c 'n=0; for d in /proc/[0-9]*; do if tr "\0" " " < "$d/cmdline" 2>/dev/null | grep -q "'"${proc_match}"'"; then kill "${d#/proc/}" 2>/dev/null && n=$((n+1)); fi; done; printf "%s" "$n"')"
     if (( stopped > 0 )); then
       echo "Encerrado(s) ${stopped} processo(s) na porta ${port}."
