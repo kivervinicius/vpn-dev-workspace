@@ -28,5 +28,27 @@ services:
     working_dir: /workspace
     command: ["/usr/local/bin/vpn-ssh-agent-relay"]
 
+
+  opencode-supervisor:
+    environment:
+      HOME: /home/developer
+      PATH: /home/developer/.opencode/bin:/home/developer/.local/bin:/home/developer/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      SSH_AUTH_SOCK: /tmp/vpn-ssh-agent.sock
+      WINDOWS_SSH_BRIDGE_HOST: ${WINDOWS_SSH_BRIDGE_HOST:-host.docker.internal}
+      WINDOWS_SSH_BRIDGE_PORT: ${WINDOWS_SSH_BRIDGE_PORT:?WINDOWS_SSH_BRIDGE_PORT is required}
+      WINDOWS_SSH_BRIDGE_TOKEN: ${WINDOWS_SSH_BRIDGE_TOKEN:?WINDOWS_SSH_BRIDGE_TOKEN is required}
+    volumes: !override
+      - vpn_windows_home:/home/developer
+      - type: bind
+        source: ${WINDOWS_WORKSPACE_DIR:?WINDOWS_WORKSPACE_DIR is required}
+        target: /workspace
+      - ./scripts/opencode-supervisor:/usr/local/bin/opencode-supervisor:ro
+      - ./scripts/vpn-check:/usr/local/bin/vpn-check:ro
+      - ./scripts/vpn-reconnect:/usr/local/bin/vpn-reconnect:ro
+      - ./scripts/vpn-server-rotate:/usr/local/bin/vpn-server-rotate:ro
+      - ./scripts/vpn-ssh-agent-relay:/usr/local/bin/vpn-ssh-agent-relay:ro
+    working_dir: /workspace
+    command: ["bash", "-lc", "/usr/local/bin/vpn-ssh-agent-relay & exec bash /usr/local/bin/opencode-supervisor"]
+
 volumes:
   vpn_windows_home:
