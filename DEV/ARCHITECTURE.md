@@ -1,6 +1,6 @@
 # Architecture
 
-`docker-compose.yml` define a infraestrutura comum: `vpn`, `terminal` e `vpn-auto-reconnect`. Todos pertencem ao perfil Compose interno `vpn` e não iniciam sem ele.
+`docker-compose.yml` define a infraestrutura comum: `vpn`, `terminal` e `vpn-auto-reconnect`, além do `opencode-supervisor` opt-in. Os três primeiros pertencem ao perfil Compose `vpn`; o supervisor usa o perfil `opencode`, compartilha `network_mode: service:vpn` e só é iniciado explicitamente por `vpn-opencode supervise`.
 
 O `terminal` usa `network_mode: service:vpn`, portanto todo o seu tráfego compartilha o namespace de rede e o kill switch do Gluetun. Ele monta `HOST_HOME_DIR` (por padrão, a home do usuário que executa o Compose) e `WORKSPACE_DIR` nos mesmos caminhos do host. Dessa forma, o Zsh encontra as configurações e ferramentas já instaladas pelo usuário, inclusive o OpenCode; a imagem também mantém uma versão verificada compatível como fallback. O `PATH` do terminal prioriza `${HOST_HOME_DIR}/.opencode/bin`, de modo que atualizar o OpenCode no host reflete de imediato no container sem rebuild. O serviço usa `init: true` para colher processos zumbis de shells/filhos.
 
@@ -10,7 +10,7 @@ O serviço `vpn` define `dns: 127.0.0.1` para que todos os contêineres que comp
 
 ## Modos Windows
 
-`compose.windows.yml` é um override exclusivo do `scripts/vpn.ps1`. Ele exige
+`compose.windows.yml` é um override exclusivo do `scripts/vpn.ps1`. Ele adapta tanto `terminal` quanto `opencode-supervisor` para a home persistente `vpn_windows_home`, workspace `/workspace` e ponte do agente OpenSSH. Ele exige
 Compose >= 2.24.4 e usa `!override` para substituir os mounts Linux do
 `terminal`: `WINDOWS_WORKSPACE_DIR` entra em `/workspace` e a home Linux fica
 no volume persistente `vpn_windows_home`. Os serviços e os arquivos de perfil
@@ -41,6 +41,9 @@ Os scripts de operação conversam com o HTTP Control Server do Gluetun (`/v1/vp
 - `vpn-hosts-gen` — valida `LOCAL_HOSTS` e gera `.hosts.local.gen` (git-ignorado, linhas `IP nome`). Não fala com o Gluetun nem com o Docker.
 - `vpn-hosts-apply` — injeta o snippet no `/etc/hosts` de `terminal` e `vpn-auto-reconnect` via `docker exec -u 0` (idempotente); o `vpn-switch` chama pós-up. Não fala com o Gluetun.
 - `vpn-hosts-import` — sugere a linha `LOCAL_HOSTS` a partir do `/etc/hosts` do host filtrado por domínio; roda só no host.
+
+
+O `opencode-supervisor` possui o processo `opencode web|serve` como filho, sem Docker socket. Ele observa apenas novos logs do processo: falha simples do processo reinicia o app; desconexão/provider rate limit dispara `vpn-server-rotate`, aguarda `vpn-check --only tunnel` e só então reinicia o OpenCode. Limites do plano Go identificados como `account_rate_limit` não rotacionam a VPN. Cooldown, janela e máximo de rotações evitam loops. A home/workspace são os mesmos do terminal, preservando estado e projetos.
 
 ## Acesso à rede interna do host (opt-in)
 
