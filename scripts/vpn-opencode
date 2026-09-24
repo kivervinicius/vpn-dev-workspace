@@ -49,14 +49,14 @@ case "$mode" in
 esac
 
 detach=false
-port="${OPENCODE_GUI_PORT:-10001}"
+port="$(read_compose_value OPENCODE_GUI_PORT 10001)"
 tail_n="50"
 output_json=false
 quiet=false
-log_lines="${OPENCODE_CHECK_LOG_LINES:-200}"
-watch_interval="${OPENCODE_WATCH_INTERVAL:-30}"
-restart_max="${OPENCODE_RESTART_MAX:-3}"
-restart_mode="${OPENCODE_WATCH_MODE:-serve}"
+log_lines="$(read_compose_value OPENCODE_CHECK_LOG_LINES 200)"
+watch_interval="$(read_compose_value OPENCODE_SUPERVISOR_INTERVAL_SECONDS "$(read_compose_value OPENCODE_WATCH_INTERVAL 10)")"
+restart_max="$(read_compose_value OPENCODE_RECOVERY_MAX_ROTATIONS "$(read_compose_value OPENCODE_RESTART_MAX 3)")"
+restart_mode="$(read_compose_value OPENCODE_SUPERVISOR_MODE "$(read_compose_value OPENCODE_WATCH_MODE serve)")"
 shift
 while (($# > 0)); do
   case "$1" in
