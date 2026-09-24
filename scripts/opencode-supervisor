@@ -15,7 +15,7 @@ VPN_READY_ATTEMPTS="${OPENCODE_VPN_READY_ATTEMPTS:-30}"
 VPN_READY_DELAY="${OPENCODE_VPN_READY_DELAY_SECONDS:-2}"
 LOG_FILE="${OPENCODE_SUPERVISOR_LOG_FILE:-/tmp/opencode-supervisor/opencode.log}"
 PID_FILE="${OPENCODE_SUPERVISOR_PID_FILE:-/tmp/opencode-supervisor/opencode.pid}"
-SESSION_STATE_FILE="${OPENCODE_SUPERVISOR_SESSION_FILE:-/tmp/opencode-supervisor/resume-session}"
+SESSION_STATE_FILE="${OPENCODE_SUPERVISOR_SESSION_FILE:-${HOME:-/home/developer}/.local/state/vpn-dev-workspace/opencode-resume-session}"
 FREE_TIER_LIMIT_PATTERNS="${OPENCODE_FREE_TIER_LIMIT_PATTERNS:-freeusagelimiterror|free_tier_limit|free limit reached|free usage exceeded.*subscribe to go|subscribe to go}"
 ACCOUNT_LIMIT_PATTERNS="${OPENCODE_ACCOUNT_LIMIT_PATTERNS:-account_rate_limit|go limit reached|weekly usage limit reached|monthly usage limit reached|usage limit reached.*reset}"
 RATE_LIMIT_PATTERNS="${OPENCODE_RATE_LIMIT_PATTERNS:-${OPENCODE_LIMIT_PATTERNS:-provider rate limit exceeded|too many requests|too_many_requests|http[^0-9]*429|status[^0-9]*429|rate[ -]?limit exceeded}}"
@@ -53,7 +53,7 @@ Configuração principal:
   OPENCODE_READY_DELAY_SECONDS=2
   OPENCODE_VPN_READY_ATTEMPTS=30
   OPENCODE_VPN_READY_DELAY_SECONDS=2
-  OPENCODE_SUPERVISOR_SESSION_FILE=/tmp/opencode-supervisor/resume-session
+  OPENCODE_SUPERVISOR_SESSION_FILE=<path opcional; padrão na home persistente>
   OPENCODE_FREE_TIER_LIMIT_PATTERNS=<regex>
   OPENCODE_ACCOUNT_LIMIT_PATTERNS=<regex>
   OPENCODE_RATE_LIMIT_PATTERNS=<regex>
