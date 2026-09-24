@@ -313,11 +313,23 @@ function Get-LocalHostEntries {
 function Apply-LocalHosts {
     $entries = @(Get-LocalHostEntries)
     if ($entries.Count -eq 0) { Write-Output 'Sem LOCAL_HOSTS; nada a aplicar.'; return }
-    $compose = Get-ComposeArguments
-    foreach ($service in @('terminal', 'vpn-auto-reconnect')) {
+
+    $compose = @(Get-ComposeArguments) + @('--profile', 'opencode')
+    $services = @(
+        [pscustomobject]@{ Name = 'terminal'; Required = $true },
+        [pscustomobject]@{ Name = 'vpn-auto-reconnect'; Required = $true },
+        [pscustomobject]@{ Name = 'opencode-supervisor'; Required = $false }
+    )
+
+    foreach ($serviceInfo in $services) {
+        $service = $serviceInfo.Name
         $idOutput = @(& docker compose @($compose + @('ps', '-q', $service)) 2>$null | Select-Object -First 1)
         $id = if ($idOutput.Count -gt 0) { [string]$idOutput[0].Trim() } else { '' }
-        if (-not $id) { throw "contêiner '$service' não está ativo para aplicar LOCAL_HOSTS." }
+        if (-not $id) {
+            if ($serviceInfo.Required) { throw "contêiner '$service' não está ativo para aplicar LOCAL_HOSTS." }
+            continue
+        }
+
         foreach ($entry in $entries) {
             $ipPattern = [regex]::Escape($entry.ip)
             $namePattern = [regex]::Escape($entry.name)
