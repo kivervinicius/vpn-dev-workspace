@@ -32,8 +32,9 @@ Uso: opencode-supervisor [--help] [--classify <texto>]
 Executa e supervisiona OpenCode dentro da VPN.
 - queda do processo com VPN saudável: reinicia somente OpenCode;
 - desconexão/erro de rede: rotaciona VPN, aguarda saúde e reinicia OpenCode;
-- provider rate limit/429: rotaciona VPN, aguarda saúde e reinicia OpenCode;\n- Go account limit: mantém o app vivo; VPN não altera o limite da conta;
-- limita rotações por janela para evitar loop quando o limite for de conta.
+- provider rate limit/429: rotaciona VPN, aguarda saúde e reinicia OpenCode;
+- Go account limit: mantém o app vivo; VPN não altera o limite da conta;
+- limita rotações por janela/cooldown para evitar loops.
 
 Configuração principal:
   OPENCODE_SUPERVISOR_MODE=serve|web
@@ -50,14 +51,14 @@ EOF
 
 classify_text() {
   local text="$1"
-  if [[ -n "$text" ]] && printf '%s\\n' "$text" | grep -Eiq "($ACCOUNT_LIMIT_PATTERNS)"; then
-    printf 'account_limit\\n'
-  elif [[ -n "$text" ]] && printf '%s\\n' "$text" | grep -Eiq "($RATE_LIMIT_PATTERNS)"; then
-    printf 'rate_limit\\n'
-  elif [[ -n "$text" ]] && printf '%s\\n' "$text" | grep -Eiq "($DISCONNECT_PATTERNS)"; then
-    printf 'disconnect\\n'
+  if [[ -n "$text" ]] && printf '%s\n' "$text" | grep -Eiq "($ACCOUNT_LIMIT_PATTERNS)"; then
+    printf 'account_limit\n'
+  elif [[ -n "$text" ]] && printf '%s\n' "$text" | grep -Eiq "($RATE_LIMIT_PATTERNS)"; then
+    printf 'rate_limit\n'
+  elif [[ -n "$text" ]] && printf '%s\n' "$text" | grep -Eiq "($DISCONNECT_PATTERNS)"; then
+    printf 'disconnect\n'
   else
-    printf 'none\\n'
+    printf 'none\n'
   fi
 }
 
@@ -80,8 +81,7 @@ resolve_helper() {
   if command -v "$1" >/dev/null 2>&1; then
     command -v "$1"
   elif [[ -x "/usr/local/bin/$1" ]]; then
-    printf '/usr/local/bin/%s
-' "$1"
+    printf '/usr/local/bin/%s\n' "$1"
   else
     return 1
   fi
@@ -117,8 +117,7 @@ load_server_auth() {
   unset OPENCODE_SERVER_PASSWORD || true
   if [[ -r "$PASSWORD_FILE" ]]; then
     local pass
-    pass="$(tr -d '
-' < "$PASSWORD_FILE" 2>/dev/null || true)"
+    pass="$(tr -d '\r\n' < "$PASSWORD_FILE" 2>/dev/null || true)"
     if [[ -n "$pass" ]]; then
       export OPENCODE_SERVER_PASSWORD="$pass"
       export OPENCODE_SERVER_USER="${OPENCODE_SERVER_USER:-opencode}"
@@ -131,7 +130,9 @@ http_ready() {
   if [[ -n "${OPENCODE_SERVER_PASSWORD:-}" ]]; then
     auth=(-u "${OPENCODE_SERVER_USER:-opencode}:${OPENCODE_SERVER_PASSWORD}")
   fi
-  curl --silent --show-error --output /dev/null     --connect-timeout 3 --max-time 5     "${auth[@]}" "http://127.0.0.1:${PORT}/"
+  curl --silent --show-error --output /dev/null \
+    --connect-timeout 3 --max-time 5 \
+    "${auth[@]}" "http://127.0.0.1:${PORT}/"
 }
 
 start_opencode() {
@@ -141,8 +142,7 @@ start_opencode() {
   echo "Iniciando OpenCode ${MODE} em 127.0.0.1:${PORT}..."
   opencode "$MODE" --port "$PORT" --hostname 0.0.0.0 >>"$LOG_FILE" 2>&1 &
   child_pid=$!
-  printf '%s
-' "$child_pid" > "$PID_FILE"
+  printf '%s\n' "$child_pid" > "$PID_FILE"
 }
 
 stop_opencode() {
