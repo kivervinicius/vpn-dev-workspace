@@ -207,6 +207,78 @@ services:
       start_period: 2m
     restart: unless-stopped
 
+
+  # OpenCode autônomo: possui o processo filho e recupera app+VPN sem Docker socket.
+  # É opt-in e iniciado pelo helper vpn-opencode supervise.
+  opencode-supervisor:
+    profiles: ["opencode"]
+    build:
+      context: .
+      args:
+        HOST_UID: ${HOST_UID:-1000}
+        HOST_GID: ${HOST_GID:-1000}
+    network_mode: "service:vpn"
+    init: true
+    command: ["/usr/local/bin/opencode-supervisor"]
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 8G
+          pids: 1024
+    environment:
+      HOME: ${HOST_HOME_DIR:-${HOME}}
+      PATH: ${HOST_HOME_DIR:-/home/desenvolvedor}/.opencode/bin:${HOST_HOME_DIR:-/home/desenvolvedor}/.local/bin:${HOST_HOME_DIR:-/home/desenvolvedor}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      SHELL: /usr/bin/zsh
+      SSH_AUTH_SOCK: /run/vpn-ssh-agent.sock
+      GLUETUN_API_KEY_FILE: /run/secrets/gluetun_api_key
+      VPN_SERVER_HOSTNAMES: ${VPN_SERVER_HOSTNAMES:-}
+      VPN_IP_ATTEMPTS: ${VPN_IP_ATTEMPTS:-30}
+      VPN_IP_DELAY_SECONDS: ${VPN_IP_DELAY_SECONDS:-5}
+      OPENCODE_SUPERVISOR_MODE: ${OPENCODE_SUPERVISOR_MODE:-serve}
+      OPENCODE_GUI_PORT: ${OPENCODE_GUI_PORT:-10001}
+      OPENCODE_SERVER_USER: ${OPENCODE_SERVER_USER:-opencode}
+      OPENCODE_SUPERVISOR_INTERVAL_SECONDS: ${OPENCODE_SUPERVISOR_INTERVAL_SECONDS:-10}
+      OPENCODE_RECOVERY_COOLDOWN_SECONDS: ${OPENCODE_RECOVERY_COOLDOWN_SECONDS:-30}
+      OPENCODE_RECOVERY_WINDOW_SECONDS: ${OPENCODE_RECOVERY_WINDOW_SECONDS:-900}
+      OPENCODE_RECOVERY_MAX_ROTATIONS: ${OPENCODE_RECOVERY_MAX_ROTATIONS:-3}
+      OPENCODE_READY_ATTEMPTS: ${OPENCODE_READY_ATTEMPTS:-30}
+      OPENCODE_READY_DELAY_SECONDS: ${OPENCODE_READY_DELAY_SECONDS:-2}
+      OPENCODE_LIMIT_PATTERNS: ${OPENCODE_LIMIT_PATTERNS:-}
+      OPENCODE_DISCONNECT_PATTERNS: ${OPENCODE_DISCONNECT_PATTERNS:-}
+    volumes:
+      - ${HOST_HOME_DIR:-${HOME}}:${HOST_HOME_DIR:-${HOME}}
+      - ${WORKSPACE_DIR:-/projetos}:${WORKSPACE_DIR:-/projetos}
+      - ${SSH_AUTH_SOCK:-/dev/null}:/run/vpn-ssh-agent.sock:ro
+      - ${RUN_USER_DIR:-/dev/null}:${RUN_USER_DIR:-/dev/null}:ro
+      - ./scripts/opencode-supervisor:/usr/local/bin/opencode-supervisor:ro
+      - ./scripts/vpn-check:/usr/local/bin/vpn-check:ro
+      - ./scripts/vpn-reconnect:/usr/local/bin/vpn-reconnect:ro
+      - ./scripts/vpn-server-rotate:/usr/local/bin/vpn-server-rotate:ro
+      - ${OPENCODE_GUI_PASSWORD_FILE:-/dev/null}:/run/secrets/opencode_gui_password:ro
+    working_dir: ${WORKSPACE_DIR:-/projetos}
+    depends_on:
+      vpn:
+        condition: service_healthy
+    secrets:
+      - gluetun_api_key
+    healthcheck:
+      test: ["CMD-SHELL", "test -s /tmp/opencode-supervisor/opencode.pid && kill -0 $(cat /tmp/opencode-supervisor/opencode.pid)"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 1m
+    restart: unless-stopped
+
 secrets:
   gluetun_api_key:
     file: ${GLUETUN_API_KEY_FILE:?GLUETUN_API_KEY_FILE is required}
