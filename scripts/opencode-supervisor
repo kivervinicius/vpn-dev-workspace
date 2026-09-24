@@ -1,0 +1,333 @@
+#!/usr/bin/env bash
+# Supervisão autônoma do OpenCode dentro do namespace da VPN.
+# Não usa Docker socket: controla o processo filho OpenCode e a VPN pela API do Gluetun.
+set -Eeuo pipefail
+
+MODE="${OPENCODE_SUPERVISOR_MODE:-serve}"
+PORT="${OPENCODE_GUI_PORT:-10001}"
+INTERVAL="${OPENCODE_SUPERVISOR_INTERVAL_SECONDS:-10}"
+COOLDOWN="${OPENCODE_RECOVERY_COOLDOWN_SECONDS:-30}"
+WINDOW_SECONDS="${OPENCODE_RECOVERY_WINDOW_SECONDS:-900}"
+MAX_ROTATIONS="${OPENCODE_RECOVERY_MAX_ROTATIONS:-3}"
+READY_ATTEMPTS="${OPENCODE_READY_ATTEMPTS:-30}"
+READY_DELAY="${OPENCODE_READY_DELAY_SECONDS:-2}"
+LOG_FILE="${OPENCODE_SUPERVISOR_LOG_FILE:-/tmp/opencode-supervisor/opencode.log}"
+PID_FILE="${OPENCODE_SUPERVISOR_PID_FILE:-/tmp/opencode-supervisor/opencode.pid}"
+LIMIT_PATTERNS="${OPENCODE_LIMIT_PATTERNS:-rate[ -]?limit|too many requests|http[^0-9]*429|status[^0-9]*429|quota|usage limit|limit (reached|exceeded)|reached.*limit|exceeded.*limit|opencode go.*limit}"
+DISCONNECT_PATTERNS="${OPENCODE_DISCONNECT_PATTERNS:-disconnected|connection lost|connection reset|econnreset|etimedout|network error|network request failed|fetch failed|socket hang up|connection closed|connection refused}"
+PASSWORD_FILE="${OPENCODE_GUI_PASSWORD_FILE:-/run/secrets/opencode_gui_password}"
+
+child_pid=""
+log_offset=0
+rotations=0
+window_started="$(date +%s)"
+last_recovery=0
+
+usage() {
+  cat >&2 <<'EOF'
+Uso: opencode-supervisor [--help] [--classify <texto>]
+
+Executa e supervisiona OpenCode dentro da VPN.
+- queda do processo com VPN saudável: reinicia somente OpenCode;
+- desconexão/erro de rede: rotaciona VPN, aguarda saúde e reinicia OpenCode;
+- limite/quota/429: rotaciona VPN, aguarda saúde e reinicia OpenCode;
+- limita rotações por janela para evitar loop quando o limite for de conta.
+
+Configuração principal:
+  OPENCODE_SUPERVISOR_MODE=serve|web
+  OPENCODE_GUI_PORT=10001
+  OPENCODE_SUPERVISOR_INTERVAL_SECONDS=10
+  OPENCODE_RECOVERY_COOLDOWN_SECONDS=30
+  OPENCODE_RECOVERY_WINDOW_SECONDS=900
+  OPENCODE_RECOVERY_MAX_ROTATIONS=3
+  OPENCODE_LIMIT_PATTERNS=<regex>
+  OPENCODE_DISCONNECT_PATTERNS=<regex>
+EOF
+}
+
+classify_text() {
+  local text="$1"
+  if [[ -n "$text" ]] && printf '%s
+' "$text" | grep -Eiq "($DISCONNECT_PATTERNS)"; then
+    printf 'disconnect
+'
+  elif [[ -n "$text" ]] && printf '%s
+' "$text" | grep -Eiq "($LIMIT_PATTERNS)"; then
+    printf 'limit
+'
+  else
+    printf 'none
+'
+  fi
+}
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  usage
+  exit 0
+fi
+if [[ "${1:-}" == "--classify" ]]; then
+  [[ $# -eq 2 ]] || { echo "Erro: --classify exige exatamente um texto." >&2; exit 2; }
+  classify_text "$2"
+  exit 0
+fi
+[[ $# -eq 0 ]] || { echo "Erro: argumento desconhecido: $1" >&2; usage; exit 2; }
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || { echo "Erro: dependência ausente: $1" >&2; exit 2; }
+}
+
+resolve_helper() {
+  if command -v "$1" >/dev/null 2>&1; then
+    command -v "$1"
+  elif [[ -x "/usr/local/bin/$1" ]]; then
+    printf '/usr/local/bin/%s
+' "$1"
+  else
+    return 1
+  fi
+}
+
+validate_positive() {
+  local name="$1" value="$2"
+  [[ "$value" =~ ^[1-9][0-9]*$ ]] || { echo "Erro: ${name} deve ser inteiro positivo (recebido: ${value})." >&2; exit 2; }
+}
+
+validate_nonnegative() {
+  local name="$1" value="$2"
+  [[ "$value" =~ ^[0-9]+$ ]] || { echo "Erro: ${name} deve ser inteiro >= 0 (recebido: ${value})." >&2; exit 2; }
+}
+
+need curl
+need grep
+need opencode
+
+[[ "$MODE" == "serve" || "$MODE" == "web" ]] || { echo "Erro: OPENCODE_SUPERVISOR_MODE deve ser serve|web." >&2; exit 2; }
+[[ "$PORT" =~ ^[1-9][0-9]{0,4}$ && "$PORT" -le 65535 ]] || { echo "Erro: OPENCODE_GUI_PORT inválida: $PORT." >&2; exit 2; }
+validate_positive OPENCODE_SUPERVISOR_INTERVAL_SECONDS "$INTERVAL"
+validate_nonnegative OPENCODE_RECOVERY_COOLDOWN_SECONDS "$COOLDOWN"
+validate_positive OPENCODE_RECOVERY_WINDOW_SECONDS "$WINDOW_SECONDS"
+validate_positive OPENCODE_RECOVERY_MAX_ROTATIONS "$MAX_ROTATIONS"
+validate_positive OPENCODE_READY_ATTEMPTS "$READY_ATTEMPTS"
+validate_nonnegative OPENCODE_READY_DELAY_SECONDS "$READY_DELAY"
+
+mkdir -p "$(dirname "$LOG_FILE")" "$(dirname "$PID_FILE")"
+touch "$LOG_FILE"
+
+load_server_auth() {
+  unset OPENCODE_SERVER_PASSWORD || true
+  if [[ -r "$PASSWORD_FILE" ]]; then
+    local pass
+    pass="$(tr -d '
+' < "$PASSWORD_FILE" 2>/dev/null || true)"
+    if [[ -n "$pass" ]]; then
+      export OPENCODE_SERVER_PASSWORD="$pass"
+      export OPENCODE_SERVER_USER="${OPENCODE_SERVER_USER:-opencode}"
+    fi
+  fi
+}
+
+http_ready() {
+  local -a auth=()
+  if [[ -n "${OPENCODE_SERVER_PASSWORD:-}" ]]; then
+    auth=(-u "${OPENCODE_SERVER_USER:-opencode}:${OPENCODE_SERVER_PASSWORD}")
+  fi
+  curl --silent --show-error --output /dev/null     --connect-timeout 3 --max-time 5     "${auth[@]}" "http://127.0.0.1:${PORT}/"
+}
+
+start_opencode() {
+  load_server_auth
+  : > "$LOG_FILE"
+  log_offset=0
+  echo "Iniciando OpenCode ${MODE} em 127.0.0.1:${PORT}..."
+  opencode "$MODE" --port "$PORT" --hostname 0.0.0.0 >>"$LOG_FILE" 2>&1 &
+  child_pid=$!
+  printf '%s
+' "$child_pid" > "$PID_FILE"
+}
+
+stop_opencode() {
+  if [[ -n "$child_pid" ]] && kill -0 "$child_pid" 2>/dev/null; then
+    kill -TERM "$child_pid" 2>/dev/null || true
+    for _ in {1..10}; do
+      kill -0 "$child_pid" 2>/dev/null || break
+      sleep 1
+    done
+    kill -KILL "$child_pid" 2>/dev/null || true
+    wait "$child_pid" 2>/dev/null || true
+  fi
+  child_pid=""
+  rm -f "$PID_FILE"
+}
+
+wait_ready() {
+  local attempt
+  for ((attempt=1; attempt<=READY_ATTEMPTS; attempt++)); do
+    if [[ -n "$child_pid" ]] && ! kill -0 "$child_pid" 2>/dev/null; then
+      echo "OpenCode encerrou antes de ficar pronto." >&2
+      return 1
+    fi
+    if http_ready; then
+      echo "OpenCode pronto após recuperação."
+      return 0
+    fi
+    sleep "$READY_DELAY"
+  done
+  echo "OpenCode não ficou pronto após ${READY_ATTEMPTS} tentativas." >&2
+  return 1
+}
+
+read_new_logs() {
+  local size chunk=""
+  size="$(wc -c < "$LOG_FILE" | tr -d '[:space:]')"
+  [[ "$size" =~ ^[0-9]+$ ]] || size=0
+  if (( size < log_offset )); then
+    log_offset=0
+  fi
+  if (( size > log_offset )); then
+    chunk="$(tail -c "+$((log_offset + 1))" "$LOG_FILE" 2>/dev/null || true)"
+    log_offset="$size"
+  fi
+  printf '%s' "$chunk"
+}
+
+vpn_is_healthy() {
+  local helper
+  helper="$(resolve_helper vpn-check)" || return 1
+  "$helper" --only tunnel -q >/dev/null 2>&1
+}
+
+reset_rotation_window_if_needed() {
+  local now
+  now="$(date +%s)"
+  if (( now - window_started >= WINDOW_SECONDS )); then
+    window_started="$now"
+    rotations=0
+  fi
+}
+
+rotation_allowed() {
+  local now
+  reset_rotation_window_if_needed
+  now="$(date +%s)"
+  if (( rotations >= MAX_ROTATIONS )); then
+    echo "Proteção anti-loop: ${rotations}/${MAX_ROTATIONS} rotações já executadas nesta janela de ${WINDOW_SECONDS}s." >&2
+    return 1
+  fi
+  if (( last_recovery > 0 && now - last_recovery < COOLDOWN )); then
+    echo "Cooldown de recuperação ativo; nova rotação adiada." >&2
+    return 1
+  fi
+  last_recovery="$now"
+  rotations=$((rotations + 1))
+  return 0
+}
+
+rotate_vpn() {
+  local rotate reconnect hostnames count
+  rotate="$(resolve_helper vpn-server-rotate)" || { echo "Erro: vpn-server-rotate ausente." >&2; return 1; }
+  reconnect="$(resolve_helper vpn-reconnect)" || { echo "Erro: vpn-reconnect ausente." >&2; return 1; }
+
+  hostnames="${VPN_SERVER_HOSTNAMES:-}"
+  count=0
+  if [[ -n "$hostnames" ]]; then
+    IFS=',' read -r -a _hosts <<< "$hostnames"
+    for _host in "${_hosts[@]}"; do
+      _host="${_host#"${_host%%[![:space:]]*}"}"
+      _host="${_host%"${_host##*[![:space:]]}"}"
+      [[ -n "$_host" ]] && count=$((count + 1))
+    done
+  fi
+
+  echo "Rotacionando VPN antes de retomar o OpenCode..."
+  if (( count == 1 )); then
+    "$rotate" --random && return 0
+  else
+    "$rotate" && return 0
+  fi
+
+  echo "Rotação falhou; tentando apenas reconectar o túnel atual." >&2
+  "$reconnect"
+}
+
+recover_with_vpn() {
+  local reason="$1"
+  if ! rotation_allowed; then
+    echo "Recuperação por VPN bloqueada temporariamente (${reason}); OpenCode permanece supervisionado." >&2
+    return 1
+  fi
+
+  echo "Recuperação OpenCode acionada por: ${reason}."
+  stop_opencode
+
+  if ! rotate_vpn; then
+    echo "Falha ao recuperar a VPN; OpenCode não será iniciado fora de um túnel confirmado." >&2
+    return 1
+  fi
+
+  if ! vpn_is_healthy; then
+    echo "VPN ainda não está saudável após a rotação; aguardando próximo ciclo." >&2
+    return 1
+  fi
+
+  start_opencode
+  wait_ready
+}
+
+recover_process_only() {
+  echo "OpenCode caiu, mas a VPN está saudável; reiniciando apenas a aplicação." >&2
+  stop_opencode
+  start_opencode
+  wait_ready
+}
+
+shutdown() {
+  echo "Encerrando supervisor do OpenCode..."
+  stop_opencode
+  exit 0
+}
+trap shutdown TERM INT
+
+start_opencode
+if ! wait_ready; then
+  if vpn_is_healthy; then
+    recover_process_only || true
+  else
+    recover_with_vpn "startup-vpn-unhealthy" || true
+  fi
+fi
+
+echo "Supervisor ativo: mode=${MODE}, port=${PORT}, interval=${INTERVAL}s, max-rotations=${MAX_ROTATIONS}/${WINDOW_SECONDS}s."
+
+while true; do
+  sleep "$INTERVAL"
+
+  if [[ -z "$child_pid" ]] || ! kill -0 "$child_pid" 2>/dev/null; then
+    if vpn_is_healthy; then
+      recover_process_only || true
+    else
+      recover_with_vpn "process-down-and-vpn-unhealthy" || true
+    fi
+    continue
+  fi
+
+  new_logs="$(read_new_logs)"
+  event="$(classify_text "$new_logs")"
+  case "$event" in
+    limit)
+      recover_with_vpn "opencode-limit" || true
+      continue
+      ;;
+    disconnect)
+      recover_with_vpn "opencode-disconnect" || true
+      continue
+      ;;
+  esac
+
+  if ! http_ready; then
+    if vpn_is_healthy; then
+      recover_process_only || true
+    else
+      recover_with_vpn "http-down-and-vpn-unhealthy" || true
+    fi
+  fi
+done
