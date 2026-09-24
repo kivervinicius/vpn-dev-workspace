@@ -13,7 +13,8 @@ READY_ATTEMPTS="${OPENCODE_READY_ATTEMPTS:-30}"
 READY_DELAY="${OPENCODE_READY_DELAY_SECONDS:-2}"
 LOG_FILE="${OPENCODE_SUPERVISOR_LOG_FILE:-/tmp/opencode-supervisor/opencode.log}"
 PID_FILE="${OPENCODE_SUPERVISOR_PID_FILE:-/tmp/opencode-supervisor/opencode.pid}"
-LIMIT_PATTERNS="${OPENCODE_LIMIT_PATTERNS:-rate[ -]?limit|too many requests|http[^0-9]*429|status[^0-9]*429|quota|usage limit|limit (reached|exceeded)|reached.*limit|exceeded.*limit|opencode go.*limit}"
+ACCOUNT_LIMIT_PATTERNS="${OPENCODE_ACCOUNT_LIMIT_PATTERNS:-account_rate_limit|go limit reached|weekly usage limit reached|monthly usage limit reached|usage limit reached.*reset}"
+RATE_LIMIT_PATTERNS="${OPENCODE_RATE_LIMIT_PATTERNS:-${OPENCODE_LIMIT_PATTERNS:-provider rate limit exceeded|too many requests|too_many_requests|http[^0-9]*429|status[^0-9]*429|rate[ -]?limit exceeded}}"
 DISCONNECT_PATTERNS="${OPENCODE_DISCONNECT_PATTERNS:-disconnected|connection lost|connection reset|econnreset|etimedout|network error|network request failed|fetch failed|socket hang up|connection closed|connection refused}"
 PASSWORD_FILE="${OPENCODE_GUI_PASSWORD_FILE:-/run/secrets/opencode_gui_password}"
 
@@ -40,7 +41,8 @@ Configuração principal:
   OPENCODE_RECOVERY_COOLDOWN_SECONDS=30
   OPENCODE_RECOVERY_WINDOW_SECONDS=900
   OPENCODE_RECOVERY_MAX_ROTATIONS=3
-  OPENCODE_LIMIT_PATTERNS=<regex>
+  OPENCODE_ACCOUNT_LIMIT_PATTERNS=<regex>
+  OPENCODE_RATE_LIMIT_PATTERNS=<regex>
   OPENCODE_DISCONNECT_PATTERNS=<regex>
 EOF
 }
@@ -313,8 +315,12 @@ while true; do
   new_logs="$(read_new_logs)"
   event="$(classify_text "$new_logs")"
   case "$event" in
-    limit)
-      recover_with_vpn "opencode-limit" || true
+    account_limit)
+      echo "OpenCode Go atingiu limite de conta; rotação de VPN não altera account_rate_limit. Mantendo o processo vivo até o reset/fallback do próprio OpenCode." >&2
+      continue
+      ;;
+    rate_limit)
+      recover_with_vpn "opencode-provider-rate-limit" || true
       continue
       ;;
     disconnect)
