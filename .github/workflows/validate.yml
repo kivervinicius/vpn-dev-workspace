@@ -19,8 +19,9 @@ jobs:
         run: find scripts -maxdepth 1 -type f ! -name '*.ps1' -print0 | xargs -0 shellcheck -S error && bash -n scripts/* && sh -n scripts/vpn-entrypoint.sh && git diff --check
       - name: Test OpenCode recovery classifier
         run: |
-          test "$(bash ./scripts/opencode-supervisor --classify '429 Too Many Requests')" = "limit"
-          test "$(bash ./scripts/opencode-supervisor --classify 'OpenCode Go usage limit reached')" = "limit"
+          test "$(bash ./scripts/opencode-supervisor --classify '429 Too Many Requests')" = "rate_limit"
+          test "$(bash ./scripts/opencode-supervisor --classify 'Provider rate limit exceeded')" = "rate_limit"
+          test "$(bash ./scripts/opencode-supervisor --classify 'Go limit reached: usage limit reached. It will reset in 5 days')" = "account_limit"
           test "$(bash ./scripts/opencode-supervisor --classify 'connection lost while streaming')" = "disconnect"
           test "$(bash ./scripts/opencode-supervisor --classify 'normal request completed')" = "none"
       - name: Validate documentation
