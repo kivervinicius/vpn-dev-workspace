@@ -61,6 +61,7 @@ for profile_file in "${ROOT_DIR}"/profiles/*.yml; do
   "${compose_env[@]}" docker compose --profile vpn -f "$COMPOSE_FILE" -f "$profile_file" config --quiet
   "${compose_env[@]}" docker compose --profile vpn --profile opencode -f "$COMPOSE_FILE" -f "$profile_file" config --quiet
   "${compose_env[@]}" docker compose --profile vpn -f "$COMPOSE_FILE" -f "$WINDOWS_COMPOSE_FILE" -f "$profile_file" config --quiet
+  "${compose_env[@]}" docker compose --profile vpn --profile opencode -f "$COMPOSE_FILE" -f "$WINDOWS_COMPOSE_FILE" -f "$profile_file" config --quiet
 done
 
 # O snippet gerado pelo vpn-hosts-gen deve ter linhas "IP nome" válidas e o
