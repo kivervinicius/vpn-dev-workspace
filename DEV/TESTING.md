@@ -32,9 +32,15 @@
   basic auth) e `serve` (200), `ssh-add -l` no terminal. Evidência em
   `VERIFY.md`.
 - OpenCode sem Docker: `vpn-opencode check --port` com porta fechada (`down`, exit 1),
-  responder HTTP com `quota exceeded` (`quota`, exit 1, sem restart) e corpo neutro
-  (`ok`, exit 0); `--json` emite `{status,port,detail}`; `watch` com `--restart-max 0`
-  nunca reinicia; `vpn-top --json` inclui `.opencode`.
+  responder HTTP com `quota exceeded` (`quota`, exit 1) e corpo neutro (`ok`, exit 0);
+  `--json` emite `{status,port,detail}`; `vpn-top --json` inclui `.opencode`.
+- Classificador do self-heal roda na CI sem VPN real: `429 Too Many Requests`/`Provider rate limit exceeded` => `rate_limit`; `Go limit reached` +
+  mensagem de reset => `account_limit`; `connection lost while streaming` => `disconnect`;
+  texto normal => `none`.
+- Supervisor runtime: `vpn-opencode supervise --mode serve`; derrubar apenas o processo
+  deve reiniciar OpenCode sem rotacionar uma VPN saudável. Injetar evento de desconexão/limite
+  deve parar OpenCode, rotacionar/reconectar o Gluetun, confirmar túnel saudável e iniciar
+  OpenCode novamente. Validar também a proteção anti-loop por janela/cooldown.
 - Hosts locais (runtime): com `LOCAL_HOSTS=gitlab.omega=<ip>`, `getent hosts
   gitlab.omega` no terminal retorna o IP e `vpn-check` marca ok; alcance real
   exige a sub-rede em `FIREWALL_SUBNETS`.

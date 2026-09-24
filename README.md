@@ -50,6 +50,8 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\vpn.ps1 reconnect
 .\scripts\vpn.ps1 rotate --list
 .\scripts\vpn.ps1 opencode web
+.\scripts\vpn.ps1 opencode supervise --mode serve
+.\scripts\vpn.ps1 opencode supervise-status
 .\scripts\vpn.ps1 hosts-import --domain omega
 .\scripts\vpn.ps1 hosts-apply
 .\scripts\vpn.ps1 stop
@@ -185,7 +187,7 @@ LOCAL_HOSTS=gitlab.omega=192.168.30.5,registry.omega=192.168.30.6
 
 - O `vpn-switch` gera um snippet a partir de `LOCAL_HOSTS` e injeta no `/etc/hosts` do terminal pós-up (idempotente; `extra_hosts` é rejeitado pelo Docker com `network_mode`, por isso a injeção pós-up).
 - Para importar do `/etc/hosts` do host por domínio: `./scripts/vpn-hosts-import --domain omega` (só sugere a linha — você cola no `.env`).
-- Reaplicar após `restart` manual: `./scripts/vpn-hosts-apply` (o `vpn-switch` sempre reaplica; `down`/`recreate` perde as entradas).
+- Reaplicar após `restart` manual: `./scripts/vpn-hosts-apply` (o `vpn-switch` sempre reaplica; `down`/`recreate` perde as entradas). Se `opencode-supervisor` estiver ativo, ele também recebe os mesmos `LOCAL_HOSTS`.
 - O `vpn-check` valida que cada nome resolve para o IP declarado.
 - O mapeamento resolve só o **nome**; o **alcance** continua exigindo a sub-rede em `FIREWALL_SUBNETS` (acima). Se o IP mudar na LAN, atualize o mapeamento (o import facilita o re-sync).
 
@@ -209,15 +211,24 @@ RUN_USER_DIR=/run/user/1000
 O helper `vpn-opencode` roda o OpenCode dentro do container (tráfego de LLM 100% pela VPN), expondo a interface na faixa publicada:
 
 ```bash
-./scripts/vpn-opencode web     # painel web em http://127.0.0.1:10001
-./scripts/vpn-opencode serve   # ponta para o Desktop App (conecte via 127.0.0.1:10001)
+./scripts/vpn-opencode web                     # execução direta/foreground
+./scripts/vpn-opencode serve                   # execução direta para o Desktop App
+./scripts/vpn-opencode supervise --mode serve  # modo recomendado: persistente + self-heal
+./scripts/vpn-opencode supervise-status
+./scripts/vpn-opencode supervise-logs
+./scripts/vpn-opencode supervise-stop
 ```
 
 - Porta: `OPENCODE_GUI_PORT` (padrão `10001`); validada dentro de `VPN_PORT_RANGE`.
 - Gerenciar: `vpn-opencode status|logs [--port P]`, `vpn-opencode stop [--port P]`, fundo com `web|serve --detach`.
 - Verificação: `vpn-opencode check [--port P] [--json|-q]` distingue `ok|down|quota` (exit `0` ok / `1` down|quota); `vpn-top` mostra a seção OpenCode.
-- Supervisor (opt-in, host-side): `vpn-opencode watch [--mode web|serve] [--interval N] [--restart-max N]` — `down` = alerta + restart limitado; `quota` (diálogo "quota acabou") = alerta puro, zero restart.
-- Sonda no auto-reconnect (opt-in, sem socket Docker): `OPENCODE_AUTOCHECK=true` só alerta `down|quota` no log, sem reconectar o túnel. Restart vive no `watch`.
+- Supervisor persistente (recomendado): `vpn-opencode supervise --mode serve` inicia o serviço `opencode-supervisor`. Ele roda no mesmo namespace da VPN, usa a mesma home/workspace e **não** recebe o socket Docker.
+- Recuperação automática: queda simples do processo com túnel saudável reinicia apenas o OpenCode; mensagens de desconexão/rede ou `Provider rate limit exceeded`/HTTP 429 param o OpenCode, rotacionam o servidor pelo Control Server autenticado do Gluetun, aguardam o túnel saudável e iniciam o OpenCode novamente.
+- Limite do plano OpenCode Go (`Go limit reached` / `Usage limit reached ... reset`) é `account_rate_limit`: o supervisor **não rotaciona a VPN** nesse caso, porque o limite pertence à conta e trocar IP não o reseta. O processo permanece vivo para o reset/fallback do próprio OpenCode.
+- Proteção anti-loop: `OPENCODE_RECOVERY_MAX_ROTATIONS`, `OPENCODE_RECOVERY_WINDOW_SECONDS` e `OPENCODE_RECOVERY_COOLDOWN_SECONDS` impedem rotações infinitas quando o limite é vinculado à conta e não ao IP.
+- `vpn-opencode watch` permanece como compatibilidade: inicia o supervisor persistente e acompanha seus logs.
+- A sessão, os projetos e os dados do OpenCode permanecem na mesma home montada. Uma resposta que estava em voo só continua automaticamente se o próprio OpenCode suportar replay/continuação dessa requisição; o supervisor garante a recuperação do processo e do túnel, não inventa replay de protocolo.
+- Sonda no `vpn-auto-reconnect` (`OPENCODE_AUTOCHECK=true`) continua apenas observacional; a responsabilidade de recuperar o OpenCode fica centralizada no `opencode-supervisor`.
 - Senha (basic auth, usuário `opencode`): arquivo `OPENCODE_GUI_PASSWORD_FILE` (padrão `.secrets/opencode_gui_password`). Sem o arquivo, o painel abre sem senha — apenas para uso local.
 - O estado é compartilhado com o CLI: o mesmo `$HOME` e os mesmos projetos são usados por `opencode` no terminal e pela GUI.
 

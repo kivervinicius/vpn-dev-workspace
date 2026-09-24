@@ -94,7 +94,7 @@ grep -Fq 'vpn-reconnect' "$README_FILE" || {
   fails=$((fails + 1))
 }
 
-for script_name in vpn-status vpn-reconnect vpn-check vpn-top vpn-server-rotate vpn-opencode vpn-hosts-import vpn-hosts-apply; do
+for script_name in vpn-status vpn-reconnect vpn-check vpn-top vpn-server-rotate vpn-opencode opencode-supervisor vpn-hosts-import vpn-hosts-apply; do
   [[ -f "${ROOT_DIR}/scripts/${script_name}" ]] || {
     echo "Erro: script ausente: ${script_name}." >&2
     exit 1
@@ -167,6 +167,23 @@ grep -Fq 'OPENCODE_WATCH_INTERVAL' "$ROOT_DIR/.env.example" || {
 }
 grep -Fq 'OPENCODE_RESTART_MAX' "$ROOT_DIR/.env.example" || {
   echo "Erro: OPENCODE_RESTART_MAX sem exemplo em .env.example." >&2
+  fails=$((fails + 1))
+}
+
+grep -Fq 'vpn-opencode supervise' "$README_FILE" || {
+  echo "Erro: supervisor persistente do OpenCode sem documentação no README." >&2
+  fails=$((fails + 1))
+}
+grep -Fq 'OPENCODE_RECOVERY_MAX_ROTATIONS' "$ROOT_DIR/.env.example" || {
+  echo "Erro: limite anti-loop do supervisor sem exemplo em .env.example." >&2
+  fails=$((fails + 1))
+}
+grep -Fq 'opencode-supervisor' "$ROOT_DIR/docker-compose.yml" || {
+  echo "Erro: serviço opencode-supervisor ausente do Compose." >&2
+  fails=$((fails + 1))
+}
+grep -Fq './scripts/opencode-supervisor:/usr/local/bin/opencode-supervisor:ro' "$ROOT_DIR/docker-compose.yml" || {
+  echo "Erro: script opencode-supervisor sem mount no Compose." >&2
   fails=$((fails + 1))
 }
 grep -Fq 'check|watch' "$ROOT_DIR/scripts/vpn-opencode" || {

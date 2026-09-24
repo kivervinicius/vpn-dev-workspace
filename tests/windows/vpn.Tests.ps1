@@ -18,17 +18,17 @@ exit /b 0
     $env:Path = $script:MockBin + ';' + $env:Path
     $env:MOCK_DOCKER_LOG = $script:MockLog
     $env:MOCK_COMPOSE_VERSION = 'v2.24.4'
+
+    function Invoke-VpnTest {
+        param([string[]]$Arguments)
+        $output = @(& $script:PowerShellExecutable -NoProfile -ExecutionPolicy Bypass -File $script:VpnScript @Arguments 2>&1)
+        [pscustomobject]@{ Code = $LASTEXITCODE; Output = ($output -join "`n") }
+    }
 }
 
 AfterAll {
     $env:Path = $script:OldPath
     Remove-Item -LiteralPath $script:TempRoot -Recurse -Force -ErrorAction SilentlyContinue
-}
-
-function Invoke-VpnTest {
-    param([string[]]$Arguments)
-    $output = @(& $script:PowerShellExecutable -NoProfile -ExecutionPolicy Bypass -File $script:VpnScript @Arguments 2>&1)
-    [pscustomobject]@{ Code = $LASTEXITCODE; Output = ($output -join "`n") }
 }
 
 Describe 'vpn.ps1 Windows interface' {
@@ -52,7 +52,7 @@ Describe 'vpn.ps1 Windows interface' {
         try {
             $result = Invoke-VpnTest @('hosts-apply')
             $result.Code | Should -Be 2
-            $result.Output | Should -Match 'hostname inválido'
+            $result.Output | Should -Match 'LOCAL_HOSTS inválida|hostname inválido'
         } finally {
             if ($null -eq $old) { Remove-Item Env:LOCAL_HOSTS -ErrorAction SilentlyContinue } else { $env:LOCAL_HOSTS = $old }
         }
@@ -77,6 +77,15 @@ Describe 'vpn.ps1 Windows interface' {
         $log | Should -Match 'compose.windows.yml'
         $log | Should -Match 'vpn-status'
         $log | Should -Match '--json'
+    }
+
+    It 'encaminha status do supervisor OpenCode ao perfil opencode' {
+        Remove-Item -LiteralPath $script:MockLog -Force -ErrorAction SilentlyContinue
+        $result = Invoke-VpnTest @('opencode', 'supervise-status')
+        $result.Code | Should -Be 0
+        $log = Get-Content -LiteralPath $script:MockLog -Raw
+        $log | Should -Match '--profile opencode'
+        $log | Should -Match 'opencode-supervisor'
     }
 
     It 'rejeita Compose abaixo da versão necessária' {

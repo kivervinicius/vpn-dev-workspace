@@ -43,7 +43,7 @@ Ambiente:
   top [opções]            abre o painel vpn-top
   reconnect               reconecta pelo controle do Gluetun
   rotate [opções]         troca servidor (--list|--random|--to <host>)
-  opencode <modo>         web|serve|stop|status|logs|check|watch
+  opencode <modo>         web|serve|supervise|supervise-stop|supervise-status|supervise-logs|stop|status|logs|check|watch
   hosts-import             importa /etc/hosts do Windows (--domain <sufixo>)
   hosts-apply              reaplica LOCAL_HOSTS nos contêineres ativos
   agent-start|agent-stop  gerencia a ponte para openssh-ssh-agent
@@ -313,11 +313,23 @@ function Get-LocalHostEntries {
 function Apply-LocalHosts {
     $entries = @(Get-LocalHostEntries)
     if ($entries.Count -eq 0) { Write-Output 'Sem LOCAL_HOSTS; nada a aplicar.'; return }
-    $compose = Get-ComposeArguments
-    foreach ($service in @('terminal', 'vpn-auto-reconnect')) {
+
+    $compose = @(Get-ComposeArguments) + @('--profile', 'opencode')
+    $services = @(
+        [pscustomobject]@{ Name = 'terminal'; Required = $true },
+        [pscustomobject]@{ Name = 'vpn-auto-reconnect'; Required = $true },
+        [pscustomobject]@{ Name = 'opencode-supervisor'; Required = $false }
+    )
+
+    foreach ($serviceInfo in $services) {
+        $service = $serviceInfo.Name
         $idOutput = @(& docker compose @($compose + @('ps', '-q', $service)) 2>$null | Select-Object -First 1)
         $id = if ($idOutput.Count -gt 0) { [string]$idOutput[0].Trim() } else { '' }
-        if (-not $id) { throw "contêiner '$service' não está ativo para aplicar LOCAL_HOSTS." }
+        if (-not $id) {
+            if ($serviceInfo.Required) { throw "contêiner '$service' não está ativo para aplicar LOCAL_HOSTS." }
+            continue
+        }
+
         foreach ($entry in $entries) {
             $ipPattern = [regex]::Escape($entry.ip)
             $namePattern = [regex]::Escape($entry.name)
@@ -479,64 +491,40 @@ function Invoke-OpenCodeCheck {
     if ($AsJson) { (@{ status = $probe.Status; port = $Port; detail = $probe.Detail } | ConvertTo-Json -Compress) | Write-Output }
     elseif (-not $Quiet) {
         if ($probe.Status -eq 'ok') { Write-Output "OpenCode ok em 127.0.0.1:$Port ($($probe.Detail))." }
-        elseif ($probe.Status -eq 'quota') { [Console]::Error.WriteLine("ALERTA: OpenCode quota esgotada em 127.0.0.1:$Port ($($probe.Detail); sem restart — recarregue o crédito).") }
+        elseif ($probe.Status -eq 'quota') { [Console]::Error.WriteLine("ALERTA: OpenCode sinalizou limite/quota em 127.0.0.1:$Port ($($probe.Detail)); o supervisor persistente classifica a causa e aplica a política adequada.") }
         else { [Console]::Error.WriteLine("ALERTA: OpenCode $($probe.Status) em 127.0.0.1:$Port ($($probe.Detail)).") }
     }
     if ($probe.Status -eq 'ok') { exit 0 } else { exit 1 }
 }
 
-function Invoke-OpenCodeWatch {
-    param([int]$Port, [string]$RestartMode, [int]$Interval, [int]$RestartMax, [string]$LogLines, [bool]$Quiet)
-    Ensure-DockerCompose; Set-ActiveComposeEnvironment | Out-Null
-    $compose = Get-ComposeArguments
-    Write-Output "vpn-opencode watch: porta $Port modo $RestartMode a cada ${Interval}s (max restarts: $RestartMax; quota=nunca reinicia)."
-    $restarts = 0
-    try {
-        while ($true) {
-            $probe = Get-OpenCodeProbe -Port $Port -LogLines $LogLines
-            if ($probe.Status -eq 'ok') { $restarts = 0; if (-not $Quiet) { Write-Output "OpenCode ok em 127.0.0.1:$Port." } }
-            elseif ($probe.Status -eq 'quota') {
-                [Console]::Error.WriteLine("ALERTA: quota esgotada na porta $Port ($($probe.Detail); alerta puro, zero restart; recarregue o crédito).")
-            } elseif ($restarts -lt $RestartMax) {
-                [Console]::Error.WriteLine("ALERTA: OpenCode down na porta $Port ($($probe.Detail)); reiniciando $RestartMode...")
-                try {
-                    $passwordPath = Get-ConfigValue 'OPENCODE_GUI_PASSWORD_FILE' (Join-Path $script:RootDir '.secrets\opencode_gui_password')
-                    $passwordPath = Resolve-ProjectPath $passwordPath
-                    $exec = @('exec', '-d')
-                    if (Test-Path -LiteralPath $passwordPath -PathType Leaf) {
-                        $password = (Get-Content -LiteralPath $passwordPath -Raw).Trim()
-                        if ($password) { $exec += @('-e', "OPENCODE_SERVER_PASSWORD=$password", '-e', 'OPENCODE_SERVER_USER=opencode') }
-                    }
-                    $exec += @('terminal', 'opencode', $RestartMode, '--port', [string]$Port, '--hostname', '0.0.0.0')
-                    & docker compose @($compose + $exec) | Out-Null
-                    if ($LASTEXITCODE -ne 0) { throw "docker compose exec falhou ($LASTEXITCODE)." }
-                    $restarts++
-                    [Console]::Error.WriteLine("Reiniciado $RestartMode na porta $Port ($restarts/$RestartMax).")
-                } catch { [Console]::Error.WriteLine("ALERTA: falha ao reiniciar $RestartMode na porta $Port ($($_.Exception.Message)).") }
-            } else {
-                [Console]::Error.WriteLine("ALERTA: limite de restarts atingido ($RestartMax); sem novas tentativas até voltar a ok.")
-            }
-            Start-Sleep -Seconds $Interval
-        }
-    } finally { Write-Output 'vpn-opencode watch: encerrando.' }
-}
 
 function Invoke-OpenCode {
     param([string[]]$Arguments)
-    if ($Arguments.Count -eq 0 -or @('web', 'serve', 'stop', 'status', 'logs', 'check', 'watch') -notcontains $Arguments[0]) { Fail 'use opencode web|serve|stop|status|logs|check|watch.' 2 }
+    $allowedModes = @(
+        'web', 'serve', 'supervise', 'supervise-stop', 'supervise-status', 'supervise-logs',
+        'stop', 'status', 'logs', 'check', 'watch'
+    )
+    if ($Arguments.Count -eq 0 -or $allowedModes -notcontains $Arguments[0]) {
+        Fail 'use opencode web|serve|supervise|supervise-stop|supervise-status|supervise-logs|stop|status|logs|check|watch.' 2
+    }
+
     $mode = $Arguments[0]
     $portText = Get-ConfigValue 'OPENCODE_GUI_PORT' '10001'
     if ($portText -notmatch '^[1-9][0-9]{0,4}$') { Fail "OPENCODE_GUI_PORT inválida: $portText" 2 }
     $port = [int]$portText
-    $detach = $false; $tail = '50'; $asJson = $false; $quiet = $false
-    $logLines = [Environment]::GetEnvironmentVariable('OPENCODE_CHECK_LOG_LINES', 'Process')
-    if ([string]::IsNullOrWhiteSpace($logLines)) { $logLines = '200' }
-    $intervalText = [Environment]::GetEnvironmentVariable('OPENCODE_WATCH_INTERVAL', 'Process')
-    if ([string]::IsNullOrWhiteSpace($intervalText)) { $intervalText = '30' }
-    $restartMaxText = [Environment]::GetEnvironmentVariable('OPENCODE_RESTART_MAX', 'Process')
-    if ([string]::IsNullOrWhiteSpace($restartMaxText)) { $restartMaxText = '3' }
-    $restartMode = [Environment]::GetEnvironmentVariable('OPENCODE_WATCH_MODE', 'Process')
-    if ([string]::IsNullOrWhiteSpace($restartMode)) { $restartMode = 'serve' }
+    $detach = $false
+    $tail = '50'
+    $asJson = $false
+    $quiet = $false
+
+    $logLines = Get-ConfigValue 'OPENCODE_CHECK_LOG_LINES' '200'
+    $legacyInterval = Get-ConfigValue 'OPENCODE_WATCH_INTERVAL' '10'
+    $intervalText = Get-ConfigValue 'OPENCODE_SUPERVISOR_INTERVAL_SECONDS' $legacyInterval
+    $legacyRestartMax = Get-ConfigValue 'OPENCODE_RESTART_MAX' '3'
+    $restartMaxText = Get-ConfigValue 'OPENCODE_RECOVERY_MAX_ROTATIONS' $legacyRestartMax
+    $legacyMode = Get-ConfigValue 'OPENCODE_WATCH_MODE' 'serve'
+    $restartMode = Get-ConfigValue 'OPENCODE_SUPERVISOR_MODE' $legacyMode
+
     for ($i = 1; $i -lt $Arguments.Count; $i++) {
         switch ($Arguments[$i]) {
             '--detach' { $detach = $true }
@@ -550,7 +538,7 @@ function Invoke-OpenCode {
             '--tail' {
                 if ($i + 1 -ge $Arguments.Count) { Fail '--tail exige valor.' 2 }
                 $tail = $Arguments[++$i]
-                if ($tail -notmatch '^[1-9][0-9]*$') { Fail "--tail inválido: $tail" 2 }
+                if ($tail -notmatch '^[1-9][0-9]*$') { Fail '--tail exige inteiro positivo.' 2 }
             }
             '--json' { $asJson = $true }
             '-q' { $quiet = $true }
@@ -558,49 +546,108 @@ function Invoke-OpenCode {
             '--log-lines' {
                 if ($i + 1 -ge $Arguments.Count) { Fail '--log-lines exige valor.' 2 }
                 $logLines = $Arguments[++$i]
-                if ($logLines -notmatch '^[1-9][0-9]*$') { Fail "--log-lines inválido: $logLines" 2 }
+                if ($logLines -notmatch '^[1-9][0-9]*$') { Fail '--log-lines exige inteiro positivo.' 2 }
             }
             '--interval' {
                 if ($i + 1 -ge $Arguments.Count) { Fail '--interval exige valor.' 2 }
                 $intervalText = $Arguments[++$i]
-                if ($intervalText -notmatch '^[1-9][0-9]*$') { Fail "--interval inválido: $intervalText" 2 }
+                if ($intervalText -notmatch '^[1-9][0-9]*$') { Fail '--interval exige inteiro positivo.' 2 }
             }
             '--restart-max' {
                 if ($i + 1 -ge $Arguments.Count) { Fail '--restart-max exige valor.' 2 }
                 $restartMaxText = $Arguments[++$i]
-                if ($restartMaxText -notmatch '^[0-9]+$') { Fail "--restart-max inválido: $restartMaxText" 2 }
+                if ($restartMaxText -notmatch '^[1-9][0-9]*$') { Fail '--restart-max exige inteiro positivo.' 2 }
             }
             '--mode' {
-                if ($i + 1 -ge $Arguments.Count) { Fail '--mode exige valor.' 2 }
+                if ($i + 1 -ge $Arguments.Count) { Fail '--mode exige web|serve.' 2 }
                 $restartMode = $Arguments[++$i]
-                if (@('web', 'serve') -notcontains $restartMode) { Fail '--mode exige web|serve.' 2 }
+                if ($restartMode -notin @('web', 'serve')) { Fail '--mode exige web|serve.' 2 }
             }
             '-h' { Show-Help; exit 0 }
             '--help' { Show-Help; exit 0 }
-            default { Fail "opção desconhecida: $($Arguments[$i])" 2 }
+            default { Fail "argumento desconhecido: $($Arguments[$i])" 2 }
         }
     }
+
     if ($port -lt 1 -or $port -gt 65535) { Fail "porta inválida: $port" 2 }
-    if ($mode -eq 'check') { Invoke-OpenCodeCheck -Port $port -LogLines $logLines -AsJson $asJson -Quiet $quiet; return }
-    if ($mode -eq 'watch') {
-        $interval = [int]$intervalText; $restartMax = [int]$restartMaxText
-        Invoke-OpenCodeWatch -Port $port -RestartMode $restartMode -Interval $interval -RestartMax $restartMax -LogLines $logLines -Quiet $quiet; return
+    if ($mode -eq 'check') {
+        Invoke-OpenCodeCheck -Port $port -LogLines $logLines -AsJson $asJson -Quiet $quiet
+        return
     }
-    Ensure-DockerCompose; Set-ActiveComposeEnvironment | Out-Null
+
+    Ensure-DockerCompose
+
+    if ($mode -in @('supervise', 'watch')) {
+        Set-ActiveComposeEnvironment -StartBridge | Out-Null
+    } else {
+        Set-ActiveComposeEnvironment | Out-Null
+    }
+
     $compose = Get-ComposeArguments
-    if ($mode -eq 'logs') { Invoke-Compose -Arguments @($compose + @('logs', '--tail', $tail, 'terminal')) | Out-Null; return }
+    $supervisorCompose = @($compose + @('--profile', 'opencode'))
+
+    if ($mode -in @('supervise', 'watch')) {
+        $env:OPENCODE_SUPERVISOR_MODE = $restartMode
+        $env:OPENCODE_GUI_PORT = [string]$port
+        $env:OPENCODE_SUPERVISOR_INTERVAL_SECONDS = [string]$intervalText
+        $env:OPENCODE_RECOVERY_MAX_ROTATIONS = [string]$restartMaxText
+
+        $passwordPath = Get-ConfigValue 'OPENCODE_GUI_PASSWORD_FILE' (Join-Path $script:RootDir '.secrets\opencode_gui_password')
+        $passwordPath = Resolve-ProjectPath $passwordPath
+        if (Test-Path -LiteralPath $passwordPath -PathType Leaf) {
+            $password = (Get-Content -LiteralPath $passwordPath -Raw).Trim()
+            if ($password) { $env:OPENCODE_SERVER_PASSWORD = $password }
+        } else {
+            Remove-Item Env:OPENCODE_SERVER_PASSWORD -ErrorAction SilentlyContinue
+        }
+
+        Invoke-Compose -Arguments @($supervisorCompose + @('up', '-d', '--no-deps', '--force-recreate', 'opencode-supervisor')) | Out-Null
+        if ($mode -eq 'supervise') {
+            Write-Output "Supervisor persistente do OpenCode iniciado em 127.0.0.1:$port ($restartMode)."
+            Write-Output 'Use: .\scripts\vpn.ps1 opencode supervise-logs'
+            return
+        }
+
+        & docker compose @($supervisorCompose + @('logs', '-f', '--tail', $tail, 'opencode-supervisor'))
+        exit $LASTEXITCODE
+    }
+
+    if ($mode -eq 'supervise-stop') {
+        Invoke-Compose -Arguments @($supervisorCompose + @('stop', 'opencode-supervisor')) -IgnoreFailure | Out-Null
+        Invoke-Compose -Arguments @($supervisorCompose + @('rm', '-f', 'opencode-supervisor')) -IgnoreFailure | Out-Null
+        Write-Output 'Supervisor do OpenCode encerrado.'
+        return
+    }
+    if ($mode -eq 'supervise-status') {
+        & docker compose @($supervisorCompose + @('ps', 'opencode-supervisor'))
+        exit $LASTEXITCODE
+    }
+    if ($mode -eq 'supervise-logs') {
+        & docker compose @($supervisorCompose + @('logs', '-f', '--tail', $tail, 'opencode-supervisor'))
+        exit $LASTEXITCODE
+    }
+
+    if ($mode -eq 'logs') {
+        Invoke-Compose -Arguments @($compose + @('logs', '--tail', $tail, 'terminal')) | Out-Null
+        return
+    }
     if ($mode -eq 'status') {
         if (Get-Command Test-NetConnection -ErrorAction SilentlyContinue) {
             $ok = (Test-NetConnection -ComputerName 127.0.0.1 -Port $port -InformationLevel Quiet -WarningAction SilentlyContinue)
-        } else { $ok = $false }
+        } else {
+            $ok = $false
+        }
         if ($ok) { Write-Output "OpenCode ouvindo em 127.0.0.1:$port (pela VPN)." } else { Fail "nada ouvindo em 127.0.0.1:$port" 1 }
         return
     }
     if ($mode -eq 'stop') {
+        Invoke-Compose -Arguments @($supervisorCompose + @('stop', 'opencode-supervisor')) -IgnoreFailure | Out-Null
+        Invoke-Compose -Arguments @($supervisorCompose + @('rm', '-f', 'opencode-supervisor')) -IgnoreFailure | Out-Null
         $command = 'for d in /proc/[0-9]*; do if tr "\0" " " < "$d/cmdline" 2>/dev/null | grep -Eq "opencode (web|serve)"; then kill "${d#/proc/}" 2>/dev/null || true; fi; done'
-        Invoke-Compose -Arguments @($compose + @('exec', 'terminal', 'sh', '-c', $command)) | Out-Null
+        Invoke-Compose -Arguments @($compose + @('exec', 'terminal', 'sh', '-c', $command)) -IgnoreFailure | Out-Null
         return
     }
+
     $exec = @('exec')
     if ($detach) { $exec += '-d' }
     $passwordPath = Get-ConfigValue 'OPENCODE_GUI_PASSWORD_FILE' (Join-Path $script:RootDir '.secrets\opencode_gui_password')
@@ -608,7 +655,9 @@ function Invoke-OpenCode {
     if (Test-Path -LiteralPath $passwordPath -PathType Leaf) {
         $password = (Get-Content -LiteralPath $passwordPath -Raw).Trim()
         if ($password) { $exec += @('-e', "OPENCODE_SERVER_PASSWORD=$password", '-e', 'OPENCODE_SERVER_USER=opencode') }
-    } else { Write-Warning "sem arquivo de senha em $passwordPath; o painel ficará sem autenticação." }
+    } else {
+        Write-Warning "sem arquivo de senha em $passwordPath; o painel ficará sem autenticação."
+    }
     $exec += @('terminal', 'opencode', $mode, '--port', [string]$port, '--hostname', '0.0.0.0')
     & docker compose @($compose + $exec)
     exit $LASTEXITCODE
