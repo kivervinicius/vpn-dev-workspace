@@ -552,14 +552,13 @@ function Invoke-OpenCode {
     $asJson = $false
     $quiet = $false
 
-    $logLines = [Environment]::GetEnvironmentVariable('OPENCODE_CHECK_LOG_LINES', 'Process')
-    if ([string]::IsNullOrWhiteSpace($logLines)) { $logLines = '200' }
-    $intervalText = [Environment]::GetEnvironmentVariable('OPENCODE_WATCH_INTERVAL', 'Process')
-    if ([string]::IsNullOrWhiteSpace($intervalText)) { $intervalText = '10' }
-    $restartMaxText = [Environment]::GetEnvironmentVariable('OPENCODE_RESTART_MAX', 'Process')
-    if ([string]::IsNullOrWhiteSpace($restartMaxText)) { $restartMaxText = '3' }
-    $restartMode = [Environment]::GetEnvironmentVariable('OPENCODE_WATCH_MODE', 'Process')
-    if ([string]::IsNullOrWhiteSpace($restartMode)) { $restartMode = 'serve' }
+    $logLines = Get-ConfigValue 'OPENCODE_CHECK_LOG_LINES' '200'
+    $legacyInterval = Get-ConfigValue 'OPENCODE_WATCH_INTERVAL' '10'
+    $intervalText = Get-ConfigValue 'OPENCODE_SUPERVISOR_INTERVAL_SECONDS' $legacyInterval
+    $legacyRestartMax = Get-ConfigValue 'OPENCODE_RESTART_MAX' '3'
+    $restartMaxText = Get-ConfigValue 'OPENCODE_RECOVERY_MAX_ROTATIONS' $legacyRestartMax
+    $legacyMode = Get-ConfigValue 'OPENCODE_WATCH_MODE' 'serve'
+    $restartMode = Get-ConfigValue 'OPENCODE_SUPERVISOR_MODE' $legacyMode
 
     for ($i = 1; $i -lt $Arguments.Count; $i++) {
         switch ($Arguments[$i]) {
