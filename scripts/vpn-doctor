@@ -1,0 +1,207 @@
+#!/usr/bin/env bash
+# vpn-doctor: diagnóstico unificado do ambiente VPN executado no host.
+# Inspeciona Docker, contêineres, segredos locais, saúde do túnel e OpenCode.
+set -Eeuo pipefail
+
+readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly SECRETS_DIR="${ROOT_DIR}/.secrets"
+
+usage() {
+  cat >&2 <<'EOF'
+Uso: vpn-doctor [--json] [--fix] [--no-color] [--help]
+
+Opções:
+  --json      Emite diagnóstico consolidado em formato JSON
+  --fix       Aplica correções automáticas seguras (ex: chmod 600 .secrets/*)
+  --no-color  Desativa cores ANSI na saída de texto
+  -h, --help  Exibe esta ajuda
+
+Verificações executadas:
+  1. Dependências do host (docker, curl, jq, awk)
+  2. Estado do daemon Docker
+  3. Integridade e permissões de segredos (.secrets/ em modo 0600)
+  4. Saúde dos serviços Docker Compose (vpn, terminal, auto-reconnect, supervisor)
+  5. Diagnóstico de túnel e DNS executado pelo vpn-check interno
+  6. Disponibilidade da interface OpenCode (quando em execução)
+EOF
+  exit 0
+}
+
+output_json=false
+auto_fix=false
+no_color=false
+
+while (($# > 0)); do
+  case "$1" in
+    --json) output_json=true; shift ;;
+    --fix) auto_fix=true; shift ;;
+    --no-color) no_color=true; shift ;;
+    -h|--help) usage ;;
+    *) echo "Erro: argumento desconhecido: $1" >&2; exit 2 ;;
+  esac
+done
+
+if [[ -t 1 && "$no_color" != true ]]; then
+  readonly C_BOLD=$'\033[1m'
+  readonly C_GREEN=$'\033[32m'
+  readonly C_YELLOW=$'\033[33m'
+  readonly C_RED=$'\033[31m'
+  readonly C_CYAN=$'\033[36m'
+  readonly C_RESET=$'\033[0m'
+else
+  readonly C_BOLD=""
+  readonly C_GREEN=""
+  readonly C_YELLOW=""
+  readonly C_RED=""
+  readonly C_CYAN=""
+  readonly C_RESET=""
+fi
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || { echo "Erro: dependência ausente: $1" >&2; exit 2; }
+}
+
+need docker
+need awk
+
+fails=0
+warnings=0
+checks_json=()
+
+record_check() {
+  local name="$1" status="$2" detail="$3"
+  if [[ "$status" == "fail" ]]; then
+    fails=$((fails + 1))
+    if ! $output_json; then
+      printf '%s[FAIL]%s %s: %s\n' "$C_RED" "$C_RESET" "$name" "$detail"
+    fi
+  elif [[ "$status" == "warn" ]]; then
+    warnings=$((warnings + 1))
+    if ! $output_json; then
+      printf '%s[WARN]%s %s: %s\n' "$C_YELLOW" "$C_RESET" "$name" "$detail"
+    fi
+  else
+    if ! $output_json; then
+      printf '%s[ OK ]%s %s%s\n' "$C_GREEN" "$C_RESET" "$name" "${detail:+ ($detail)}"
+    fi
+  fi
+  if $output_json && command -v jq >/dev/null 2>&1; then
+    checks_json+=("$(jq -nc --arg name "$name" --arg status "$status" --arg detail "$detail" '{name: $name, status: $status, detail: $detail}')")
+  fi
+}
+
+! $output_json && printf '%s%s== Diagnóstico do Ambiente VPN (vpn-doctor) ==%s\n\n' "$C_CYAN" "$C_BOLD" "$C_RESET"
+
+# 1. Dependências do host
+for dep in curl jq awk docker; do
+  if command -v "$dep" >/dev/null 2>&1; then
+    record_check "Dependência host: ${dep}" ok ""
+  else
+    record_check "Dependência host: ${dep}" fail "Comando não encontrado no PATH"
+  fi
+done
+
+# 2. Daemon Docker
+if docker info >/dev/null 2>&1; then
+  record_check "Docker daemon" ok "em execução e acessível"
+else
+  record_check "Docker daemon" fail "inacessível ou sem permissão de socket"
+fi
+
+# 3. Segredos locais
+if [[ -d "$SECRETS_DIR" ]]; then
+  record_check "Diretório .secrets/" ok "presente"
+  
+  if [[ -s "${SECRETS_DIR}/gluetun_api_key" ]]; then
+    record_check "Arquivo gluetun_api_key" ok "presente"
+  else
+    record_check "Arquivo gluetun_api_key" fail "ausente em ${SECRETS_DIR}"
+  fi
+
+  # Permissões dos segredos
+  while IFS= read -r secret_file; do
+    [[ -n "$secret_file" ]] || continue
+    perms="$(stat -c "%a" "$secret_file" 2>/dev/null || stat -f "%Lp" "$secret_file" 2>/dev/null || true)"
+    basename_file="$(basename "$secret_file")"
+    if [[ "$perms" == "600" || "$perms" == "400" ]]; then
+      record_check "Permissão ${basename_file}" ok "modo ${perms}"
+    else
+      if $auto_fix; then
+        chmod 600 "$secret_file"
+        record_check "Permissão ${basename_file}" ok "corrigido para 0600 (era ${perms})"
+      else
+        record_check "Permissão ${basename_file}" warn "modo ${perms} (recomendado: chmod 600 ${secret_file})"
+      fi
+    fi
+  done < <(find "$SECRETS_DIR" -maxdepth 1 -type f)
+else
+  record_check "Diretório .secrets/" fail "ausente (crie a pasta e os segredos)"
+fi
+
+# 4. Estado dos contêineres Compose
+compose_ps="$(docker compose --profile vpn --profile opencode -f "${ROOT_DIR}/docker-compose.yml" ps --format json 2>/dev/null || true)"
+if [[ -n "$compose_ps" ]]; then
+  check_container_service() {
+    local service="$1" required="$2"
+    local status health state
+    state="$(docker inspect --format '{{.State.Status}}' "vpn-dev-workspace-${service}-1" 2>/dev/null || true)"
+    health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "vpn-dev-workspace-${service}-1" 2>/dev/null || true)"
+
+    if [[ "$state" == "running" ]]; then
+      if [[ "$health" == "healthy" || "$health" == "none" ]]; then
+        record_check "Serviço ${service}" ok "estado: ${state}, saúde: ${health}"
+      else
+        record_check "Serviço ${service}" fail "estado: ${state}, saúde: ${health}"
+      fi
+    else
+      if $required; then
+        record_check "Serviço ${service}" fail "não está em execução (status: ${state:-inexistente})"
+      else
+        record_check "Serviço ${service}" ok "desativado (opt-in)"
+      fi
+    fi
+  }
+
+  check_container_service "vpn" true
+  check_container_service "terminal" true
+  check_container_service "vpn-auto-reconnect" true
+  check_container_service "opencode-supervisor" false
+else
+  record_check "Contêineres Compose" fail "nenhum contêiner do projeto em execução"
+fi
+
+# 5. vpn-check interno
+if docker ps -q --filter "name=vpn-dev-workspace-terminal-1" | grep -q .; then
+  if vpn_check_out="$(docker exec vpn-dev-workspace-terminal-1 vpn-check --json 2>/dev/null)"; then
+    record_check "vpn-check interno" ok "túnel e DNS saudáveis"
+  else
+    record_check "vpn-check interno" fail "uma ou mais verificações falharam (execute vpn-check no terminal)"
+  fi
+fi
+
+# 6. OpenCode (porta local)
+opencode_port="$(awk -F= '/^OPENCODE_GUI_PORT=/ {print $2; exit}' "${ROOT_DIR}/.env" 2>/dev/null || true)"
+opencode_port="${opencode_port:-10001}"
+if command -v timeout >/dev/null 2>&1; then
+  if timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/${opencode_port}" 2>/dev/null; then
+    record_check "Porta OpenCode (${opencode_port})" ok "respondendo no host"
+  fi
+fi
+
+# Resumo
+if $output_json && command -v jq >/dev/null 2>&1; then
+  jq -nc \
+    --argjson fails "$fails" \
+    --argjson warnings "$warnings" \
+    --argjson checks "$(printf '%s\n' "${checks_json[@]:-}" | jq -s .)" \
+    '{healthy: ($fails == 0), fails: $fails, warnings: $warnings, checks: $checks}'
+else
+  printf '\n'
+  if (( fails == 0 )); then
+    printf '%s%sResultado: Ambiente saudável! (%d aviso(s))%s\n' "$C_GREEN" "$C_BOLD" "$warnings" "$C_RESET"
+    exit 0
+  else
+    printf '%s%sResultado: %d falha(s) detectada(s).%s\n' "$C_RED" "$C_BOLD" "$fails" "$C_RESET"
+    exit 1
+  fi
+fi

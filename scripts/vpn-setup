@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# vpn-setup: assistente de configuração inicial não-destrutivo do ambiente.
+# Cria estrutura de segredos com permissão 0600, gera chave da API e prepara o .env.
+set -Eeuo pipefail
+
+readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly SECRETS_DIR="${ROOT_DIR}/.secrets"
+
+usage() {
+  cat >&2 <<'EOF'
+Uso: vpn-setup [--provider <nome>] [--help]
+
+Assistente de primeiro uso do vpn-dev-workspace:
+  - Cria o diretório .secrets/ com modo 0700
+  - Gera automaticamente a gluetun_api_key caso não exista
+  - Cria o .env a partir de .env.example caso não exista
+  - Cria os arquivos de segredo vazios (placeholders) em modo 0600
+
+Provedores suportados para criação de placeholders:
+  nordvpn, protonvpn, surfshark, mullvad, custom
+EOF
+  exit 0
+}
+
+provider="nordvpn"
+
+while (($# > 0)); do
+  case "$1" in
+    --provider)
+      [[ $# -ge 2 ]] || { echo "Erro: --provider exige um valor." >&2; exit 2; }
+      provider="${2,,}"
+      shift 2
+      ;;
+    -h|--help) usage ;;
+    *) echo "Erro: opção desconhecida: $1" >&2; exit 2 ;;
+  esac
+done
+
+echo "=== Configuração Inicial do Ambiente VPN ==="
+
+# 1. Cria diretório .secrets com modo seguro
+if [[ ! -d "$SECRETS_DIR" ]]; then
+  mkdir -p "$SECRETS_DIR"
+  chmod 700 "$SECRETS_DIR"
+  echo "[OK] Diretório .secrets/ criado com permissão 0700."
+else
+  chmod 700 "$SECRETS_DIR"
+  echo "[OK] Diretório .secrets/ já existe (permissão 0700 garantida)."
+fi
+
+# 2. Gera gluetun_api_key se ausente
+api_key_file="${SECRETS_DIR}/gluetun_api_key"
+if [[ ! -s "$api_key_file" ]]; then
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 16 > "$api_key_file"
+  else
+    head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32 > "$api_key_file"
+  fi
+  chmod 600 "$api_key_file"
+  echo "[OK] Chave gluetun_api_key gerada com sucesso."
+else
+  chmod 600 "$api_key_file"
+  echo "[OK] Chave gluetun_api_key já existente."
+fi
+
+# 3. Cria senha para o OpenCode GUI se ausente
+opencode_pwd_file="${SECRETS_DIR}/opencode_gui_password"
+if [[ ! -s "$opencode_pwd_file" ]]; then
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 12 > "$opencode_pwd_file"
+  else
+    head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 16 > "$opencode_pwd_file"
+  fi
+  chmod 600 "$opencode_pwd_file"
+  echo "[OK] Senha inicial opencode_gui_password gerada."
+else
+  chmod 600 "$opencode_pwd_file"
+fi
+
+# 4. Prepara arquivos do provedor
+create_secret_placeholder() {
+  local name="$1"
+  local target="${SECRETS_DIR}/${name}"
+  if [[ ! -e "$target" ]]; then
+    touch "$target"
+    chmod 600 "$target"
+    echo "[OK] Placeholder criado: .secrets/${name} (modo 0600)."
+  else
+    chmod 600 "$target"
+    echo "[OK] Arquivo .secrets/${name} verificado (modo 0600)."
+  fi
+}
+
+case "$provider" in
+  nordvpn)
+    create_secret_placeholder "nordvpn_user"
+    create_secret_placeholder "nordvpn_password"
+    ;;
+  protonvpn)
+    create_secret_placeholder "protonvpn_user"
+    create_secret_placeholder "protonvpn_password"
+    ;;
+  surfshark)
+    create_secret_placeholder "surfshark_user"
+    create_secret_placeholder "surfshark_password"
+    ;;
+  mullvad)
+    create_secret_placeholder "mullvad_wireguard_private_key"
+    ;;
+  custom)
+    create_secret_placeholder "custom_user"
+    create_secret_placeholder "custom_password"
+    ;;
+  *)
+    echo "Aviso: provedor '${provider}' não reconhecido; nenhum placeholder criado." >&2
+    ;;
+esac
+
+# 5. Prepara .env a partir de .env.example se não existir
+env_file="${ROOT_DIR}/.env"
+if [[ ! -f "$env_file" ]]; then
+  cp "${ROOT_DIR}/.env.example" "$env_file"
+  echo "[OK] Arquivo .env criado a partir de .env.example."
+else
+  echo "[OK] Arquivo .env já existe (mantido inalterado)."
+fi
+
+echo "=========================================="
+echo "Configuração inicial concluída com sucesso!"
+echo "Próximos passos:"
+echo " 1. Edite os arquivos em .secrets/ com suas credenciais do provedor."
+echo " 2. Ajuste VPN_COUNTRY ou outras preferências em .env se necessário."
+echo " 3. Inicie o ambiente: ./scripts/vpn-switch ${provider}-openvpn"

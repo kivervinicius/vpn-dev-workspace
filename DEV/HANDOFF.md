@@ -12,18 +12,18 @@ This file should stay small. Refresh it after substantive work or run `orquestra
 
 ## Latest Work
 
-- Current: diagnóstico e resolução de loop de reconexão na VPN (NordVPN OpenVPN)
+- Current: implementação das melhorias gerais aprovadas no plano de evolução do workspace:
+  1. Hardening de código: fallback dinâmico de `PATH` no `docker-compose.yml`, eliminação de `secrets/` legado (item #8 do backlog).
+  2. Testes e diagnóstico: ferramenta unificada `scripts/vpn-doctor` com `--json` e `--fix`; suíte automatizada `tests/linux/test-scripts.sh` (30 testes) e inclusão no CI GitHub Actions.
+  3. Documentação & DX: runbook `DEV/RUNBOOKS/troubleshooting-vpn.md`, guia `examples/cenarios-avancados.md`, assistente `scripts/vpn-setup`, `Makefile` na raiz e diagrama Mermaid na arquitetura.
+  Toda a suíte de verificação (`make verify`: compose, docs, testes linux) passou com 100% de sucesso.
+
+- Previous: diagnóstico e resolução de loop de reconexão na VPN (NordVPN OpenVPN)
   e melhorias preventivas. O protocolo TCP com porta 443 padrão causava `Connection reset`
   imediato na NordVPN, somado a hostnames antigos na lista de servidores. Adicionado
   repasse de `OPENVPN_ENDPOINT_PORT` nos perfis OpenVPN, validação preventiva de DNS
   de servidores e aviso de porta TCP no `vpn-switch`. Com `OPENVPN_PROTOCOL=udp`, a
   VPN conecta de imediato e passa 100% nas validações (`vpn-status`, `vpn-check`, `vpn-reconnect`).
-
-- Previous: verificação automática do OpenCode — `vpn-opencode check|watch`
-  (`quota`=alerta puro zero restart, `down`=restart limitado), sonda opt-in
-  `OPENCODE_AUTOCHECK` no `vpn-auto-reconnect` (sem socket, sem reconnect do
-  túnel), seção `opencode` no `vpn-top`, paridade `vpn.ps1`, docs e travas.
-  Estático validado sem Docker; runtime real pendente no host. Consulte `VERIFY.md`.
 
 - Entry: adição de `KILL` capability ao Gluetun para sinalizar e parar OpenVPN na reconexão.
 - Spec: `SPECS/ACTIVE.md` (status: reviewed-and-upgraded; runtime Linux validado; Windows/WSL2 pendentes).

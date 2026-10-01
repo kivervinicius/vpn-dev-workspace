@@ -114,7 +114,7 @@ services:
       GLUETUN_API_KEY_FILE: /run/secrets/gluetun_api_key
       # Preserva caminhos absolutos, configurações e ferramentas da home do host.
       HOME: ${HOST_HOME_DIR:-${HOME}}
-      PATH: ${HOST_HOME_DIR:-/home/desenvolvedor}/.opencode/bin:${HOST_HOME_DIR:-/home/desenvolvedor}/.local/bin:${HOST_HOME_DIR:-/home/desenvolvedor}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      PATH: ${HOST_HOME_DIR:-${HOME:-/home/developer}}/.opencode/bin:${HOST_HOME_DIR:-${HOME:-/home/developer}}/.local/bin:${HOST_HOME_DIR:-${HOME:-/home/developer}}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       SHELL: /usr/bin/zsh
       # Rotação automática de servidor (opt-in; ver .env.example).
       VPN_ROTATE_SERVERS: ${VPN_ROTATE_SERVERS:-false}
@@ -237,7 +237,7 @@ services:
           pids: 1024
     environment:
       HOME: ${HOST_HOME_DIR:-${HOME}}
-      PATH: ${HOST_HOME_DIR:-/home/desenvolvedor}/.opencode/bin:${HOST_HOME_DIR:-/home/desenvolvedor}/.local/bin:${HOST_HOME_DIR:-/home/desenvolvedor}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      PATH: ${HOST_HOME_DIR:-${HOME:-/home/developer}}/.opencode/bin:${HOST_HOME_DIR:-${HOME:-/home/developer}}/.local/bin:${HOST_HOME_DIR:-${HOME:-/home/developer}}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       SHELL: /usr/bin/zsh
       SSH_AUTH_SOCK: /run/vpn-ssh-agent.sock
       GLUETUN_API_KEY_FILE: /run/secrets/gluetun_api_key

@@ -2,6 +2,21 @@
 
 Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for older entries after compaction.
 
+## 2026-10-01 - Melhorias de código, testes Linux automatizados, vpn-doctor e DX
+
+- Changed:
+  - Hardening Compose: substituído fallback hardcoded `/home/desenvolvedor` por `${HOST_HOME_DIR:-${HOME:-/home/developer}}` no `PATH` de `terminal` e `opencode-supervisor` em `docker-compose.yml`.
+  - Saneamento: excluído diretório legado redundante `secrets/` em favor do padrão `.secrets/` (resolvendo Item #8 do backlog).
+  - Diagnóstico: criado `scripts/vpn-doctor` (executável no host com modos `--json` e `--fix`) para diagnóstico unificado de dependências, permissões de segredos, Docker daemon, stack compose e túnel.
+  - Testes automatizados: criada suíte `tests/linux/test-scripts.sh` com 30 testes automatizados cobrindo `--help`, códigos de saída, parser de rate-limits e emissão de JSON; adicionado step ao CI `.github/workflows/validate.yml`.
+  - Assistente de setup: criado `scripts/vpn-setup` para inicialização automática de `.secrets/` (0700), chave de API e templates de credenciais (0600).
+  - Documentação & Runbooks: criado runbook `DEV/RUNBOOKS/troubleshooting-vpn.md`, guia `examples/cenarios-avancados.md` (resolvendo Item #7 do backlog) e diagrama Mermaid em `DEV/ARCHITECTURE.md`.
+  - Developer Experience: criado `Makefile` na raiz com comandos rápidos (`doctor`, `setup`, `up`, `down`, `restart`, `logs`, `shell`, `check`, `test`, `verify`).
+  - Consistência: atualizados `README.md`, `DEV/BACKLOG.md` e `scripts/verify-docs`.
+- Why: solicitado pelo usuário após investigação do loop de reconexão; fortalece a confiabilidade do ambiente tanto em CI quanto no uso diário do desenvolvedor, eliminando pontos cegos de diagnóstico e dívidas técnicas do backlog.
+- Verified: `make verify` passou com sucesso (todos os 8 perfis compose válidos, `verify-docs` consistente e 30/30 testes em `test-scripts.sh` aprovados); `vpn-doctor` executado no host com resultado 100% saudável.
+- Next context: repositório consolidado, testado e documentado pronto para commit e push.
+
 ## 2026-10-01 - Diagnóstico e correção do loop de conexão VPN e melhorias preventivas
 
 - Changed: adicionado repasse de `OPENVPN_ENDPOINT_PORT` nos perfis OpenVPN (`nordvpn-openvpn.yml`, `protonvpn-openvpn.yml`, `surfshark-openvpn.yml`); documentado em `.env.example`; `scripts/vpn-switch` ganha diagnóstico preventivo de porta TCP na NordVPN e validação rápida via `getent ahosts` para `VPN_SERVER_HOSTNAMES`; `.env` saneado com `OPENVPN_PROTOCOL=udp` e servidores ativos no Brasil.

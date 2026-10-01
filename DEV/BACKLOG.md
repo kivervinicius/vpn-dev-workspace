@@ -12,7 +12,7 @@ explicitamente descartado.
 | 4 | Higiene de segredos: ver item 8 (parcial; falta remover `secrets/` dup e decidir `secrets.zip`) | média | ver 8 |
 | 5 | Limits/logs/fs imutável por serviço (`mem/cpu/pids`, `logging max-size`, `read_only+tmpfs`, `cap_drop`, `no-new-privileges`) | média | proposto (fase 2 segurança) |
 | 6 | Bumps (feito 2026-09-17): Node `22.17.1` → `22.23.2`, OpenCode `1.18.25` → `1.18.31`, digest jammy refresh, CI `ubuntu-24.04` + `checkout@v6` + `build --pull` | média | feito |
-| 8 | Higiene segredos locais (feito 2026-09-17): `chmod 600`, `.gitignore` += `secrets/`, `.dockerignore` += `secrets* .hosts.local.gen *.deb`; FALTA decidir: remover `secrets/` duplicado e destino de `secrets.zip` | média | parcial |
+| 8 | Higiene segredos locais (concluído 2026-10-01): `chmod 600`, remoção de `secrets/` legada duplicada, `.gitignore` e `.dockerignore` protegidos | média | feito |
 | 9 | Supply-chain restante: gitleaks/Trivy na CI, Dependabot/Renovate p/ pins, `read_only+tmpfs` (adiado: exige validação runtime), estreitar `VPN_PORT_RANGE` | média | proposto |
 | 7 | Exemplo avançado opt-ins (LAN/DNS/GUI) + teste mock de DNS/leak | baixa | proposto |
 

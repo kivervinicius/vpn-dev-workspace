@@ -10,6 +10,19 @@ Oferecer um terminal conectado à VPN que seja uma extensão direta do ambiente 
 
 ## Configuração
 
+### Assistente de primeiro uso (vpn-setup)
+
+Para preparar o ambiente automaticamente:
+
+```bash
+./scripts/vpn-setup --provider nordvpn
+# ou: make setup
+```
+
+O assistente cria o diretório `.secrets/` (modo 0700), gera a chave de API do Gluetun e cria os placeholders de credenciais em modo 0600. Em seguida, preencha os arquivos criados dentro de `.secrets/`.
+
+### Configuração manual
+
 1. Copie o exemplo: `cp .env.example .env`.
 2. Crie os arquivos de segredo indicados em `.env` dentro de `.secrets/` e proteja-os com `chmod 600 .secrets/*`.
 3. Escolha um perfil e inicie-o:
@@ -24,6 +37,7 @@ Oferecer um terminal conectado à VPN que seja uma extensão direta do ambiente 
 
    ```bash
    docker compose -f docker-compose.yml -f profiles/nordvpn-openvpn.yml exec terminal zsh
+   # ou: ./scripts/terminal-shell (ou make shell)
    ```
 
 O usuário do terminal não é root e o Zsh é seu shell de login padrão. A home do usuário do host é montada integralmente no mesmo caminho, portanto configurações, ferramentas, credenciais locais e arquivos do host ficam disponíveis no terminal pelo túnel VPN. Confirme o OpenCode ativo com `command -v opencode` e `opencode --version`.
@@ -107,6 +121,20 @@ Em seguida, inicie novamente pelo seletor:
 
 Para outro provedor, troque o argumento pelo perfil correto e use os respectivos caminhos `*_FILE` de `.env`. Após a inicialização, confirme a conexão com `vpn-status` dentro do terminal ou com `docker compose -f docker-compose.yml -f profiles/<perfil>.yml ps` no host. Se os arquivos não existirem ou estiverem vazios, recrie somente os arquivos indicados pelo provedor; não coloque valores de credencial diretamente em `.env`.
 
+### Diagnóstico automatizado (vpn-doctor)
+
+Se houver problemas de conexão, loop de reconexão ou dúvidas sobre o estado da stack:
+
+```bash
+./scripts/vpn-doctor
+# ou com correção automática de permissões:
+./scripts/vpn-doctor --fix
+# ou via make:
+make doctor
+```
+
+O `vpn-doctor` valida ferramentas do host, integridade de segredos (modo 0600), status dos contêineres Docker e dispara o teste interno de conectividade e DNS do túnel. Em caso de dúvidas ou falhas persistentes, consulte o [Runbook de Diagnóstico e Resolução da VPN](DEV/RUNBOOKS/troubleshooting-vpn.md).
+
 ## Portas de desenvolvimento
 
 O serviço `vpn` publica a faixa TCP configurada por `VPN_PORT_RANGE` (padrão `10000-10100`). Projete aplicações expostas para escutar uma porta dentro dessa faixa.
@@ -149,6 +177,16 @@ vpn-top             # painel de status (serviços, túnel, DNS e auto-reconexão
 vpn-server-rotate   # troca de servidor pelo controle do Gluetun
 ```
 
+No host, os seguintes utilitários e assistentes estão disponíveis em `./scripts/`:
+
+```bash
+./scripts/vpn-doctor   # diagnóstico completo (host, permissões .secrets, containers, túnel)
+./scripts/vpn-setup    # assistente inicial para criar .secrets/, API key e arquivos
+./scripts/terminal-shell # atalho rápido para abrir o shell Zsh no terminal via VPN
+```
+
+O repositório também inclui um `Makefile` com atalhos práticos (`make help`, `make doctor`, `make up`, `make down`, `make shell`, `make check`, `make test`, `make verify`).
+
 O `vpn-reconnect` aguarda o IP público do Gluetun após a reconexão (o endpoint só o publica segundos depois de o túnel subir) e imprime o IP quando disponível; se o IP não voltar, encerra com erro para o `vpn-auto-reconnect` retentar.
 
 Para automação: `vpn-status --json|-q`, `vpn-check --json|-q [--only tunnel|dns|internal|hosts]`, `vpn-top --json|--no-color`; todo script responde `--help`. O `vpn-check` sai `0` saudável / `1` com falha (a contagem vai na mensagem/JSON).
@@ -190,6 +228,8 @@ LOCAL_HOSTS=gitlab.omega=192.168.30.5,registry.omega=192.168.30.6
 - Reaplicar após `restart` manual: `./scripts/vpn-hosts-apply` (o `vpn-switch` sempre reaplica; `down`/`recreate` perde as entradas). Se `opencode-supervisor` estiver ativo, ele também recebe os mesmos `LOCAL_HOSTS`.
 - O `vpn-check` valida que cada nome resolve para o IP declarado.
 - O mapeamento resolve só o **nome**; o **alcance** continua exigindo a sub-rede em `FIREWALL_SUBNETS` (acima). Se o IP mudar na LAN, atualize o mapeamento (o import facilita o re-sync).
+
+Para receitas completas de configuração de redes internas, DNS de múltiplos domínios e VLANs, consulte [o guia de cenários avançados](examples/cenarios-avancados.md).
 
 ### Paridade com a home do host
 
@@ -291,8 +331,10 @@ host
 │   └── faixa TCP publicada no endereço configurado do host
 ├── terminal (usuário developer + Zsh + home do host)
 │   └── network_mode: service:vpn
-└── vpn-auto-reconnect
-    └── verifica o IP público e recupera conectividade
+├── vpn-auto-reconnect
+│   └── verifica o IP público e recupera conectividade
+└── opencode-supervisor (opt-in)
+    └── monitora opencode serve/web com self-healing e reconexão
 ```
 
 O contêiner de terminal é uma extensão direta do usuário do host: ele monta a home completa no mesmo caminho e o workspace no mesmo caminho. Isso preserva referências absolutas e permite usar as mesmas configurações e ferramentas, inclusive os dados do OpenCode. O `PATH` do terminal prioriza `${HOST_HOME_DIR}/.opencode/bin` (binário do host, atualizado de imediato); a imagem mantém uma versão verificada compatível (`OPENCODE_VERSION` + checksums no `Dockerfile`) como fallback.
@@ -310,6 +352,9 @@ Esse mount concede ao terminal acesso de leitura e escrita a toda a home indicad
 ```bash
 ./scripts/verify-docs
 ./scripts/verify-compose
+./tests/linux/test-scripts.sh
+# ou execute tudo de uma vez com o Makefile:
+make verify
 ```
 
 ## Encerrar o ambiente

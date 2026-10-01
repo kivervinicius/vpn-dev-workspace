@@ -94,7 +94,7 @@ grep -Fq 'vpn-reconnect' "$README_FILE" || {
   fails=$((fails + 1))
 }
 
-for script_name in vpn-status vpn-reconnect vpn-check vpn-top vpn-server-rotate vpn-opencode opencode-supervisor vpn-hosts-import vpn-hosts-apply; do
+for script_name in vpn-status vpn-reconnect vpn-check vpn-top vpn-server-rotate vpn-opencode opencode-supervisor vpn-hosts-import vpn-hosts-apply vpn-doctor vpn-setup; do
   [[ -f "${ROOT_DIR}/scripts/${script_name}" ]] || {
     echo "Erro: script ausente: ${script_name}." >&2
     exit 1

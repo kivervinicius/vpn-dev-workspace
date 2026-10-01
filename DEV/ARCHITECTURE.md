@@ -2,6 +2,31 @@
 
 `docker-compose.yml` define a infraestrutura comum: `vpn`, `terminal` e `vpn-auto-reconnect`, além do `opencode-supervisor` opt-in. Os três primeiros pertencem ao perfil Compose `vpn`; o supervisor usa o perfil `opencode`, compartilha `network_mode: service:vpn` e só é iniciado explicitamente por `vpn-opencode supervise`.
 
+```mermaid
+flowchart TD
+    subgraph Host["Host Machine (Desenvolvedor)"]
+        User["CLI / Makefile"]
+        Setup["scripts/vpn-setup"]
+        Doctor["scripts/vpn-doctor"]
+        Switch["scripts/vpn-switch"]
+        Shell["scripts/terminal-shell"]
+    end
+
+    subgraph Compose["Docker Compose Network Namespace (Túnel VPN)"]
+        VPN["Serviço 'vpn' (Gluetun)\n- NET_ADMIN\n- DNS Local 127.0.0.1:53\n- Control Server API :8000\n- Kill Switch Ativo\n- Portas 10000-10100"]
+        Terminal["Serviço 'terminal'\n- network_mode: service:vpn\n- Monta home e workspace\n- Zsh interativo"]
+        AutoRec["Serviço 'vpn-auto-reconnect'\n- network_mode: service:vpn\n- Healthcheck periódico & self-healing"]
+        Supervisor["Serviço 'opencode-supervisor' (opt-in)\n- network_mode: service:vpn\n- Processo opencode serve/web"]
+
+        Terminal -->|rede compartilhada| VPN
+        AutoRec -->|rede compartilhada| VPN
+        Supervisor -->|rede compartilhada| VPN
+    end
+
+    Tunnel(("Provedor VPN (NordVPN / Proton / Mullvad / etc.)"))
+    VPN -->|Túnel Criptografado (OpenVPN/WireGuard)| Tunnel
+```
+
 O `terminal` usa `network_mode: service:vpn`, portanto todo o seu tráfego compartilha o namespace de rede e o kill switch do Gluetun. Ele monta `HOST_HOME_DIR` (por padrão, a home do usuário que executa o Compose) e `WORKSPACE_DIR` nos mesmos caminhos do host. Dessa forma, o Zsh encontra as configurações e ferramentas já instaladas pelo usuário, inclusive o OpenCode; a imagem também mantém uma versão verificada compatível como fallback. O `PATH` do terminal prioriza `${HOST_HOME_DIR}/.opencode/bin`, de modo que atualizar o OpenCode no host reflete de imediato no container sem rebuild. O serviço usa `init: true` para colher processos zumbis de shells/filhos.
 
 Os arquivos em `profiles/` definem exclusivamente o provedor, protocolo e mapeamentos de segredos. `scripts/vpn-switch` habilita o perfil interno e aplica exatamente um perfil de provedor; assim, o Gluetun só recebe credenciais como arquivos montados em `/run/secrets/`. Todos os perfis de provedor (exceto `custom-*`) aceitam `SERVER_HOSTNAMES` (`VPN_SERVER_HOSTNAMES`); os `*-openvpn` aceitam `OPENVPN_PROTOCOL` (udp/tcp).
@@ -29,9 +54,12 @@ WSL é virtual e não deve ser tomada como a LAN do Windows: `vpn-switch` não
 faz autodetecção de `FIREWALL_SUBNETS` quando detecta WSL, e o PowerShell nunca
 faz essa autodetecção. O acesso à LAN nos dois modos Windows é sempre explícito.
 
-Os scripts de operação conversam com o HTTP Control Server do Gluetun (`/v1/vpn/status`, `/v1/vpn/settings`, `/v1/publicip/ip`, `/v1/dns/status`) com autenticação por `X-API-Key`, sem acesso ao socket Docker:
+Os scripts de operação e diagnóstico do repositório organizam-se da seguinte forma:
 
-- `vpn-status` — status, perfil, servidor/pais configurados e IP público (com localização).
+- `vpn-doctor` — ferramenta unificada de diagnóstico no host (checa dependências, permissões de segredos modo 0600, Docker daemon, status da stack e aciona o teste interno `vpn-check`); aceita `--json` e `--fix`.
+- `vpn-setup` — assistente interativo de configuração inicial no host; cria `.secrets/` (0700), gera chave de API do Gluetun e templates de segredo (0600) para o provedor selecionado.
+- `terminal-shell` — abre uma sessão interativa direta no contêiner `terminal` conectado à VPN.
+- `vpn-status` — status, perfil, servidor/país configurados e IP público (com localização).
 - `vpn-check` — saúde do túnel, IP, DNS do túnel, resolução e checagem básica de vazamento de DNS; usado pelo `vpn-auto-reconnect`. Com `INTERNAL_TEST_HOST`, testa também o alcance à rede interna do host.
 - `vpn-reconnect` — reconexão `stopped→running` com polling até o IP público voltar.
 - `vpn-server-rotate` — troca de servidor via `PUT /v1/vpn/settings` (cicla `VPN_SERVER_HOSTNAMES` ou re-seleciona no país configurado).
