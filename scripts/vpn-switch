@@ -29,7 +29,7 @@ if [[ "${1:-}" == "stop" || "${1:-}" == "down" ]]; then
 fi
 
 read_compose_value() {
-  local name="$1" default_value="$2" value=""
+  local name="$1" default_value="$2" value="" line=""
 
   if [[ -n "${!name+x}" ]]; then
     printf '%s\n' "${!name}"
@@ -37,7 +37,20 @@ read_compose_value() {
   fi
 
   if [[ -f "${ROOT_DIR}/.env" ]]; then
-    value="$(awk -v prefix="${name}=" 'index($0, prefix) == 1 { print substr($0, length(prefix) + 1); exit }' "${ROOT_DIR}/.env")"
+    line="$(grep -E "^[[:space:]]*(export[[:space:]]+)?${name}=" "${ROOT_DIR}/.env" | tail -n 1 || true)"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line#export}"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line#${name}=}"
+    # Trim espaços + remove aspas que envolvem o valor inteiro.
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    if ((${#line} >= 2)); then
+      if [[ "${line:0:1}" == '"' && "${line: -1}" == '"' ]] || [[ "${line:0:1}" == "'" && "${line: -1}" == "'" ]]; then
+        line="${line:1:-1}"
+      fi
+    fi
+    value="$line"
   fi
 
   printf '%s\n' "${value:-$default_value}"
@@ -117,8 +130,16 @@ echo "Validando perfil ${profile}..."
 "${compose[@]}" config --quiet
 
 host_bind_address="$(read_compose_value HOST_BIND_ADDRESS 127.0.0.1)"
-[[ "$host_bind_address" != "0.0.0.0" && "$host_bind_address" != "::" ]] || {
-  echo "Erro: use o IP específico da interface LAN em HOST_BIND_ADDRESS, não um bind público." >&2
+case "$host_bind_address" in
+  0.0.0.0|"::"|"*"|0|0:0:0:0:0:0:0:0|"::0")
+    echo "Erro: use o IP específico da interface LAN em HOST_BIND_ADDRESS, não um bind público." >&2
+    exit 2
+    ;;
+esac
+# HOST_HOME_MODE só aceita rw (default) ou ro (trava a home).
+host_home_mode="$(read_compose_value HOST_HOME_MODE rw)"
+[[ "$host_home_mode" == "rw" || "$host_home_mode" == "ro" ]] || {
+  echo "Erro: HOST_HOME_MODE deve ser rw|ro (recebido: ${host_home_mode})." >&2
   exit 2
 }
 port_range="$(read_compose_value VPN_PORT_RANGE 10000-10100)"

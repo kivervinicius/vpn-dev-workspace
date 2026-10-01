@@ -131,18 +131,21 @@ mkdir -p "$(dirname "$LOG_FILE")" "$(dirname "$PID_FILE")" "$(dirname "$SESSION_
 touch "$LOG_FILE"
 
 load_server_auth() {
-  if [[ -n "${OPENCODE_SERVER_PASSWORD:-}" ]]; then
-    export OPENCODE_SERVER_USER="${OPENCODE_SERVER_USER:-opencode}"
-    return
-  fi
-  if [[ -r "$PASSWORD_FILE" ]]; then
+  # Prefere arquivo (não vaza em docker inspect) a valor direto em env.
+  if [[ -r "$PASSWORD_FILE" && "$PASSWORD_FILE" != "/dev/null" ]]; then
     local pass
     pass="$(tr -d '\r\n' < "$PASSWORD_FILE" 2>/dev/null || true)"
     if [[ -n "$pass" ]]; then
       export OPENCODE_SERVER_PASSWORD="$pass"
       export OPENCODE_SERVER_USER="${OPENCODE_SERVER_USER:-opencode}"
+      return
     fi
   fi
+  if [[ -n "${OPENCODE_SERVER_PASSWORD:-}" ]]; then
+    export OPENCODE_SERVER_USER="${OPENCODE_SERVER_USER:-opencode}"
+    return
+  fi
+  echo "Aviso: painel OpenCode sem senha (apenas local; defina OPENCODE_GUI_PASSWORD_FILE para LAN)." >&2
 }
 
 http_ready() {
@@ -157,7 +160,10 @@ http_ready() {
 
 start_opencode() {
   load_server_auth
-  : > "$LOG_FILE"
+  # Preserva evidência para classificação quota/disconnect: rotaciona em vez de truncar.
+  if [[ -s "$LOG_FILE" ]]; then
+    tail -n 2000 "$LOG_FILE" > "${LOG_FILE}.tmp" 2>/dev/null && mv "${LOG_FILE}.tmp" "$LOG_FILE" || : > "$LOG_FILE"
+  fi
   log_offset=0
   echo "Iniciando OpenCode ${MODE} em 127.0.0.1:${PORT}..."
   opencode "$MODE" --port "$PORT" --hostname 0.0.0.0 >>"$LOG_FILE" 2>&1 &

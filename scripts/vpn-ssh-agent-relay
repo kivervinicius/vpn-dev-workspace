@@ -39,4 +39,5 @@ socat "UNIX-LISTEN:${SOCKET_PATH},fork,mode=0600" \
   "EXEC:/usr/local/bin/vpn-ssh-agent-relay --connection,stderr" &
 relay_pid=$!
 trap 'kill "$relay_pid" 2>/dev/null || true; rm -f "$SOCKET_PATH"' EXIT INT TERM
-exec tail -f /dev/null
+# Sem tail: se o socat morrer o container encerra (falha visível, não SSH mudo).
+wait "$relay_pid"

@@ -58,18 +58,35 @@ fi
 need docker
 compose=(docker compose --profile vpn --profile opencode -f "${ROOT_DIR}/docker-compose.yml")
 
+# Re-valida o snippet antes do exec como root (o arquivo pode ser editado à mão).
+valid_hostname() {
+  local h="$1"
+  [[ "$h" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$ ]] || return 1
+  [[ "$h" != *".."* ]] || return 1
+  [[ "$h" != *"*"* && "$h" != *"'"* && "$h" != *'"'* && "$h" != *'`'* && "$h" != *'$'* && "$h" != *';'* && "$h" != *'&'* && "$h" != *'|'* ]] || return 1
+  return 0
+}
+valid_ip() {
+  local ip="$1"
+  [[ "$ip" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]] && (( 10#${BASH_REMATCH[1]} <= 255 && 10#${BASH_REMATCH[2]} <= 255 && 10#${BASH_REMATCH[3]} <= 255 && 10#${BASH_REMATCH[4]} <= 255 )) && return 0
+  [[ "$ip" == *:* && "$ip" =~ ^[0-9a-fA-F:.]+$ && "$ip" != *":::"* ]] && return 0
+  return 1
+}
+
 for svc in "${REQUIRED_SERVICES[@]}"; do
   cid="$("${compose[@]}" ps -q "$svc" 2>/dev/null || true)"
   [[ -n "$cid" ]] || { echo "Erro: contêiner '${svc}' não está rodando; aplique após o vpn-switch." >&2; exit 1; }
   for i in "${!names[@]}"; do
     ip="${ips[$i]}"
     name="${names[$i]}"
+    valid_ip "$ip" || { echo "Erro: IP inválido no snippet: '${ip}'." >&2; exit 2; }
+    valid_hostname "$name" || { echo "Erro: hostname inválido no snippet: '${name}'." >&2; exit 2; }
     esc_ip="${ip//./\\.}"
     esc_name="${name//./\\.}"
     if docker exec -u 0 "$cid" sh -c "grep -Eq '^${esc_ip}[[:space:]]+${esc_name}([[:space:]]|\$)' /etc/hosts" 2>/dev/null; then
       echo "[${svc}] ${name} já mapeado; pulando."
     else
-      docker exec -u 0 "$cid" sh -c "printf '%s %s\n' '${ip}' '${name}' >> /etc/hosts"
+      docker exec -u 0 "$cid" sh -c 'printf "%s %s\n" "$1" "$2" >> /etc/hosts' sh "$ip" "$name"
       echo "[${svc}] ${ip} ${name} aplicado."
     fi
   done
@@ -82,12 +99,14 @@ for svc in "${OPTIONAL_SERVICES[@]}"; do
   for i in "${!names[@]}"; do
     ip="${ips[$i]}"
     name="${names[$i]}"
+    valid_ip "$ip" || { echo "Erro: IP inválido no snippet: '${ip}'." >&2; exit 2; }
+    valid_hostname "$name" || { echo "Erro: hostname inválido no snippet: '${name}'." >&2; exit 2; }
     esc_ip="${ip//./\\.}"
     esc_name="${name//./\\.}"
     if docker exec -u 0 "$cid" sh -c "grep -Eq '^${esc_ip}[[:space:]]+${esc_name}([[:space:]]|\$)' /etc/hosts" 2>/dev/null; then
       echo "[${svc}] ${name} já mapeado; pulando."
     else
-      docker exec -u 0 "$cid" sh -c "printf '%s %s\\n' '${ip}' '${name}' >> /etc/hosts"
+      docker exec -u 0 "$cid" sh -c 'printf "%s %s\n" "$1" "$2" >> /etc/hosts' sh "$ip" "$name"
       echo "[${svc}] ${ip} ${name} aplicado."
     fi
   done

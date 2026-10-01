@@ -11,10 +11,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
     SHELL=/usr/bin/zsh
 
 # Ferramentas de desenvolvimento e dependências para downloads verificados.
+# JRE headless (sem JDK completo) mantém `java --version` funcional com menor superfície.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
-    default-jdk \
+    default-jre-headless \
     git \
     openssh-client \
     socat \
@@ -38,13 +39,16 @@ RUN case "${TARGETARCH}" in \
     && rm /tmp/node.tar.xz
 
 # OpenCode é instalado a partir do binário de release com checksum fixado.
+# Supply-chain: o default usa fork anomalyco/opencode (sha abaixo). Para usar o
+# upstream sst/opencode, ajuste OPENCODE_GITHUB_REPO e os sha256 correspondentes.
+ARG OPENCODE_GITHUB_REPO=anomalyco/opencode
 RUN case "${TARGETARCH}" in \
       amd64) opencode_arch=x64; opencode_sha256=e9312be75ed803b7415fc2aeabda1f4fe938912a39673762dc0c38c0e11ebde4 ;; \
       arm64) opencode_arch=arm64; opencode_sha256=d4e332f46b227448582c0d9fc75f6f826dfe95c9f751bc2011fc4d937a042be6 ;; \
       *) echo "Arquitetura não suportada: ${TARGETARCH}" >&2; exit 1 ;; \
     esac \
     && curl --fail --location --silent --show-error \
-      "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-${opencode_arch}.tar.gz" \
+      "https://github.com/${OPENCODE_GITHUB_REPO}/releases/download/v${OPENCODE_VERSION}/opencode-linux-${opencode_arch}.tar.gz" \
       --output /tmp/opencode.tar.gz \
     && echo "${opencode_sha256}  /tmp/opencode.tar.gz" | sha256sum --check --status \
     && tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin \

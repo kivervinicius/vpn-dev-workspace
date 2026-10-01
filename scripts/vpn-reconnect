@@ -61,7 +61,10 @@ wait_for_public_ip() {
 
 echo "Reconectando o perfil VPN atual..."
 api_request -X PUT -H "Content-Type: application/json" \
-  -d '{"status":"stopped"}' "${API_URL}/v1/vpn/status" >/dev/null || true
+  -d '{"status":"stopped"}' "${API_URL}/v1/vpn/status" >/dev/null || {
+  echo "Erro: falha ao parar o túnel (API Gluetun inacessível/não autorizada)." >&2
+  exit 1
+}
 sleep 3
 api_request -X PUT -H "Content-Type: application/json" \
   -d '{"status":"running"}' "${API_URL}/v1/vpn/status" >/dev/null

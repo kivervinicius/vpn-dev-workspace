@@ -123,6 +123,7 @@ if ((${#hostnames_env[@]} > 0)) && ! $want_random; then
   fi
   next=$(( (previous + 1) % total ))
   target="${hostnames_env[$next]}"
+  mkdir -p "$(dirname "$STATE_FILE")"
   printf '%s\n' "$next" > "$STATE_FILE"
   patch="$(jq -nc --arg hostname "$target" '{provider:{server_selection:{hostnames:[$hostname]}}}')"
   echo "Rotacionando para o servidor: ${target}"

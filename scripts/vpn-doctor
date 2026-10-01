@@ -140,12 +140,21 @@ fi
 
 # 4. Estado dos contêineres Compose
 compose_ps="$(docker compose --profile vpn --profile opencode -f "${ROOT_DIR}/docker-compose.yml" ps --format json 2>/dev/null || true)"
-if [[ -n "$compose_ps" ]]; then
+if [[ -n "$compose_ps" && "$compose_ps" != "[]" ]]; then
+  resolve_cid() {
+    docker compose --profile vpn --profile opencode -f "${ROOT_DIR}/docker-compose.yml" ps -q "$1" 2>/dev/null | head -n 1
+  }
   check_container_service() {
     local service="$1" required="$2"
-    local status health state
-    state="$(docker inspect --format '{{.State.Status}}' "vpn-dev-workspace-${service}-1" 2>/dev/null || true)"
-    health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "vpn-dev-workspace-${service}-1" 2>/dev/null || true)"
+    local status health state cid=""
+    cid="$(resolve_cid "$service")"
+    if [[ -n "$cid" ]]; then
+      state="$(docker inspect --format '{{.State.Status}}' "$cid" 2>/dev/null || true)"
+      health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$cid" 2>/dev/null || true)"
+    else
+      state=""
+      health="none"
+    fi
 
     if [[ "$state" == "running" ]]; then
       if [[ "$health" == "healthy" || "$health" == "none" ]]; then
@@ -170,21 +179,24 @@ else
   record_check "Contêineres Compose" fail "nenhum contêiner do projeto em execução"
 fi
 
-# 5. vpn-check interno
-if docker ps -q --filter "name=vpn-dev-workspace-terminal-1" | grep -q .; then
-  if vpn_check_out="$(docker exec vpn-dev-workspace-terminal-1 vpn-check --json 2>/dev/null)"; then
+# 5. vpn-check interno (resolve o terminal via compose, sem nome fixo)
+terminal_cid="$(docker compose --profile vpn --profile opencode -f "${ROOT_DIR}/docker-compose.yml" ps -q terminal 2>/dev/null | head -n 1 || true)"
+if [[ -n "$terminal_cid" ]]; then
+  if vpn_check_out="$(docker exec "$terminal_cid" vpn-check --json 2>/dev/null)"; then
     record_check "vpn-check interno" ok "túnel e DNS saudáveis"
   else
     record_check "vpn-check interno" fail "uma ou mais verificações falharam (execute vpn-check no terminal)"
   fi
 fi
 
-# 6. OpenCode (porta local)
+# 6. OpenCode (porta local; opt-in: down vira warn, não silêncio)
 opencode_port="$(awk -F= '/^OPENCODE_GUI_PORT=/ {print $2; exit}' "${ROOT_DIR}/.env" 2>/dev/null || true)"
 opencode_port="${opencode_port:-10001}"
 if command -v timeout >/dev/null 2>&1; then
   if timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/${opencode_port}" 2>/dev/null; then
     record_check "Porta OpenCode (${opencode_port})" ok "respondendo no host"
+  else
+    record_check "Porta OpenCode (${opencode_port})" warn "nada ouvindo (opt-in; suba com vpn-opencode)"
   fi
 fi
 

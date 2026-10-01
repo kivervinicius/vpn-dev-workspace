@@ -119,7 +119,7 @@ else
   report "resolução DNS funcional" "getent indisponível (verificação ignorada)"
 fi
 
-if grep -Eq '^nameserver[[:space:]]+(127\.0\.0\.1|::1)([[:space:]]|$)' /etc/resolv.conf 2>/dev/null; then
+if grep -Eq '^nameserver[[:space:]]+(127\.0\.0\.(1|53)|::1)([[:space:]]|$)' /etc/resolv.conf 2>/dev/null; then
   report "resolv.conf aponta para o DNS do túnel" ok
 else
   report "resolv.conf aponta para o DNS do túnel" "resolver externo detectado (possível vazamento de DNS)"

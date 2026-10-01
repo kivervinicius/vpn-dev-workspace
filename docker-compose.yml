@@ -64,7 +64,10 @@ services:
       HTTPPROXY_LISTENING_ADDRESS: :${VPN_HTTP_PROXY_PORT:-10080}
       HTTPPROXY_STEALTH: ${VPN_HTTP_PROXY_STEALTH:-on}
       HTTPPROXY_USER: ${VPN_HTTP_PROXY_USER:-}
+      # Preferir FILE (caminho) a valor direto: senha em env vaza em docker inspect.
+      # O entrypoint lê HTTPPROXY_PASSWORD_FILE e exporta para o Gluetun.
       HTTPPROXY_PASSWORD: ${VPN_HTTP_PROXY_PASSWORD:-}
+      HTTPPROXY_PASSWORD_FILE: ${VPN_HTTP_PROXY_PASSWORD_FILE:-}
     ports:
       # A faixa é publicada apenas no endereço configurado do host.
       - "${HOST_BIND_ADDRESS:-127.0.0.1}:${VPN_PORT_RANGE:-10000-10100}:${VPN_PORT_RANGE:-10000-10100}"
@@ -130,7 +133,8 @@ services:
       SSH_AUTH_SOCK: /run/vpn-ssh-agent.sock
     volumes:
       # O mesmo caminho nos dois lados permite reutilizar referências absolutas.
-      - ${HOST_HOME_DIR:-${HOME}}:${HOST_HOME_DIR:-${HOME}}
+      # HOST_HOME_MODE=ro trava a home como somente-leitura (default rw por compat).
+      - ${HOST_HOME_DIR:-${HOME}}:${HOST_HOME_DIR:-${HOME}}:${HOST_HOME_MODE:-rw}
       - ${WORKSPACE_DIR:-/projetos}:${WORKSPACE_DIR:-/projetos}
       # Agente SSH e sessão do usuário do host (keyring/dbus), quando existirem.
       - ${SSH_AUTH_SOCK:-/dev/null}:/run/vpn-ssh-agent.sock:ro
@@ -142,6 +146,7 @@ services:
       - ./scripts/vpn-server-rotate:/usr/local/bin/vpn-server-rotate:ro
       - ./scripts/vpn-opencode:/usr/local/bin/vpn-opencode:ro
       # Senha do painel web do OpenCode (basic auth), quando existir arquivo.
+      # Sem arquivo o painel abre sem senha: só use com HOST_BIND_ADDRESS=127.0.0.1.
       - ${OPENCODE_GUI_PASSWORD_FILE:-/dev/null}:/run/secrets/opencode_gui_password:ro
     working_dir: ${WORKSPACE_DIR:-/projetos}
     depends_on:
@@ -180,6 +185,9 @@ services:
       VPN_ROTATE_SERVERS: ${VPN_ROTATE_SERVERS:-false}
       VPN_SERVER_HOSTNAMES: ${VPN_SERVER_HOSTNAMES:-}
       VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE: ${VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE:-3}
+      # Rotação periódica (privacidade) + estado round-robin (ver .env.example).
+      VPN_ROTATE_INTERVAL_SECONDS: ${VPN_ROTATE_INTERVAL_SECONDS:-0}
+      VPN_ROTATE_STATE_FILE: ${VPN_ROTATE_STATE_FILE:-/tmp/vpn-rotate.index}
       # Hosts locais mapeados (opt-in): o vpn-check valida cada nome=ip.
       LOCAL_HOSTS: ${LOCAL_HOSTS:-}
       # Sonda do OpenCode (opt-in; alerta puro, sem reconnect do túnel).
@@ -247,6 +255,7 @@ services:
       OPENCODE_SUPERVISOR_MODE: ${OPENCODE_SUPERVISOR_MODE:-serve}
       OPENCODE_GUI_PORT: ${OPENCODE_GUI_PORT:-10001}
       OPENCODE_SERVER_USER: ${OPENCODE_SERVER_USER:-opencode}
+      # Preferir arquivo (volume acima) a valor direto: env vaza em docker inspect.
       OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:-}
       OPENCODE_SUPERVISOR_INTERVAL_SECONDS: ${OPENCODE_SUPERVISOR_INTERVAL_SECONDS:-10}
       OPENCODE_RECOVERY_COOLDOWN_SECONDS: ${OPENCODE_RECOVERY_COOLDOWN_SECONDS:-30}
@@ -263,7 +272,7 @@ services:
       OPENCODE_LIMIT_PATTERNS: ${OPENCODE_LIMIT_PATTERNS:-}
       OPENCODE_DISCONNECT_PATTERNS: ${OPENCODE_DISCONNECT_PATTERNS:-}
     volumes:
-      - ${HOST_HOME_DIR:-${HOME}}:${HOST_HOME_DIR:-${HOME}}
+      - ${HOST_HOME_DIR:-${HOME}}:${HOST_HOME_DIR:-${HOME}}:${HOST_HOME_MODE:-rw}
       - ${WORKSPACE_DIR:-/projetos}:${WORKSPACE_DIR:-/projetos}
       - ${SSH_AUTH_SOCK:-/dev/null}:/run/vpn-ssh-agent.sock:ro
       - ${RUN_USER_DIR:-/dev/null}:${RUN_USER_DIR:-/dev/null}:ro
@@ -271,6 +280,7 @@ services:
       - ./scripts/vpn-check:/usr/local/bin/vpn-check:ro
       - ./scripts/vpn-reconnect:/usr/local/bin/vpn-reconnect:ro
       - ./scripts/vpn-server-rotate:/usr/local/bin/vpn-server-rotate:ro
+      # Sem arquivo o painel abre sem senha: só use com HOST_BIND_ADDRESS=127.0.0.1.
       - ${OPENCODE_GUI_PASSWORD_FILE:-/dev/null}:/run/secrets/opencode_gui_password:ro
     working_dir: ${WORKSPACE_DIR:-/projetos}
     depends_on:
@@ -279,7 +289,7 @@ services:
     secrets:
       - gluetun_api_key
     healthcheck:
-      test: ["CMD-SHELL", "test -s /tmp/opencode-supervisor/opencode.pid && kill -0 $(cat /tmp/opencode-supervisor/opencode.pid)"]
+      test: ["CMD-SHELL", "test -s /tmp/opencode-supervisor/opencode.pid && kill -0 \"$$(cat /tmp/opencode-supervisor/opencode.pid 2>/dev/null)\""]
       interval: 20s
       timeout: 5s
       retries: 3

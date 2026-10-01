@@ -4,4 +4,5 @@ services:
       VPN_SERVICE_PROVIDER: custom
       VPN_TYPE: wireguard
     volumes:
+      # O wg0.conf contém a chave privada: manter o arquivo com modo 0600 no host.
       - ${CUSTOM_WIREGUARD_CONFIG_FILE:?CUSTOM_WIREGUARD_CONFIG_FILE is required}:/gluetun/wireguard/wg0.conf:ro

@@ -59,7 +59,7 @@ function Copy-AgentConnection {
 if (-not (Test-Path -LiteralPath $TokenFile -PathType Leaf)) {
     throw "Arquivo de token ausente: $TokenFile"
 }
-$listener = New-Object -TypeName System.Net.Sockets.TcpListener -ArgumentList ([System.Net.IPAddress]::Any), $Port
+$listener = New-Object -TypeName System.Net.Sockets.TcpListener -ArgumentList ([System.Net.IPAddress]::Loopback), $Port
 $listener.Start()
 $actualPort = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
 $ready = [ordered]@{ port = $actualPort; pid = $PID; pipe = $PipeName }

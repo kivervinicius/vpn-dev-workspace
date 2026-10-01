@@ -67,7 +67,7 @@ while (($# > 0)); do
     -q|--quiet) quiet=true; shift ;;
     --log-lines) log_lines="${2:-}"; [[ "$log_lines" =~ ^[1-9][0-9]*$ ]] || { echo "Erro: --log-lines exige inteiro positivo." >&2; exit 2; }; shift 2 ;;
     --interval) watch_interval="${2:-}"; [[ "$watch_interval" =~ ^[1-9][0-9]*$ ]] || { echo "Erro: --interval exige inteiro positivo." >&2; exit 2; }; shift 2 ;;
-    --restart-max) restart_max="${2:-}"; [[ "$restart_max" =~ ^[0-9]+$ ]] || { echo "Erro: --restart-max exige inteiro >=0." >&2; exit 2; }; shift 2 ;;
+    --restart-max) restart_max="${2:-}"; [[ "$restart_max" =~ ^[1-9][0-9]*$ ]] || { echo "Erro: --restart-max exige inteiro positivo (>=1)." >&2; exit 2; }; shift 2 ;; 
     --mode) restart_mode="${2:-}"; [[ "$restart_mode" == "web" || "$restart_mode" == "serve" ]] || { echo "Erro: --mode exige web|serve." >&2; exit 2; }; shift 2 ;;
     -h|--help) usage ;;
     *) echo "Erro: opção desconhecida: $1" >&2; exit 2 ;;
@@ -271,7 +271,7 @@ case "$mode" in
     "${supervisor_compose[@]}" stop opencode-supervisor >/dev/null 2>&1 || true
     "${supervisor_compose[@]}" rm -f opencode-supervisor >/dev/null 2>&1 || true
     [[ -n "$terminal_cid" ]] || { echo "Supervisor encerrado; terminal não está ativo." >&2; exit 0; }
-    stopped="$(docker exec "$terminal_cid" sh -c 'n=0; for d in /proc/[0-9]*; do if tr "\0" " " < "$d/cmdline" 2>/dev/null | grep -q "'"${proc_match}"'"; then kill "${d#/proc/}" 2>/dev/null && n=$((n+1)); fi; done; printf "%s" "$n"')"
+    stopped="$(docker exec "$terminal_cid" sh -c 'n=0; for d in /proc/[0-9]*; do if tr "\0" " " < "$d/cmdline" 2>/dev/null | grep -Eq "'"${proc_match}"'"; then kill "${d#/proc/}" 2>/dev/null && n=$((n+1)); fi; done; printf "%s" "$n"')"
     if (( stopped > 0 )); then
       echo "Encerrado(s) ${stopped} processo(s) na porta ${port}."
     else

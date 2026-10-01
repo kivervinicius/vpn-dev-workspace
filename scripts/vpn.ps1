@@ -189,7 +189,7 @@ function Get-CurrentProjectPublishedPorts {
 
 function Validate-PortRange {
     $bindAddress = Get-ConfigValue 'HOST_BIND_ADDRESS' '127.0.0.1'
-    if ($bindAddress -eq '0.0.0.0' -or $bindAddress -eq '::') { Fail 'use um IP específico em HOST_BIND_ADDRESS; 0.0.0.0/:: expõe as portas publicamente.' 2 }
+    if ($bindAddress -in @('0.0.0.0', '::', '*', '0', '0:0:0:0:0:0:0:0', '::0')) { Fail 'use um IP específico em HOST_BIND_ADDRESS; 0.0.0.0/:: expõe as portas publicamente.' 2 }
     $range = Get-ConfigValue 'VPN_PORT_RANGE' '10000-10100'
     $bounds = Get-PortBounds $range
     $busy = @()
@@ -654,7 +654,8 @@ function Invoke-OpenCode {
     $passwordPath = Resolve-ProjectPath $passwordPath
     if (Test-Path -LiteralPath $passwordPath -PathType Leaf) {
         $password = (Get-Content -LiteralPath $passwordPath -Raw).Trim()
-        if ($password) { $exec += @('-e', "OPENCODE_SERVER_PASSWORD=$password", '-e', 'OPENCODE_SERVER_USER=opencode') }
+        # Sem valor na linha de comando: herda do processo (não vaza em ps/inspect).
+        if ($password) { $env:OPENCODE_SERVER_PASSWORD = $password; $env:OPENCODE_SERVER_USER = 'opencode'; $exec += @('-e', 'OPENCODE_SERVER_PASSWORD', '-e', 'OPENCODE_SERVER_USER') }
     } else {
         Write-Warning "sem arquivo de senha em $passwordPath; o painel ficará sem autenticação."
     }
