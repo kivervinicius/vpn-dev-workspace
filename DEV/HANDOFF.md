@@ -4,7 +4,7 @@ This file should stay small. Refresh it after substantive work or run `orquestra
 
 ## Snapshot
 
-- Updated: 2026-09-19
+- Updated: 2026-10-01
 - Read order: `INDEX.md` -> `HANDOFF.md` -> `CONTEXT.md` -> `SPECS/ACTIVE.md`
 - Active spec: `SPECS/ACTIVE.md`
 - Verification source: `VERIFY.md`
@@ -12,16 +12,18 @@ This file should stay small. Refresh it after substantive work or run `orquestra
 
 ## Latest Work
 
-- Current: verificação automática do OpenCode — `vpn-opencode check|watch`
+- Current: diagnóstico e resolução de loop de reconexão na VPN (NordVPN OpenVPN)
+  e melhorias preventivas. O protocolo TCP com porta 443 padrão causava `Connection reset`
+  imediato na NordVPN, somado a hostnames antigos na lista de servidores. Adicionado
+  repasse de `OPENVPN_ENDPOINT_PORT` nos perfis OpenVPN, validação preventiva de DNS
+  de servidores e aviso de porta TCP no `vpn-switch`. Com `OPENVPN_PROTOCOL=udp`, a
+  VPN conecta de imediato e passa 100% nas validações (`vpn-status`, `vpn-check`, `vpn-reconnect`).
+
+- Previous: verificação automática do OpenCode — `vpn-opencode check|watch`
   (`quota`=alerta puro zero restart, `down`=restart limitado), sonda opt-in
   `OPENCODE_AUTOCHECK` no `vpn-auto-reconnect` (sem socket, sem reconnect do
   túnel), seção `opencode` no `vpn-top`, paridade `vpn.ps1`, docs e travas.
   Estático validado sem Docker; runtime real pendente no host. Consulte `VERIFY.md`.
-
-- Previous: falha de timeout no `vpn-reconnect` corrigida adicionando a capability
-  `KILL` ao serviço `vpn`. Runtime Linux validado com reconexão bem-sucedida (2x),
-  troca e obtenção de IP público, `vpn-status` e `vpn-check` 100% saudáveis.
-  Consulte `VERIFY.md`.
 
 - Entry: adição de `KILL` capability ao Gluetun para sinalizar e parar OpenVPN na reconexão.
 - Spec: `SPECS/ACTIVE.md` (status: reviewed-and-upgraded; runtime Linux validado; Windows/WSL2 pendentes).

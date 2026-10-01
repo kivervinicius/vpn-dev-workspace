@@ -8,6 +8,7 @@ services:
       SERVER_COUNTRIES: ${VPN_COUNTRY:-Netherlands}
       SERVER_HOSTNAMES: ${VPN_SERVER_HOSTNAMES:-}
       OPENVPN_PROTOCOL: ${OPENVPN_PROTOCOL:-udp}
+      OPENVPN_ENDPOINT_PORT: ${OPENVPN_ENDPOINT_PORT:-}
     secrets:
       - source: surfshark_user
         target: openvpn_user

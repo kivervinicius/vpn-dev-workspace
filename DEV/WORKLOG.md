@@ -2,6 +2,13 @@
 
 Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for older entries after compaction.
 
+## 2026-10-01 - Diagnóstico e correção do loop de conexão VPN e melhorias preventivas
+
+- Changed: adicionado repasse de `OPENVPN_ENDPOINT_PORT` nos perfis OpenVPN (`nordvpn-openvpn.yml`, `protonvpn-openvpn.yml`, `surfshark-openvpn.yml`); documentado em `.env.example`; `scripts/vpn-switch` ganha diagnóstico preventivo de porta TCP na NordVPN e validação rápida via `getent ahosts` para `VPN_SERVER_HOSTNAMES`; `.env` saneado com `OPENVPN_PROTOCOL=udp` e servidores ativos no Brasil.
+- Why: o Gluetun configurado com `OPENVPN_PROTOCOL=tcp` no provedor NordVPN conectava por padrão na porta 443 TCP. A NordVPN descontinuou OpenVPN em 443 TCP (remanejado para HTTPS/NordWhisper), o que causava `Connection reset, restarting [0]` imediato a cada tentativa. O serviço `vpn-auto-reconnect`, sem conseguir obter IP público, disparava reinícios contínuos da VPN, gerando um loop infinito. Além disso, servidores antigos/mortos em `VPN_SERVER_HOSTNAMES` agora são detectados preventivamente no switch.
+- Verified: `vpn-switch nordvpn-openvpn` conectou e tornou os contêineres saudáveis em 8.3s; `vpn-status` confirmou IP público; `vpn-reconnect` efetuou rotação e reconexão bem-sucedida em ~2s; `vpn-check` passou com 6/6 verificações ok; `./scripts/verify-compose` e `./scripts/verify-docs` passaram; `bash -n scripts/vpn-switch` sem erros.
+- Next context: ambiente 100% operacional no perfil NordVPN OpenVPN com salvaguardas preventivas.
+
 ## 2026-09-19 - Verificação automática do OpenCode (quota=alerta puro)
 
 - Changed: `scripts/vpn-opencode` ganha `check` (`ok|down|quota`, exit 0/1, `--json|-q`, padrões via `OPENCODE_QUOTA_PATTERNS`, varredura de logs via `--log-lines`) e `watch` host-side (`down`=alerta+restart limitado com `--restart-max`, `quota`=alerta puro zero restart); `scripts/vpn-auto-reconnect` ganha sonda opt-in `OPENCODE_AUTOCHECK` (só alerta, sem socket Docker, sem reconnect do túnel) com `vpn-opencode` montado no Compose; `scripts/vpn-top` ganha seção + campo `opencode`; `scripts/vpn.ps1 opencode` ganha `check|watch`; `.env.example`/`README`/runbook/specs/testing documentam; `verify-docs`/`verify-compose` travam drift.

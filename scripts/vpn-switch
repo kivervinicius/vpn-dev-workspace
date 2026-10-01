@@ -124,6 +124,29 @@ host_bind_address="$(read_compose_value HOST_BIND_ADDRESS 127.0.0.1)"
 port_range="$(read_compose_value VPN_PORT_RANGE 10000-10100)"
 validate_port_range "$port_range"
 
+# Diagnóstico preventivo de protocolo e porta no perfil NordVPN OpenVPN
+if [[ "$profile" == "nordvpn-openvpn" ]]; then
+  openvpn_proto="$(read_compose_value OPENVPN_PROTOCOL udp)"
+  openvpn_port="$(read_compose_value OPENVPN_ENDPOINT_PORT "")"
+  if [[ "${openvpn_proto,,}" == "tcp" && -z "$openvpn_port" ]]; then
+    echo "Aviso: a NordVPN encerrou OpenVPN na porta 443 TCP (gera TCP Reset)." >&2
+    echo "       Configure OPENVPN_ENDPOINT_PORT=1231 no .env para conectar em TCP." >&2
+  fi
+fi
+
+# Validação preventiva de DNS em VPN_SERVER_HOSTNAMES
+server_hostnames="$(read_compose_value VPN_SERVER_HOSTNAMES "")"
+if [[ -n "$server_hostnames" ]] && command -v getent >/dev/null 2>&1; then
+  IFS=',' read -r -a host_list <<< "$server_hostnames"
+  for raw_h in "${host_list[@]}"; do
+    h="$(echo "$raw_h" | xargs)"
+    [[ -n "$h" ]] || continue
+    if ! getent ahosts "$h" >/dev/null 2>&1; then
+      echo "Aviso: servidor '${h}' em VPN_SERVER_HOSTNAMES não resolve via DNS." >&2
+    fi
+  done
+fi
+
 # Proxy HTTP opt-in: a porta precisa estar na faixa publicada pelo Gluetun.
 http_proxy="$(read_compose_value VPN_HTTP_PROXY off)"
 if [[ "${http_proxy,,}" == "on" ]]; then
