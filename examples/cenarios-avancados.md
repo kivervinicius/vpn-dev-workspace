@@ -1,5 +1,7 @@
 # Guia de Cenários Avançados e Opt-ins
 
+> Cola-rápida: [docs/TLDR.md](../docs/TLDR.md). Índice: 1 intranet · 2 `LOCAL_HOSTS` · 3 proxy · 4 supervisor · 5 home read-only · 6 senhas via arquivo.
+
 Este guia demonstra como utilizar os recursos avançados de rede, segurança e integração do `vpn-dev-workspace`.
 
 ---
@@ -104,3 +106,36 @@ Para desenvolvimento contínuo via interface Web ou Desktop App:
 Benefícios:
 - Se a VPN cair ou sofrer rate limit (HTTP 429), o supervisor pausa o processo, rotaciona para outro servidor VPN, aguarda túnel saudável e retoma o OpenCode preservando a mesma sessão de chat.
 - Se a franquia da conta esgotar (`free_tier_limit`), o processo não é derrubado e não há rotações inúteis de VPN.
+
+---
+
+## Cenário 5: Home somente-leitura (`HOST_HOME_MODE`)
+
+Quando o fluxo só lê a home (lint, review, CI local), trave a montagem:
+
+```ini
+HOST_HOME_DIR=/home/desenvolvedor
+HOST_HOME_MODE=ro
+```
+
+O `vpn-switch` valida `rw|ro` antes do up. O workspace (`WORKSPACE_DIR`) segue `rw` — o código editável fica lá. Volte para `rw` (ou remova a linha) quando precisar escrever na home (ex: `opencode`, `npm -g`).
+
+---
+
+## Cenário 6: Senhas via arquivo (sem vazar em `docker inspect`)
+
+Valores diretos em env aparecem em `docker inspect`. Prefira arquivos `0600`:
+
+```ini
+# Proxy HTTP do Gluetun
+VPN_HTTP_PROXY_PASSWORD_FILE=.secrets/httpproxy_password
+# (legado) VPN_HTTP_PROXY_PASSWORD=... ← evita; o entrypoint prefere o FILE
+```
+
+```bash
+printf '%s' 'SENHA_DO_PROXY' > .secrets/httpproxy_password
+chmod 600 .secrets/httpproxy_password
+./scripts/vpn-switch nordvpn-openvpn
+```
+
+O mesmo vale para o painel OpenCode: `OPENCODE_GUI_PASSWORD_FILE=.secrets/opencode_gui_password` (montado em `/run/secrets/`; o supervisor prefere o arquivo ao env).

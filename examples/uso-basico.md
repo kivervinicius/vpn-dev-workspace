@@ -1,6 +1,8 @@
 # Exemplo de uso básico
 
-Este exemplo inicia o ambiente com NordVPN e OpenVPN. Antes de começar, leia a seção [Configuração](../README.md#configuração) e os [exemplos de provedores](../README.md#exemplos-de-provedores).
+> Cola-rápida de 1 página: [docs/TLDR.md](../docs/TLDR.md). Este guia é o passo a passo comentado.
+
+Este exemplo inicia o ambiente com NordVPN e OpenVPN. Antes de começar, leia a seção [Configuração](../README.md#1-configuração-inicial) e os [exemplos de provedores](../README.md#9-exemplos-de-provedores).
 
 ## Pré-requisitos
 

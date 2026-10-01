@@ -9,7 +9,7 @@ flowchart TD
         Setup["scripts/vpn-setup"]
         Doctor["scripts/vpn-doctor"]
         Switch["scripts/vpn-switch"]
-        Shell["scripts/terminal-shell"]
+        Shell["make shell / compose exec terminal zsh"]
     end
 
     subgraph Compose["Docker Compose Network Namespace (Túnel VPN)"]
@@ -58,7 +58,7 @@ Os scripts de operação e diagnóstico do repositório organizam-se da seguinte
 
 - `vpn-doctor` — ferramenta unificada de diagnóstico no host (checa dependências, permissões de segredos modo 0600, Docker daemon, status da stack e aciona o teste interno `vpn-check`); aceita `--json` e `--fix`.
 - `vpn-setup` — assistente interativo de configuração inicial no host; cria `.secrets/` (0700), gera chave de API do Gluetun e templates de segredo (0600) para o provedor selecionado.
-- `terminal-shell` — abre uma sessão interativa direta no contêiner `terminal` conectado à VPN.
+- `make shell` (`docker compose --profile vpn exec terminal zsh`) — abre uma sessão interativa direta no contêiner `terminal` conectado à VPN.
 - `vpn-status` — status, perfil, servidor/país configurados e IP público (com localização).
 - `vpn-check` — saúde do túnel, IP, DNS do túnel, resolução e checagem básica de vazamento de DNS; usado pelo `vpn-auto-reconnect`. Com `INTERNAL_TEST_HOST`, testa também o alcance à rede interna do host.
 - `vpn-reconnect` — reconexão `stopped→running` com polling até o IP público voltar.
