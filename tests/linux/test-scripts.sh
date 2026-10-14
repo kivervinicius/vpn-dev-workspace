@@ -78,11 +78,41 @@ run_test "Supervisor classifica Provider rate limit como rate_limit" test_classi
 run_test "Supervisor classifica FreeUsageLimitError como free_tier_limit" test_classify "FreeUsageLimitError: Free usage exceeded, subscribe to Go" "free_tier_limit"
 run_test "Supervisor classifica Free limit reached como free_tier_limit" test_classify "Free limit reached" "free_tier_limit"
 run_test "Supervisor classifica Go limit reached como account_limit" test_classify "Go limit reached: weekly limit reset in 4 days" "account_limit"
+run_test "Supervisor classifica CreditLimitExceeded como credit_limit" test_classify "CreditLimitExceeded: credit limit exceeded" "credit_limit"
+run_test "Supervisor classifica InsufficientFunds como credit_limit" test_classify "InsufficientFunds: payment required" "credit_limit"
 run_test "Supervisor classifica connection lost como disconnect" test_classify "network connection lost during streaming" "disconnect"
 run_test "Supervisor classifica normal text como none" test_classify "agent completed successfully" "none"
 
 # 7. Testes do vpn-doctor
 run_test "vpn-doctor emite JSON válido com jq" bash -c "${SCRIPTS_DIR}/vpn-doctor --json | jq empty"
+
+# 8. Classificação HTTP do vpn-opencode check. Precisa de socat para servir
+# respostas; sem ele o bloco é pulado em vez de reprovar a suíte.
+if command -v socat >/dev/null 2>&1; then
+  # O check abre a conexão uma vez para o teste de TCP e outra para o HTTP,
+  # então o servidor precisa aceitar várias conexões (fork).
+  check_http_detail() {
+    local code="$1" body="$2" port="$3" expected="$4"
+    local resp got
+    resp="$(printf 'HTTP/1.1 %s X\r\nContent-Type: text/plain\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s' \
+      "$code" "${#body}" "$body")"
+    ( for _ in $(seq 1 40); do printf '%s\n' "$resp"; sleep 0.15; done ) \
+      | timeout 10 socat - "TCP-LISTEN:${port},fork,reuseaddr" >/dev/null 2>&1 &
+    sleep 0.5
+    got="$(bash "${SCRIPTS_DIR}/vpn-opencode" check --port "$port" --json 2>/dev/null \
+      | jq -r '.detail // "sem-json"')" || true
+    pkill -f "TCP-LISTEN:${port}" >/dev/null 2>&1 || true
+    sleep 0.3
+    [[ "$got" == "$expected" ]]
+  }
+  run_test "check: HTTP 200 neutro -> ouvindo" check_http_detail 200 "OK" 10061 "ouvindo"
+  run_test "check: HTTP 402 -> credit-exhausted" check_http_detail 402 "CreditLimitExceeded" 10062 "credit-exhausted"
+  run_test "check: HTTP 429 Zen -> zen-usage-limit" check_http_detail 429 "FreeUsageLimitError" 10063 "zen-usage-limit"
+  run_test "check: HTTP 429 genérico -> rate-limit" check_http_detail 429 "too many requests" 10064 "rate-limit"
+  run_test "check: HTTP 200 com padrão de quota" check_http_detail 200 "quota exceeded" 10065 "quota-pattern-in-http"
+else
+  echo "socat ausente: testes de classificação HTTP do check pulados."
+fi
 
 echo "======================================"
 printf "Resultado: %d testes executados, %d passaram, %d falharam.\n" "$total" "$passed" "$failed"

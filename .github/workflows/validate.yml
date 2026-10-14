@@ -13,8 +13,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
-      - name: Install ShellCheck
-        run: sudo apt-get update && sudo apt-get install --yes shellcheck
+      - name: Install ShellCheck and socat
+        # socat é usado pela suíte para servir respostas HTTP nos testes de
+        # classificação do `vpn-opencode check`.
+        run: sudo apt-get update && sudo apt-get install --yes shellcheck socat
       - name: Validate shell scripts
         run: find scripts -maxdepth 1 -type f ! -name '*.ps1' -print0 | xargs -0 shellcheck -S error && find scripts -maxdepth 1 -type f ! -name '*.ps1' -exec bash -n {} + && sh -n scripts/vpn-entrypoint.sh && git diff --check
       - name: Run Linux scripts test suite
@@ -27,6 +29,8 @@ jobs:
           test "$(bash ./scripts/opencode-supervisor --classify 'Free limit reached')" = "free_tier_limit"
           test "$(bash ./scripts/opencode-supervisor --classify 'reason=free_tier_limit')" = "free_tier_limit"
           test "$(bash ./scripts/opencode-supervisor --classify 'Go limit reached: usage limit reached. It will reset in 5 days')" = "account_limit"
+          test "$(bash ./scripts/opencode-supervisor --classify 'CreditLimitExceeded: credit limit exceeded')" = "credit_limit"
+          test "$(bash ./scripts/opencode-supervisor --classify 'InsufficientFunds: payment required')" = "credit_limit"
           test "$(bash ./scripts/opencode-supervisor --classify 'connection lost while streaming')" = "disconnect"
           test "$(bash ./scripts/opencode-supervisor --classify 'normal request completed')" = "none"
       - name: Validate documentation

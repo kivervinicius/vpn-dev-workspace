@@ -1,5 +1,54 @@
 # Verify
 
+## Latest Verification — 2026-10-14 (Detecção de limites do Zen, corrigida)
+
+### Passaram
+
+- `bash -n` em todos os scripts de `scripts/` e `sh -n scripts/vpn-entrypoint.sh`.
+  Observação: `sh -n scripts/vpn-opencode` falha porque o script tem `#!/usr/bin/env bash` e
+  usa `[[ ]]`; a verificação do projeto para esse arquivo é `bash -n`.
+- `git diff --check`.
+- `./scripts/verify-docs` — documentação e perfis consistentes.
+- `./tests/linux/test-scripts.sh` — **37/37**. Inclui os 5 testes novos de classificação
+  HTTP do `check`, servidos por `socat` com `fork`.
+- Smoke funcional do `vpn-opencode check` contra servidor HTTP real (`socat`):
+
+  | Resposta | `detail` | Resultado |
+  |---|---|---|
+  | 200 `OK` | `ouvindo` | PASS |
+  | 402 `CreditLimitExceeded` | `credit-exhausted` | PASS |
+  | 429 `FreeUsageLimitError` | `zen-usage-limit` | PASS |
+  | 429 `too many requests` | `rate-limit` | PASS |
+  | 200 `quota exceeded` | `quota-pattern-in-http` | PASS |
+
+- `retry_hint` do supervisor: `retry-after: 1800` → ` (reset em 1800s)`;
+  `reset in 4 days` → ` (reset in 4 days)`; sem hint → string vazia.
+- Classificador do supervisor: `CreditLimitExceeded` e `InsufficientFunds` → `credit_limit`
+  (agora cobertos pela suíte local, não só pela CI).
+
+### Defeitos encontrados e corrigidos nesta rodada
+
+- `scripts/vpn-opencode` não era parseável: `logs="$("${compose[@]}" ... || true)` sem o
+  `"` de fechamento da command substitution. O parser consumia o resto do arquivo até o
+  `(` da linha 218. Quebrava `check` em runtime; mascarado porque o teste
+  `modo-invalido` (exit 2) passava pelo motivo errado.
+- `OPENCODE_LIMIT_HOOK` e `OPENCODE_CREDIT_LIMIT_PATTERNS` não eram repassados pelo
+  Compose ao serviço `opencode-supervisor`: a funcionalidade documentada no runbook
+  nunca teria disparado.
+- `extract_retry_after()` era código morto, apesar de o WORKLOG de 2026-10-13 afirmar uso.
+- O ramo 429 de `do_check` classificava com `QUOTA_PATTERNS` (billing) em vez dos padrões
+  Zen, então `FreeUsageLimitError` virava `rate-limit` em vez de `zen-usage-limit`.
+
+### Ainda pendente
+
+- `./scripts/verify-compose`, ShellCheck e `docker build`: Docker e ShellCheck não estão
+  instalados neste ambiente; cobertos pela CI.
+- Runtime real: supervisor disparando `OPENCODE_LIMIT_HOOK` dentro do container, e
+  `vpn-opencode check` contra o OpenCode real (porta publicada).
+- Pendências antigas: Windows/WSL2 (`vpn.ps1`, ponte `openssh-ssh-agent`, persistência
+  da home), `LOCAL_HOSTS` com `getent` no host, conexão real do Desktop App à ponta
+  `serve`, `OPENCODE_AUTOCHECK=true` no `vpn-auto-reconnect`.
+
 ## Latest Verification — 2026-09-19 (Verificação automática do OpenCode)
 
 ### Passaram (sem Docker no ambiente de edição)

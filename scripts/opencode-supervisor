@@ -18,9 +18,11 @@ PID_FILE="${OPENCODE_SUPERVISOR_PID_FILE:-/tmp/opencode-supervisor/opencode.pid}
 SESSION_STATE_FILE="${OPENCODE_SUPERVISOR_SESSION_FILE:-${HOME:-/home/developer}/.local/state/vpn-dev-workspace/opencode-resume-session}"
 FREE_TIER_LIMIT_PATTERNS="${OPENCODE_FREE_TIER_LIMIT_PATTERNS:-freeusagelimiterror|free_tier_limit|free limit reached|free usage exceeded.*subscribe to go|subscribe to go}"
 ACCOUNT_LIMIT_PATTERNS="${OPENCODE_ACCOUNT_LIMIT_PATTERNS:-account_rate_limit|go limit reached|weekly usage limit reached|monthly usage limit reached|usage limit reached.*reset}"
+CREDIT_LIMIT_PATTERNS="${OPENCODE_CREDIT_LIMIT_PATTERNS:-creditlimitexceeded|insufficientfunds|credit_limit|budget_exceeded|account_budget_exceeded|limitexceeded|payment_required|out_of_credit|no_credit}"
 RATE_LIMIT_PATTERNS="${OPENCODE_RATE_LIMIT_PATTERNS:-${OPENCODE_LIMIT_PATTERNS:-provider rate limit exceeded|too many requests|too_many_requests|http[^0-9]*429|status[^0-9]*429|rate[ -]?limit exceeded}}"
 DISCONNECT_PATTERNS="${OPENCODE_DISCONNECT_PATTERNS:-network connection lost|connection lost|connection reset|econnreset|etimedout|network error|network request failed|fetch failed|socket hang up|provider.*disconnected|upstream.*disconnected|stream.*disconnected}"
 PASSWORD_FILE="${OPENCODE_GUI_PASSWORD_FILE:-/run/secrets/opencode_gui_password}"
+LIMIT_HOOK="${OPENCODE_LIMIT_HOOK:-}"
 
 child_pid=""
 log_offset=0
@@ -56,8 +58,10 @@ Configuração principal:
   OPENCODE_SUPERVISOR_SESSION_FILE=<path opcional; padrão na home persistente>
   OPENCODE_FREE_TIER_LIMIT_PATTERNS=<regex>
   OPENCODE_ACCOUNT_LIMIT_PATTERNS=<regex>
+  OPENCODE_CREDIT_LIMIT_PATTERNS=<regex>
   OPENCODE_RATE_LIMIT_PATTERNS=<regex>
   OPENCODE_DISCONNECT_PATTERNS=<regex>
+  OPENCODE_LIMIT_HOOK=<path executável dentro de WORKSPACE_DIR; args: <tipo> [retry_after]>
 EOF
 }
 
@@ -67,6 +71,8 @@ classify_text() {
     printf 'free_tier_limit\n'
   elif [[ -n "$text" ]] && printf '%s\n' "$text" | grep -Eiq "($ACCOUNT_LIMIT_PATTERNS)"; then
     printf 'account_limit\n'
+  elif [[ -n "$text" ]] && printf '%s\n' "$text" | grep -Eiq "($CREDIT_LIMIT_PATTERNS)"; then
+    printf 'credit_limit\n'
   elif [[ -n "$text" ]] && printf '%s\n' "$text" | grep -Eiq "($RATE_LIMIT_PATTERNS)"; then
     printf 'rate_limit\n'
   elif [[ -n "$text" ]] && printf '%s\n' "$text" | grep -Eiq "($DISCONNECT_PATTERNS)"; then
@@ -74,6 +80,46 @@ classify_text() {
   else
     printf 'none\n'
   fi
+}
+
+extract_retry_after() {
+  local text="$1"
+  local seconds
+  seconds="$(printf '%s\n' "$text" | grep -Eio 'retry-after:[[:space:]]*[0-9]+' | grep -Eo '[0-9]+' | head -n1 || true)"
+  if [[ -n "$seconds" && "$seconds" =~ ^[0-9]+$ ]]; then
+    printf '%s\n' "$seconds"
+    return 0
+  fi
+  seconds="$(printf '%s\n' "$text" | grep -Eio 'reset in [0-9]+[[:space:]]*[a-z]+' | head -n1 || true)"
+  if [[ -n "$seconds" ]]; then
+    printf '%s\n' "$seconds"
+    return 0
+  fi
+  return 1
+}
+
+retry_hint() {
+  local hint
+  hint="$(extract_retry_after "$1" 2>/dev/null || true)"
+  [[ -n "$hint" ]] || return 0
+  # extract_retry_after devolve segundos quando há Retry-After e a frase
+  # "reset in <n> <unidade>" quando não há; formatar conforme o caso.
+  if [[ "$hint" =~ ^[0-9]+$ ]]; then
+    printf ' (reset em %ss)' "$hint"
+  else
+    printf ' (%s)' "$hint"
+  fi
+  return 0
+}
+
+run_limit_hook() {
+  local event_type="$1" logs="$2"
+  [[ -n "$LIMIT_HOOK" ]] || return 0
+  [[ -x "$LIMIT_HOOK" ]] || return 0
+  local hint
+  hint="$(extract_retry_after "$logs" 2>/dev/null || true)"
+  echo "Disparando hook de limite (${event_type}): ${LIMIT_HOOK}" >&2
+  "$LIMIT_HOOK" "$event_type" "$hint" >>"$LOG_FILE" 2>&1 &
 }
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
@@ -418,14 +464,22 @@ while true; do
   event="$(classify_text "$new_logs")"
   case "$event" in
     free_tier_limit)
-      echo "OpenCode atingiu o limite da franquia gratuita (banner subscribe to Go); rotação de VPN não altera free_tier_limit. Mantendo o processo vivo para troca de conta/plano/provider ou reset da própria conta." >&2
+      echo "OpenCode atingiu o limite da franquia gratuita (banner subscribe to Go); rotação de VPN não altera free_tier_limit. Mantendo o processo vivo para troca de conta/plano/provider ou reset da própria conta.$(retry_hint "$new_logs")" >&2
+      run_limit_hook "$event" "$new_logs"
       continue
       ;;
     account_limit)
-      echo "OpenCode Go atingiu limite de conta; rotação de VPN não altera account_rate_limit. Mantendo o processo vivo até o reset/fallback do próprio OpenCode." >&2
+      echo "OpenCode Go atingiu limite de conta; rotação de VPN não altera account_rate_limit. Mantendo o processo vivo até o reset/fallback do próprio OpenCode.$(retry_hint "$new_logs")" >&2
+      run_limit_hook "$event" "$new_logs"
+      continue
+      ;;
+    credit_limit)
+      echo "OpenCode atingiu limite de crédito/billing do Zen; rotação de VPN pode ajudar se o limite for por IP. Mantendo o processo vivo para recarga de crédito ou troca de provider.$(retry_hint "$new_logs")" >&2
+      run_limit_hook "$event" "$new_logs"
       continue
       ;;
     rate_limit)
+      run_limit_hook "$event" "$new_logs"
       recover_with_vpn "opencode-provider-rate-limit" || true
       continue
       ;;

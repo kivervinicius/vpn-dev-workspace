@@ -31,4 +31,8 @@
 
 - Atualizar versões e checksums do Dockerfile somente junto com a respectiva verificação oficial e o build da imagem.
 - Rodar na CI ou no host com Docker: `verify-compose`, ShellCheck e build da imagem (Docker indisponível no ambiente de edição em 2026-09-17).
+- `OPENCODE_LIMIT_HOOK` só funciona se o script estiver dentro de `WORKSPACE_DIR` (o
+  supervisor roda com `cap_drop: ALL` e sem socket Docker); ele recebe o tipo do limite e o
+  `retry_after`, e roda em background. O `vpn-opencode check` usa os mesmos padrões Zen do
+  supervisor via `OPENCODE_ZEN_PATTERNS`/listas individuais.
 - Validar em Windows real: `vpn.ps1 start` sem distribuição WSL, `ssh-add -l` via ponte, OpenCode, stop/start e home persistente; repetir em WSL2 com `FIREWALL_SUBNETS` explícito.

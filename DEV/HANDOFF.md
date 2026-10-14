@@ -4,7 +4,7 @@ This file should stay small. Refresh it after substantive work or run `orquestra
 
 ## Snapshot
 
-- Updated: 2026-10-01
+- Updated: 2026-10-14
 - Read order: `INDEX.md` -> `HANDOFF.md` -> `CONTEXT.md` -> `SPECS/ACTIVE.md`
 - Active spec: `SPECS/ACTIVE.md`
 - Verification source: `VERIFY.md`
@@ -12,7 +12,27 @@ This file should stay small. Refresh it after substantive work or run `orquestra
 
 ## Latest Work
 
-- Current: implementação das melhorias gerais aprovadas no plano de evolução do workspace:
+- Current: correção da detecção de limites do Zen (trabalho de 2026-10-13 revisado antes
+  do commit). Quatro defeitos foram encontrados e corrigidos:
+  1. `scripts/vpn-opencode` não era parseável — command substitution sem fechamento em
+     `do_check`, o que quebrava `check` em runtime e passava despercebido porque um teste
+     esperava exit 2.
+  2. `OPENCODE_LIMIT_HOOK` e `OPENCODE_CREDIT_LIMIT_PATTERNS` não eram repassados pelo
+     Compose ao `opencode-supervisor`; a funcionalidade documentada não funcionava.
+  3. `extract_retry_after()` era código morto; agora alimenta as mensagens e o hook.
+  4. O ramo 429 classificava com padrões de billing, então `FreeUsageLimitError` virava
+     `rate-limit` em vez de `zen-usage-limit`.
+  Também: novos padrões repassados a `terminal`/`vpn-auto-reconnect`, `OPENCODE_ZEN_PATTERNS`,
+  documentação em `.env.example` e runbook, 7 novos testes (37/37 no total) e `socat`
+  instalado na CI para os testes HTTP.
+  - Verified: `bash -n` em todos os scripts, `sh -n vpn-entrypoint.sh`, `git diff --check`,
+    `verify-docs`, 37/37 testes, e smoke funcional do `check` contra servidor HTTP real
+    cobrindo `ouvindo`/`credit-exhausted`/`zen-usage-limit`/`rate-limit`/`quota-pattern-in-http`.
+  - Pending: `verify-compose`, ShellCheck e `docker build` (Docker/ShellCheck ausentes aqui);
+    runtime do hook dentro do container.
+  - Spec: `SPECS/ACTIVE.md` (atualizada em 2026-10-14).
+
+- Previous: implementação das melhorias gerais aprovadas no plano de evolução do workspace:
   1. Hardening de código: fallback dinâmico de `PATH` no `docker-compose.yml`, eliminação de `secrets/` legado (item #8 do backlog).
   2. Testes e diagnóstico: ferramenta unificada `scripts/vpn-doctor` com `--json` e `--fix`; suíte automatizada `tests/linux/test-scripts.sh` (30 testes) e inclusão no CI GitHub Actions.
   3. Documentação & DX: runbook `DEV/RUNBOOKS/troubleshooting-vpn.md`, guia `examples/cenarios-avancados.md`, assistente `scripts/vpn-setup`, `Makefile` na raiz e diagrama Mermaid na arquitetura.

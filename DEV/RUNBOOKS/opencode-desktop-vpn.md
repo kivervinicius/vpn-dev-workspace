@@ -102,3 +102,44 @@ Ao atualizar o Desktop, atualize na MESMA alteração:
 - Sonda no `vpn-auto-reconnect` (só alerta, sem socket Docker, sem reconnect do túnel): `.env` com `OPENCODE_AUTOCHECK=true`.
 - `vpn-top` mostra a seção OpenCode (TCP + detalhe via `check` quando disponível).
 - Padrões de quota sobrescrevíveis via `OPENCODE_QUOTA_PATTERNS`; linhas varridas via `OPENCODE_CHECK_LOG_LINES`.
+
+## 8. Detecção de limites do Zen
+
+O supervisor e o `check` detectam automaticamente os limites do Zen:
+
+| Tipo | HTTP | Padrão detectado | Ação do supervisor |
+|---|---|---|---|
+| `FreeUsageLimitError` | 429 | `freeusagelimiterror`, `free limit reached`, `subscribe to go` | Mantém app vivo; VPN não altera franquia |
+| `GoUsageLimitError` | 429 | `go limit reached`, `weekly/monthly usage limit reached` | Mantém app vivo; aguarda reset |
+| `CreditLimitExceeded` | 402 | `creditlimitexceeded`, `credit_limit` | Mantém app vivo; hook é disparado |
+| `InsufficientFunds` | 402 | `insufficientfunds`, `payment required` | Mantém app vivo; hook é disparado |
+| `LimitExceeded` (budget) | 429 | `limitexceeded`, `budget_exceeded` | Mantém app vivo; hook é disparado |
+| Provider rate limit | 429 | `429`, `too many requests`, `rate limit exceeded` | Rotaciona VPN e reinicia OpenCode |
+
+O `check` retorna `quota` com detalhe: `credit-exhausted`, `zen-usage-limit`, `rate-limit`, `quota-pattern-in-http`, `quota-pattern-in-logs`.
+
+### Hook de limite personalizado (`OPENCODE_LIMIT_HOOK`)
+
+Quando um limite é detectado, o supervisor executa um script personalizado:
+
+```bash
+# .env
+OPENCODE_LIMIT_HOOK=/projetos/scripts/meu-hook-zen.sh
+```
+
+O hook recebe dois argumentos — o tipo de limite (`free_tier_limit`, `account_limit`, `credit_limit`, `rate_limit`) e o `retry-after` extraído dos logs (segundos quando há `Retry-After`, ou a frase `reset in <n> <unidade>`; string vazia quando não há) — e roda em background (não bloqueia o supervisor). O caminho precisa estar dentro de `WORKSPACE_DIR` para ser visível no container. Exemplo:
+
+```bash
+#!/usr/bin/env bash
+# meu-hook-zen.sh — notifica quando limite do Zen é atingido
+event_type="$1"
+retry_after="$2"
+echo "[$(date)] Limite detectado: ${event_type} (retry_after=${retry_after:-n/d})" >> /tmp/zen-limit.log
+# Exemplo: notificação, troca de provider, recarregar crédito, etc.
+case "$event_type" in
+  credit_limit) curl -s -X POST https://hooks.example.com/zen ;;
+  rate_limit) echo "Rate limit — VPN será rotacionada pelo supervisor" ;;
+esac
+```
+
+O hook é opcional. Sem ele, o supervisor apenas loga (com a dica de reset, quando houver) e toma a ação padrão (manter vivo ou rotacionar VPN).

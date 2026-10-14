@@ -2,6 +2,31 @@
 
 Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for older entries after compaction.
 
+## 2026-10-14 - Correções na detecção de limites do Zen antes do commit
+
+- Changed:
+  - `scripts/vpn-opencode`: corrigida command substitution não fechada em `do_check` (`logs="$(...)"` sem o `"` final), que impedia o script de ser parseado e quebrava `check` em runtime; adicionados `FREE_TIER_PATTERNS`/`ACCOUNT_LIMIT_PATTERNS`/`CREDIT_LIMIT_PATTERNS`/`ZEN_PATTERNS` (mesmos defaults do supervisor) e `zen_in_text()`, usados no ramo 429 para distinguir `zen-usage-limit` de `rate-limit`.
+  - `scripts/opencode-supervisor`: `extract_retry_after()` era código morto; agora é chamada por `retry_hint()` nas mensagens de limite e por `run_limit_hook()`, que passa o `retry_after` como segundo argumento do hook.
+  - `docker-compose.yml`: repasse de `OPENCODE_LIMIT_HOOK` no serviço `opencode-supervisor` e de `OPENCODE_ZEN_PATTERNS`/`OPENCODE_FREE_TIER_LIMIT_PATTERNS`/`OPENCODE_ACCOUNT_LIMIT_PATTERNS`/`OPENCODE_CREDIT_LIMIT_PATTERNS` em `terminal`, `vpn-auto-reconnect` e `opencode-supervisor`.
+  - `.env.example`: documentadas `OPENCODE_CREDIT_LIMIT_PATTERNS`, `OPENCODE_ZEN_PATTERNS` e `OPENCODE_LIMIT_HOOK` (com contrato dos dois argumentos).
+  - `tests/linux/test-scripts.sh`: 2 testes do classificador do supervisor (`CreditLimitExceeded`, `InsufficientFunds`) e 5 testes de classificação HTTP do `check` (200/402/429 Zen/429 genérico/quota em 200), servidos por `socat` com `fork`; bloco pulado com aviso quando `socat` não existe.
+  - `.github/workflows/validate.yml`: instala `socat` para que os testes HTTP rodem na CI.
+  - `DEV/RUNBOOKS/opencode-desktop-vpn.md`: corrigida coluna da tabela, contrato do segundo argumento do hook e newline final.
+- Why: o trabalho de 2026-10-13 foi commitado sem revisão e carregava três defeitos. `OPENCODE_LIMIT_HOOK` e `OPENCODE_CREDIT_LIMIT_PATTERNS` não eram repassados pelo Compose, então a funcionalidade documentada no runbook não funcionava; `extract_retry_after()` não tinha call site; e o `vpn-opencode` não parseava — erro de sintaxe mascarado, porque o teste 21 (`modo-invalido` espera exit 2) passava pelo motivo errado. Um quarto defeito apareceu na verificação: 429 com padrão Zen caía em `rate-limit` porque o ramo usava `QUOTA_PATTERNS` (billing) em vez dos padrões Zen.
+- Verified: `bash -n` em todos os scripts e `sh -n scripts/vpn-entrypoint.sh` (o `sh -n` em `vpn-opencode` falha por usa `[[ ]]`; a verificação do projeto é `bash -n`); `git diff --check`; `./scripts/verify-docs`; `./tests/linux/test-scripts.sh` com 37/37; smoke funcional do `check` contra servidor `socat` real confirmando `ouvindo`, `credit-exhausted`, `zen-usage-limit`, `rate-limit` e `quota-pattern-in-http`; `retry_hint` validado para as duas formas de hint e para a ausência de hint. `verify-compose`, ShellCheck e `docker build` continuam pendentes: Docker e ShellCheck não existem neste ambiente.
+- Next context: revisar o diff e commitar em `master`. Depois, validar em runtime real (supervisor disparando o hook dentro do container, `vpn-opencode check` contra o OpenCode real) e fechar as pendências de Windows/WSL2.
+
+## 2026-10-13 - Detecção de limites do Zen + hook personalizado
+
+- Changed:
+  - `scripts/opencode-supervisor`: adicionado `CREDIT_LIMIT_PATTERNS` (creditlimitexceeded, insufficientfunds, credit_limit, budget_exceeded, limitexceeded, payment_required, out_of_credit, no_credit) e novo tipo de evento `credit_limit` na classificação; adicionado hook `OPENCODE_LIMIT_HOOK` (script executável chamado com o tipo de limite como argumento, roda em background); adicionada função `extract_retry_after()` para capturar `retry-after` ou `reset in <texto>` dos logs; hook é disparado para todos os tipos de limite (free_tier_limit, account_limit, credit_limit, rate_limit).
+  - `scripts/vpn-opencode`: `http_fetch_body()` agora captura status HTTP via `curl -w '%{http_code}'`; `do_check()` classifica 402 como `credit-exhausted`, 429 com padrão Zen como `zen-usage-limit`, 429 genérico como `rate-limit`; `usage()` atualizado com novos detalhes.
+  - `.github/workflows/validate.yml`: adicionados testes de classificação para `CreditLimitExceeded` e `InsufficientFunds`.
+  - `DEV/RUNBOOKS/opencode-desktop-vpn.md`: adicionada seção "Detecção de limites do Zen" com tabela de tipos de erro, ação do supervisor, e documentação do `OPENCODE_LIMIT_HOOK` com exemplo.
+- Why: o supervisor não detectava HTTP 402 (CreditLimitExceeded/InsufficientFunds) que o Zen usa para crédito esgotado; não havia mecanismo para disparar rotina personalizada quando um limite era atingido.
+- Verified: `bash -n` nos scripts alterados passou; 5/5 testes de classificação do supervisor passaram (credit_limit, free_tier_limit, account_limit, rate_limit, none); `verify-docs` passou; `verify-compose` passou (8/8 perfis válidos); testes do CI atualizados.
+- Next context: usuário pode configurar `OPENCODE_LIMIT_HOOK` no `.env` para disparar rotina personalizada (notificação, troca de provider, recarregar crédito) quando limite do Zen é detectado.
+
 ## 2026-10-01 - Melhorias de código, testes Linux automatizados, vpn-doctor e DX
 
 - Changed:

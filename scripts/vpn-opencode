@@ -32,7 +32,7 @@ usage() {
   echo "  stop [--port P]             encerra web/serve na porta" >&2
   echo "  status [--port P]           diz se há web/serve ouvindo a porta" >&2
   echo "  logs [--tail N] [--port P]  logs do terminal (útil com --detach)" >&2
-  echo "  check [--port P] [--json|-q] [--log-lines N]  verifica ok|down|quota (0/1)" >&2
+  echo "  check [--port P] [--json|-q] [--log-lines N]  verifica ok|down|quota (0/1); detalhe: credit-exhausted|zen-usage-limit|rate-limit|quota-pattern-in-http|quota-pattern-in-logs" >&2
   echo "  supervise [--port P] [--mode web|serve] [--interval N] [--restart-max N]" >&2
   echo "    inicia supervisor persistente: desconexão/limite => rotaciona VPN + retoma OpenCode" >&2
   echo "  supervise-stop|supervise-status|supervise-logs  gerencia o supervisor persistente" >&2
@@ -94,6 +94,13 @@ fi
 # Cobre diálogo "quota acabou" + erros típicos de billing do LLM.
 QUOTA_PATTERNS="${OPENCODE_QUOTA_PATTERNS:-quota|billing|insufficient|exceeded|credit.*exhaust|exhaust.*credit|quota.*exceed|exceed.*quota|payment required|out of credit|no credit}"
 
+# Limites do Zen/OpenCode. Mesmos defaults do opencode-supervisor, para que o
+# check e o supervisor concordem sobre o que é limite de plano/conta.
+FREE_TIER_PATTERNS="${OPENCODE_FREE_TIER_LIMIT_PATTERNS:-freeusagelimiterror|free_tier_limit|free limit reached|free usage exceeded.*subscribe to go|subscribe to go}"
+ACCOUNT_LIMIT_PATTERNS="${OPENCODE_ACCOUNT_LIMIT_PATTERNS:-account_rate_limit|go limit reached|weekly usage limit reached|monthly usage limit reached|usage limit reached.*reset}"
+CREDIT_LIMIT_PATTERNS="${OPENCODE_CREDIT_LIMIT_PATTERNS:-creditlimitexceeded|insufficientfunds|credit_limit|budget_exceeded|account_budget_exceeded|limitexceeded|payment_required|out_of_credit|no_credit}"
+ZEN_PATTERNS="${OPENCODE_ZEN_PATTERNS:-${FREE_TIER_PATTERNS}|${ACCOUNT_LIMIT_PATTERNS}|${CREDIT_LIMIT_PATTERNS}}"
+
 compose=(docker compose --profile vpn -f "${ROOT_DIR}/docker-compose.yml")
 supervisor_compose=(docker compose --profile vpn --profile opencode -f "${ROOT_DIR}/docker-compose.yml")
 
@@ -122,28 +129,41 @@ tcp_container_ok() {
 }
 
 http_fetch_body() {
-  local p="$1" out=""
+  local p="$1" out="" http_code=""
   local user="${OPENCODE_SERVER_USER:-opencode}"
   local pass_file="${OPENCODE_GUI_PASSWORD_FILE:-${ROOT_DIR}/.secrets/opencode_gui_password}"
   [[ "$pass_file" != /* ]] && pass_file="${ROOT_DIR}/${pass_file}"
-  # Sem --fail: 401 também significa "vivo"; o corpo interessa para quota.
-  out="$(curl --silent --show-error --connect-timeout 5 --max-time 10 "http://127.0.0.1:${p}/" 2>/dev/null || true)"
+  # Captura status HTTP e corpo: 402/429 indicam limite Zen mesmo sem padrão no body.
+  out="$(curl --silent --show-error --connect-timeout 5 --max-time 10 -w '\n%{http_code}' "http://127.0.0.1:${p}/" 2>/dev/null || true)"
+  http_code="$(printf '%s\n' "$out" | tail -n1)"
+  [[ "$http_code" =~ ^[0-9]+$ ]] || http_code=""
+  out="$(printf '%s\n' "$out" | sed '$d')"
   if [[ -r "$pass_file" ]]; then
     local pass=""
     pass="$(tr -d '\r\n' < "$pass_file" 2>/dev/null || true)"
     if [[ -n "$pass" ]]; then
-      local auth_out=""
-      auth_out="$(curl --silent --show-error --connect-timeout 5 --max-time 10 -u "${user}:${pass}" "http://127.0.0.1:${p}/" 2>/dev/null || true)"
+      local auth_out="" auth_code=""
+      auth_out="$(curl --silent --show-error --connect-timeout 5 --max-time 10 -w '\n%{http_code}' -u "${user}:${pass}" "http://127.0.0.1:${p}/" 2>/dev/null || true)"
+      auth_code="$(printf '%s\n' "$auth_out" | tail -n1)"
+      [[ "$auth_code" =~ ^[0-9]+$ ]] || auth_code=""
+      auth_out="$(printf '%s\n' "$auth_out" | sed '$d')"
       [[ -n "$auth_out" ]] && out="${out}"$'\n'"${auth_out}"
+      [[ -z "$http_code" && -n "$auth_code" ]] && http_code="$auth_code"
     fi
   fi
-  printf '%s' "$out"
+  printf '%s\n%s' "$http_code" "$out"
 }
 
 quota_in_text() {
   local text="$1"
   [[ -n "$text" ]] || return 1
   printf '%s' "$text" | grep -Ei -m1 -q "(${QUOTA_PATTERNS})"
+}
+
+zen_in_text() {
+  local text="$1"
+  [[ -n "$text" ]] || return 1
+  printf '%s' "$text" | grep -Ei -m1 -q "(${ZEN_PATTERNS})"
 }
 
 # do_check imprime e retorna 0=ok, 1=down|quota. Nunca sai 2 aqui (uso já validado).
@@ -161,8 +181,11 @@ do_check() {
   if ! $tcp_ok; then
     status="down"; detail="tcp-fechado"
   else
+    local http_code=""
     if command -v curl >/dev/null 2>&1; then
       body="$(http_fetch_body "$p")"
+      http_code="$(printf '%s\n' "$body" | head -n1)"
+      body="$(printf '%s\n' "$body" | tail -n +2)"
     fi
     # Logs só no host com docker; dentro do container, pula sem falhar.
     if $have_docker && [[ -n "$terminal_cid" ]]; then
@@ -170,25 +193,46 @@ do_check() {
     fi
     if [[ -n "$logs" ]]; then
       status="quota"; detail="quota-pattern-in-logs"
-    elif [[ -n "$body" ]] && quota_in_text "$body"; then
-      status="quota"; detail="quota-pattern-in-http"
-    elif [[ -z "$body" ]]; then
-      # TCP aberto mas HTTP vazio: ainda conta como down (processo preso?).
-      status="down"; detail="tcp-aberto-http-falhou"
     else
-      status="ok"; detail="ouvindo"
+      if [[ "$http_code" == "402" ]]; then
+        status="quota"; detail="credit-exhausted"
+      else
+        if [[ "$http_code" == "429" ]]; then
+          if zen_in_text "$body"; then
+            status="quota"; detail="zen-usage-limit"
+          else
+            status="quota"; detail="rate-limit"
+          fi
+        else
+          if [[ -z "$body" ]]; then
+            status="down"; detail="tcp-aberto-http-falhou"
+          else
+            if quota_in_text "$body"; then
+              status="quota"; detail="quota-pattern-in-http"
+            else
+              status="ok"; detail="ouvindo"
+            fi
+          fi
+        fi
+      fi
     fi
   fi
 
   if [[ "$json" == true ]]; then
     need jq
     jq -nc --arg st "$status" --argjson port "$p" --arg detail "$detail" '{status: $st, port: $port, detail: $detail}'
-  elif [[ "$q" != true ]]; then
-    case "$status" in
-      ok) echo "OpenCode ${status} em 127.0.0.1:${p} (${detail})." ;;
-      quota) echo "ALERTA: OpenCode sinalizou limite/quota em 127.0.0.1:${p} (${detail}); o supervisor persistente rotaciona a VPN quando ativo." >&2 ;;
-      *) echo "ALERTA: OpenCode ${status} em 127.0.0.1:${p} (${detail})." >&2 ;;
-    esac
+  else
+    if [[ "$q" != true ]]; then
+      if [[ "$status" == "ok" ]]; then
+        echo "OpenCode ${status} em 127.0.0.1:${p} (${detail})."
+      else
+        if [[ "$status" == "quota" ]]; then
+          echo "ALERTA: OpenCode sinalizou limite/quota em 127.0.0.1:${p} (${detail}); o supervisor persistente rotaciona a VPN quando ativo." >&2
+        else
+          echo "ALERTA: OpenCode ${status} em 127.0.0.1:${p} (${detail})." >&2
+        fi
+      fi
+    fi
   fi
 
   [[ "$status" == "ok" ]]
