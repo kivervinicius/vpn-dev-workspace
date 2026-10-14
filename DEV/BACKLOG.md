@@ -14,7 +14,8 @@ explicitamente descartado.
 | 6 | Bumps (feito 2026-09-17): Node `22.17.1` → `22.23.2`, OpenCode `1.18.25` → `1.18.31`, digest jammy refresh, CI `ubuntu-24.04` + `checkout@v6` + `build --pull` | média | feito |
 | 8 | Higiene segredos locais (concluído 2026-10-01): `chmod 600`, remoção de `secrets/` legada duplicada, `.gitignore` e `.dockerignore` protegidos | média | feito |
 | 9 | Supply-chain restante: gitleaks/Trivy na CI, Dependabot/Renovate p/ pins, `read_only+tmpfs` (adiado: exige validação runtime), estreitar `VPN_PORT_RANGE` | média | proposto |
-| 7 | Exemplo avançado opt-ins (LAN/DNS/GUI) + teste mock de DNS/leak | baixa | proposto |
+| 7 | Exemplo avançado opt-ins (LAN/DNS/GUI) + teste mock de DNS/leak | baixa | feito 2026-10-01 (`examples/cenarios-avancados.md`, runbook troubleshooting) |
+| 10 | Disparo do `OPENCODE_LIMIT_HOOK` dentro do container + `check` real contra OpenCode (402/429 Zen) | alta | pendente (runtime no host) |
 
 Descartados: nenhum. "ShellCheck na CI" saiu daqui — já existe em
 `.github/workflows/validate.yml:16-19` (era pendência fantasma).

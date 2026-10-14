@@ -32,11 +32,14 @@
   basic auth) e `serve` (200), `ssh-add -l` no terminal. Evidência em
   `VERIFY.md`.
 - OpenCode sem Docker: `vpn-opencode check --port` com porta fechada (`down`, exit 1),
-  responder HTTP com `quota exceeded` (`quota`, exit 1) e corpo neutro (`ok`, exit 0);
+  HTTP 402 → `quota` (`credit-exhausted`), HTTP 429 com padrão Zen → `quota` (`zen-usage-limit`),
+  HTTP 429 genérico → `quota` (`rate-limit`), HTTP 200 com `quota exceeded` → `quota`
+  (`quota-pattern-in-http`) e corpo neutro → `ok` (`ouvindo`, exit 0);
   `--json` emite `{status,port,detail}`; `vpn-top --json` inclui `.opencode`.
 - Classificador do self-heal roda na CI sem VPN real: `429 Too Many Requests`/`Provider rate limit exceeded` => `rate_limit`; `Go limit reached` +
-  mensagem de reset => `account_limit`; `connection lost while streaming` => `disconnect`;
-  texto normal => `none`.
+  mensagem de reset => `account_limit`; `CreditLimitExceeded`/`InsufficientFunds` => `credit_limit`;
+  `FreeUsageLimitError`/`Free limit reached`/`reason=free_tier_limit` => `free_tier_limit`;
+  `connection lost while streaming` => `disconnect`; texto normal => `none`.
 - Supervisor runtime: `vpn-opencode supervise --mode serve`; derrubar apenas o processo
   deve reiniciar OpenCode sem rotacionar uma VPN saudável. Injetar evento de desconexão/limite
   deve parar OpenCode, rotacionar/reconectar o Gluetun, confirmar túnel saudável e iniciar
