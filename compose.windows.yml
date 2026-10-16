@@ -25,6 +25,18 @@ services:
       - ./scripts/vpn-hosts-import:/usr/local/bin/vpn-hosts-import:ro
       - ./scripts/vpn-hosts-apply:/usr/local/bin/vpn-hosts-apply:ro
       - ./scripts/vpn-ssh-agent-relay:/usr/local/bin/vpn-ssh-agent-relay:ro
+      # Paridade com o host (skills e config do OpenCode).
+      # NOTA: .local/share/opencode (SQLite/WAL) NAO e montado — o File Sharing
+      # do Docker Desktop nao suporta locks POSIX exigidos pelo SQLite.
+      # Sessoes do container ficam no volume vpn_windows_home (isoladas do host).
+      - type: bind
+        source: ${HOST_HOME_DIR:?HOST_HOME_DIR is required}/.opencode/skills
+        target: /home/developer/.opencode/skills
+        read_only: true
+      - type: bind
+        source: ${HOST_HOME_DIR}/.config/opencode/opencode.json
+        target: /home/developer/.config/opencode/opencode.json
+        read_only: true
     working_dir: /workspace
     command: ["/usr/local/bin/vpn-ssh-agent-relay"]
 
@@ -47,6 +59,17 @@ services:
       - ./scripts/vpn-reconnect:/usr/local/bin/vpn-reconnect:ro
       - ./scripts/vpn-server-rotate:/usr/local/bin/vpn-server-rotate:ro
       - ./scripts/vpn-ssh-agent-relay:/usr/local/bin/vpn-ssh-agent-relay:ro
+      # Paridade com o host (skills e config do OpenCode).
+      # NOTA: .local/share/opencode (SQLite/WAL) NAO e montado — o File Sharing
+      # do Docker Desktop nao suporta locks POSIX exigidos pelo SQLite.
+      - type: bind
+        source: ${HOST_HOME_DIR:?HOST_HOME_DIR is required}/.opencode/skills
+        target: /home/developer/.opencode/skills
+        read_only: true
+      - type: bind
+        source: ${HOST_HOME_DIR}/.config/opencode/opencode.json
+        target: /home/developer/.config/opencode/opencode.json
+        read_only: true
     working_dir: /workspace
     command: ["bash", "-lc", "/usr/local/bin/vpn-ssh-agent-relay & exec bash /usr/local/bin/opencode-supervisor"]
 

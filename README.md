@@ -334,6 +334,15 @@ recarrega o file sharing em runtime (o `start` falha com `the path is not
 shared`). Sem `WORKSPACE_DIR`, o comportamento volta ao padrão: `/workspace` =
 raiz do repositório.
 
+O terminal também recebe paridade do OpenCode do host (`HOST_HOME_DIR`,
+montado no `compose.windows.yml`): skills (`~/.opencode/skills`, somente
+leitura) e configuração global (`~/.config/opencode/opencode.json`, somente
+leitura). O histórico/sessões (`~/.local/share/opencode`) **não** é
+compartilhado porque o SQLite (WAL) não funciona sobre o File Sharing do
+Docker Desktop (locks POSIX não são suportados). As sessões do container
+ficam no volume `vpn_windows_home`, isoladas do host. O binário em
+`~/.opencode/bin` continua no volume do container.
+
 Abra PowerShell na raiz do projeto e use:
 
 ```powershell
@@ -425,6 +434,17 @@ Esse mount concede ao terminal acesso de leitura e escrita a toda a home indicad
 # ou execute tudo de uma vez com o Makefile:
 make verify
 ```
+
+### CI (GitHub Actions)
+
+A pipeline `Validate` roda em cada push/PR: ShellCheck + `bash -n` + `git diff --check`,
+suítes Linux (incl. testes HTTP com socat) e Windows (Pester), `verify-docs`,
+`verify-compose` e `docker build --pull`. O job `secret-scan` varre o histórico
+completo com gitleaks (imagem pinada por digest) e falha o build se encontrar
+segredos. Bumps das Actions e da imagem base são propostos automaticamente pelo
+Dependabot (`.github/dependabot.yml`, semanal); `NODE_VERSION`/`OPENCODE_VERSION`
+e os checksums do `Dockerfile` continuam sendo bumps manuais (ver runbook do
+OpenCode em `DEV/RUNBOOKS/`).
 
 ### Encerrar o ambiente
 

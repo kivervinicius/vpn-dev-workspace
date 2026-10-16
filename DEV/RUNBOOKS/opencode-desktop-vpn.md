@@ -85,6 +85,27 @@ docker exec vpn-dev-workspace-terminal-1 opencode --version  # confirma o 2.x
 O binário persiste entre starts (volume); reinstale apenas se `down -v` remover
 o volume. O fallback 1.18.31 da imagem permanece como rede de segurança.
 
+Paridade de dados no modo Windows (2026-10-16): o `compose.windows.yml` monta,
+por cima do volume da home, dois caminhos do host (`HOST_HOME_DIR`; a pasta
+precisa estar no File Sharing do Docker Desktop):
+
+| Origem no host | Destino no container | Modo |
+|---|---|---|
+| `~/.opencode/skills` | `/home/developer/.opencode/skills` | somente leitura |
+| `~/.config/opencode/opencode.json` | `/home/developer/.config/opencode/opencode.json` | somente leitura |
+
+O histórico/sessões (`~/.local/share/opencode`) **não** é montado do host
+porque o SQLite em modo WAL exige locks POSIX que o File Sharing do Docker
+Desktop (9P/gRPC-FUSE) não implementa. As sessões do container ficam no volume
+`vpn_windows_home` (isoladas). Se precisar migrar sessões, use `opencode
+session move` dentro de cada ambiente.
+
+Assim o terminal usa os mesmos skills e a mesma configuração global (providers)
+do host. Limitações: o binário e os plugins npm instalados na home do container
+continuam no volume (`~/.opencode/bin`, `~/.config/opencode/node_modules`); se
+o `opencode.json` do host referenciar plugins, instale-os também dentro do
+container.
+
 Ao atualizar o Desktop, atualize na MESMA alteração:
 
 1. `Dockerfile`: `OPENCODE_VERSION` e os `sha256` das duas arquiteturas

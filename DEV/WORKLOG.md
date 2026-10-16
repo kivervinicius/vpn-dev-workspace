@@ -2,6 +2,14 @@
 
 Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for older entries after compaction.
 
+## 2026-10-16 (II) - Paridade OpenCode host<->container no modo Windows
+
+- Changed: `compose.windows.yml` (terminal + opencode-supervisor) ganhou dois mounts de paridade por cima do volume da home: `~/.opencode/skills` (ro) e `~/.config/opencode/opencode.json` (ro) — skills e config global (providers) do host agora sao os mesmos dentro do tunel. `.local/share/opencode` (SQLite/WAL) NAO e montado: o File Sharing do Docker Desktop nao suporta locks POSIX, causando "database is locked" / "disk I/O error". Sessoes ficam isoladas no volume. `verify-compose` ganhou `HOST_HOME_DIR` dummy na env de interpolacao; `vpn.ps1` deriva `HOST_HOME_DIR` de `%USERPROFILE%` quando ausente; `.env.example`, README 8.1 e runbook documentam.
+- Why: no modo Windows a home e um volume isolado (`vpn_windows_home`), entao skills e config do OpenCode do host nao apareciam no terminal (paridade que o modo Linux tem por montar a home inteira). Historico/sessoes nao podem ser compartilhados por limitacao tecnica (SQLite sobre File Sharing).
+- Verified: parser PS OK; `bash -n verify-compose`; `compose config --format json` mostra os mounts; apos `vpn.ps1 start custom-openvpn`: skills visiveis (5 dirs), `opencode.json` do host montado com modelo correto, `opencode session list` = exit 0, sessoes isoladas no volume, ro em skills respeitado.
+- Risks: sessoes nao compartilhadas host<->container (limitacao Docker Desktop); se o File Sharing do Desktop ganhar suporte POSIX locks no futuro, o mount pode ser re-adicionado.
+- Next context: binario/plugins continuam no volume (`~/.opencode/bin`, `~/.config/opencode/node_modules`); novos dirs de paridade repetem o padrao nos dois servicos + verify-compose.
+
 ## 2026-10-16 - Follow-ups da avaliacao de saude do repo (robustez, seguranca, DX)
 
 - Changed: rodada de follow-ups da avaliacao de 2026-10-16:

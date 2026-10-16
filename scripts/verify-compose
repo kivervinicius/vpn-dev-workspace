@@ -32,6 +32,7 @@ compose_env=(
   "WINDOWS_WORKSPACE_DIR=${ROOT_DIR}"
   "WINDOWS_SSH_BRIDGE_PORT=43123"
   "WINDOWS_SSH_BRIDGE_TOKEN=00000000000000000000000000000000"
+  "HOST_HOME_DIR=${ROOT_DIR}"
 )
 
 # Sonda do OpenCode no auto-reconnect: mount compartilhado + env opt-in (sem Docker).

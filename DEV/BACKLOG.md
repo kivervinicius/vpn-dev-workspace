@@ -18,6 +18,7 @@ explicitamente descartado.
 | 10 | Disparo do `OPENCODE_LIMIT_HOOK` dentro do container + `check` real contra OpenCode (402/429 Zen) | alta | pendente (runtime no host) |
 | 11 | CRLF no checkout Windows: `.gitattributes` com `* text=auto eol=lf` | média | feito 2026-10-16 |
 | 12 | Robustez 2026-10-16: wait da ponte SSH 5s→30s, teste Pester de `WORKSPACE_DIR`, mascaramento de credenciais no `vpn-top --json` + teste na suíte Linux | média | feito 2026-10-16 |
+| 13 | Paridade OpenCode host↔container no modo Windows (skills/config via mounts em `compose.windows.yml`; SQLite/sessoes isolados por limitacao do File Sharing) | média | feito 2026-10-16 |
 
 Descartados: nenhum. "ShellCheck na CI" saiu daqui — já existe em
 `.github/workflows/validate.yml:16-19` (era pendência fantasma).

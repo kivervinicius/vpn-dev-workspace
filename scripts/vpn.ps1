@@ -104,6 +104,12 @@ function Set-WindowsComposeEnvironment {
         [int]$BridgePort = 1,
         [string]$BridgeToken = '00000000000000000000000000000000'
     )
+    # HOST_HOME_DIR alimenta os mounts de paridade do compose.windows.yml
+    # (skills/config/historico do OpenCode). Sem valor explicito no .env/ambiente,
+    # deriva do perfil do usuario corrente.
+    if (-not (Get-ConfigValue 'HOST_HOME_DIR')) {
+        $env:HOST_HOME_DIR = [Environment]::GetFolderPath('UserProfile')
+    }
     $env:WINDOWS_WORKSPACE_DIR = $Workspace
     $env:WINDOWS_SSH_BRIDGE_HOST = 'host.docker.internal'
     $env:WINDOWS_SSH_BRIDGE_PORT = [string]$BridgePort

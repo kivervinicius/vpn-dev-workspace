@@ -4,14 +4,20 @@ This file should stay small. Refresh it after substantive work or run `orquestra
 
 ## Snapshot
 
-- Updated: 2026-10-16
+- Updated: 2026-10-16 (II)
 - Read order: `INDEX.md` -> `HANDOFF.md` -> `CONTEXT.md` -> `SPECS/ACTIVE.md`
 - Active spec: `SPECS/ACTIVE.md`
 - Verification source: `VERIFY.md`
 - Worklog archive: `HANDOFFS/WORKLOG_ARCHIVE.md`
 
 ## Latest Work
-- Current: follow-ups de 2026-10-16 (robustez/seguranca/DX) aplicados e verificados:
+- Current: paridade OpenCode host<->container no modo Windows (2026-10-16 II):
+  `compose.windows.yml` monta skills (ro) e config global (ro) do host
+  (`HOST_HOME_DIR`) nos dois servicos; `.local/share/opencode` (SQLite/WAL)
+  NAO e montado (File Sharing nao suporta locks POSIX). Sessoes ficam isoladas
+  no volume. Validado com container recriado (skills/config visiveis, opencode
+  session list OK). Commit/push ficam com o usuario.
+- Previous: follow-ups de 2026-10-16 (robustez/seguranca/DX) aplicados e verificados:
   `.gitattributes` (`* text=auto eol=lf`), wait da ponte SSH 5s->30s, `vpn-top --json`
   mascarando credenciais do Gluetun, testes novos (suite Linux 38/38; Pester 8/8),
   runbooks alinhados (npm 2.x no `opencode-desktop-vpn.md`; secao 6 no troubleshooting)
