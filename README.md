@@ -25,7 +25,7 @@ Encerrar: `./scripts/vpn-switch stop`. Versão imprimível de 1 página: [docs/T
 | Quero… | Comando |
 |---|---|
 | Subir / trocar de VPN | `./scripts/vpn-switch <perfil>` |
-| Abrir o shell | `docker compose -f docker-compose.yml -f profiles/<perfil>.yml exec terminal zsh` (ou `make shell`) |
+| Abrir o shell | `./scripts/vpn-shell` (ou `make shell`) |
 | Saúde rápida | `vpn-status`, `vpn-check`, `vpn-top` |
 | Reconectar / trocar servidor | `vpn-reconnect`, `vpn-server-rotate --list` |
 | Diagnosticar tudo | `./scripts/vpn-doctor` (ou `make doctor`) |
@@ -75,9 +75,15 @@ O assistente cria o diretório `.secrets/` (modo 0700), gera a chave de API do G
 4. Abra o terminal Zsh:
 
    ```bash
-   docker compose -f docker-compose.yml -f profiles/nordvpn-openvpn.yml exec terminal zsh
+   ./scripts/vpn-shell
    # ou: make shell
    ```
+
+   O `vpn-shell` encaminha `TERM` (+ `COLORTERM`/`TERM_PROGRAM` quando existirem) para dentro do container e marca a aba como `VPN ▸ …` até você sair. Com o `TERM` correto, todo título mudado lá dentro — oh-my-zsh (`precmd`/`preexec`), IAs como o OpenCode, `title` ou `printf '\e]0;…\a'` manual — atravessa o `exec` e replica na aba do host. Em tmux, ele libera `allow-rename` da janela atual para o rename in-band virar nome da janela.
+
+   O Compose também injeta `TERM` no container (interpolado do host, fallback `xterm-256color`), então o `exec` direto já herda um `TERM` válido após recriar o terminal (`vpn-switch` recria tudo; ou `docker compose --profile vpn up -d --force-recreate --no-deps terminal`). Equivalente manual: `docker compose --profile vpn exec -e TERM="$TERM" terminal zsh`.
+
+   **IAs e título da aba:** medido no fio, o `opencode` nunca emite título e o `claude` emite só `Claude Code` na abertura — não há progresso para replicar. Para ver 🤖 trabalhando… / ✅ concluído na aba, ative o hook (uma vez): `echo 'source /projetos/vpn-dev-workspace/scripts/vpn-title-hook.zsh' >> ~/.zshrc` (ajuste o caminho), reabra o shell e rode a IA via `vpn-ai opencode …` / `vpn-ai claude …`. O resultado fica grudado até o próximo comando.
 
 O usuário do terminal não é root e o Zsh é seu shell de login padrão. A home do usuário do host é montada integralmente no mesmo caminho, portanto configurações, ferramentas, credenciais locais e arquivos do host ficam disponíveis no terminal pelo túnel VPN. Confirme o OpenCode ativo com `command -v opencode` e `opencode --version`.
 

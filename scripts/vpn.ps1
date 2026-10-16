@@ -533,8 +533,18 @@ function Open-Terminal {
     $compose = Get-ComposeArguments
     # Aplica exportacoes pendentes do container antes de abrir o terminal.
     Sync-PendingSessionPush | Out-Null
-    & docker compose @($compose + @('exec', 'terminal', 'zsh'))
-    exit $LASTEXITCODE
+    # Paridade de título/TTY com o vpn-shell (Linux): sem TERM o container fica
+    # com TERM vazio e oh-my-zsh/IAs param de emitir OSC 0/1/2 para a aba.
+    $termValue = [Environment]::GetEnvironmentVariable('TERM', 'Process')
+    if ([string]::IsNullOrWhiteSpace($termValue)) { $termValue = 'xterm-256color' }
+    $previousTitle = $HOST.UI.RawUI.WindowTitle
+    $HOST.UI.RawUI.WindowTitle = "VPN ▸ terminal ▸ $((Get-Location).Path.Split([IO.Path]::DirectorySeparatorChar)[-1])"
+    try {
+        & docker compose @($compose + @('exec', '-e', "TERM=$termValue", 'terminal', 'zsh'))
+        exit $LASTEXITCODE
+    } finally {
+        $HOST.UI.RawUI.WindowTitle = $previousTitle
+    }
 }
 
 function Import-WindowsHosts {

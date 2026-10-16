@@ -28,7 +28,7 @@ logs: ## Exibe os logs da stack em tempo real
 	docker compose --profile vpn --profile opencode logs -f
 
 shell: ## Abre sessão zsh interativa dentro do container terminal (roteado via VPN)
-	docker compose --profile vpn exec terminal zsh
+	./scripts/vpn-shell
 
 check: ## Verifica conectividade e IP público via VPN
 	@./scripts/vpn-check

@@ -320,3 +320,28 @@ Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for 
 - Why: uma execução direta de `docker compose up` iniciava o Gluetun sem o arquivo `profiles/nordvpn-openvpn.yml`, resultando em `OpenVPN settings: user is empty` apesar dos segredos locais existirem.
 - Verified: sintaxe Shell, `verify-docs`, `verify-compose` para oito perfis, Compose NordVPN e túnel NordVPN saudável com IP público.
 - Next context: use `./scripts/vpn-switch <perfil>` para iniciar o ambiente.
+
+## 2026-10-16 - Título da aba replica o container (vpn-shell)
+
+- Spec: `SPECS/ACTIVE.md` (terminal como extensão direta do host).
+- Changed: novo `scripts/vpn-shell` (exec com `-e TERM/COLORTERM/TERM_PROGRAM`, título inicial `VPN ▸ …`, restore no EXIT, `allow-rename` da janela tmux); `make shell` usa o wrapper; `vpn.ps1 terminal` encaminha `TERM` e ajusta/restaura `WindowTitle`; README documenta o mecanismo; `verify-docs` e suite Linux cobrem o novo script.
+- Why: `docker compose exec` não encaminha TERM (dentro ficava vazio) → OMZ e IAs não emitiam OSC 0/1/2 e a aba do host nunca acompanhava. OSC atravessa o exec sem filtro (validado por byte via `od -c`).
+- Verified: `verify-docs` OK; `verify-compose` OK (8 perfis); suite Linux 34/42 com 8 falhas pré-existentes reproduzidas na árvore limpa (home-link, session-sync, socat); `TERM_INSIDE=xterm-256color` via wrapper; bytes OSC `033 ] 0 ; … \a` chegam intactos.
+- Risks: tmux aninhado exige `allow-rename on` (wrapper libera a janela atual, best-effort); VSCode/Cursor podem exigir ajuste de `terminal.integrated.tabs.title` para exibir o OSC.
+- Next context: teste interativo real (aba GNOME/tmux/VSCode + sessão de IA) pendente no host.
+
+## 2026-10-16 - TERM no Compose: exec direto também replica título
+
+- Changed: serviço `terminal` no `docker-compose.yml` ganhou `TERM: ${TERM:-xterm-256color}` (interpolado do host); README atualizado (exec direto suportado após recriar); container `terminal` recriado no host (`--force-recreate --no-deps`).
+- Why: `docker compose exec`/`docker exec -it` direto herdava o env do container (TERM vazio) — o wrapper resolvia, mas o caminho direto continuava sem títulos.
+- Verified: `docker compose exec terminal sh -c 'echo $TERM'` direto → `xterm-256color` (antes `<empty>`); `verify-docs` e `verify-compose` OK. Cores dos scripts usam `[[ -t 1 ]]`, não TERM — sem risco de colorir pipes/logs.
+- Risks: env do container congela no `up`; se o TERM do host mudar, vale o do último recreate (`vpn-shell` passa `-e` explícito e está sempre atual). Recriar o terminal derruba shells `exec` abertos.
+- Next context: teste interativo real continua pendente no host.
+
+## 2026-10-16 - Hook vpn-ai: status da IA na aba (GNOME não atualizava)
+
+- Changed: novo `scripts/vpn-title-hook.zsh` (não-executável, opt-in via `source` no `.zshrc`): função `vpn-ai` + hook precmd com título grudento; README documenta ativação e uso.
+- Why: pipeline container→aba provado intacto (OSC do zsh chega byte a byte; `VPN ▸` inicial aparece no GNOME). Medição no fio: `opencode` TUI emite zero OSC 0/1/2; `claude` emite `✳ Claude Code` uma vez na abertura — a IA não atualiza, então não havia o que replicar.
+- Verified: sob pty, `vpn-ai true` → sequência `🤖…`, `✅…`, `✅…` (hook reaplica após o precmd do OMZ); `vpn-ai false` → `❌… (exit 1)` com exit code preservado; `verify-docs` OK (snippet sem +x, fora do loop --help).
+- Risks: requer `source` manual no `.zshrc`; hook roda após o precmd do OMZ (ordem de registro) — re-source duplo é idempotente.
+- Next context: uso real com sessão longa de IA no GNOME pendente de confirmação do usuário.

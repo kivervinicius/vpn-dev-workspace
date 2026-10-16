@@ -11,7 +11,14 @@ This file should stay small. Refresh it after substantive work or run `orquestra
 - Worklog archive: `HANDOFFS/WORKLOG_ARCHIVE.md`
 
 ## Latest Work
-- Current: TUI sem ruído de ALSA (2026-10-16 VIII): `config/alsa-null.conf`
+- Current: título da aba replica o container + status de IA (2026-10-16 IX):
+  `scripts/vpn-shell` (TERM/COLORTERM/TERM_PROGRAM, marca `VPN ▸ …`, restore,
+  allow-rename no tmux) + `TERM` no Compose (exec direto herda do host) +
+  `scripts/vpn-title-hook.zsh` opt-in com `vpn-ai` (🤖/✅❌ grudento — opencode
+  nunca emite título, claude só na abertura; medido no fio). Container
+  `terminal` recriado; verify-docs/compose OK. Falta teste interativo real.
+  Commit/push ficam com o usuario.
+- Previous: TUI sem ruído de ALSA (2026-10-16 VIII): `config/alsa-null.conf`
   redireciona o device `default` do ALSA para o plugin `null` e o
   `compose.windows.yml` aponta `ALSA_CONFIG_PATH` para ele (terminal +
   supervisor) — sem isso, `attention.sound` do `cli.json` compartilhado

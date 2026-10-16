@@ -1,5 +1,21 @@
 # Verify
 
+## Latest Verification - 2026-10-16 IX (título da aba + vpn-ai)
+
+### Passaram
+
+- Causa raiz: `docker compose exec` sem `-e TERM` deixa `TERM` vazio dentro (`TERM_INSIDE=<empty>` medido no container ativo); com `-e TERM` → `xterm-256color`. `TERM: ${TERM:-xterm-256color}` no Compose cobre o exec direto (container `terminal` recriado; direto → `xterm-256color` sem `-e`).
+- Bytes OSC atravessam o exec sem filtro: `printf '\e]0;TESTE-TITULO-123\a'` dentro chega como `033 ] 0 ; … \a` fora (validado via `od -c`); cadeia completa sob pty (`script`): precmd do OMZ emite `\e]2;developer@…:/projetos\a` + `\e]1;…\a` intactos.
+- Medição nas IAs: `opencode` TUI emite zero OSC 0/1/2 (1230 ESC, nenhum título); `claude` emite `✳ Claude Code` uma vez na abertura — por isso `vpn-ai` anuncia 🤖/✅❌ (sequência sob pty: 🤖, ✅, ✅ via hook; `vpn-ai false` → ❌ exit 1 com código preservado).
+- Estático: `bash -n` limpo; `verify-docs` OK; `verify-compose` OK (8 perfis); suite Linux 34/42 — as 8 falhas (home-link, session-sync, socat) reproduzidas na árvore limpa via `stash`, portanto pré-existentes e ambientais.
+- Novo teste: `vpn-shell --help` exit 0 (teste 14).
+
+### Não rodaram / observações
+
+- Teste interativo real (aba GNOME refletindo sessão longa de IA via `vpn-ai`) pendente no host com terminal TTY.
+- `vpn.ps1 terminal` (bloco `-e TERM` + `WindowTitle`) validado só por leitura — requer Windows real com Docker Desktop.
+- Cores dos scripts usam `[[ -t 1 ]]`, não `TERM` — injetar TERM não colore pipes/logs.
+
 ## Latest Verification - 2026-10-16 VIII (TUI sem ruído de ALSA)
 
 ### Passaram

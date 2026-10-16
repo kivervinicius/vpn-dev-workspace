@@ -47,7 +47,7 @@ expect_code() {
 echo "=== Iniciando Suíte de Testes Linux ==="
 
 # 1. Checagem de --help em todos os scripts
-for s in vpn-switch vpn-check vpn-status vpn-top vpn-server-rotate vpn-auto-reconnect vpn-opencode vpn-hosts-import vpn-hosts-apply vpn-hosts-gen opencode-supervisor vpn-doctor vpn-setup verify-compose verify-docs; do
+for s in vpn-switch vpn-check vpn-status vpn-top vpn-server-rotate vpn-auto-reconnect vpn-opencode vpn-hosts-import vpn-hosts-apply vpn-hosts-gen opencode-supervisor vpn-doctor vpn-setup vpn-shell verify-compose verify-docs; do
   if [[ -f "${SCRIPTS_DIR}/${s}" ]]; then
     run_test "Script ${s} responde a --help com exit 0" bash "${SCRIPTS_DIR}/${s}" --help
   fi

@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# Abre o Zsh do container `terminal` com paridade de título/TTY.
+#
+# Problema resolvido: `docker compose exec` não encaminha TERM/COLORTERM por
+# padrão (dentro ficava TERM vazio), então o oh-my-zsh (precmd/preexec) e as
+# TUIs de IA (opencode e similares) não emitiam OSC 0/1/2 — a aba do host
+# nunca acompanhava o que mudava lá dentro.
+#
+# O que este wrapper faz:
+#   1. Encaminha TERM (+ COLORTERM/TERM_PROGRAM quando existirem) com
+#      `-e`, preservando tmux/screen para o branch correto do termsupport.
+#   2. Define um título inicial "VPN ▸ ..." na aba do host e restaura ao sair;
+#      durante a sessão, todo OSC emitido dentro (OMZ, IA, `title`, printf
+#      manual) atravessa o stdout do exec e atualiza a aba sozinho.
+#   3. Em tmux, libera `allow-rename` da janela atual (best-effort) para que
+#      os renames in-band do container virem nome da janela.
+#
+# Uso: ./scripts/vpn-shell [--help] [-- zsh-args...]
+set -Eeuo pipefail
+
+readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  cat >&2 <<'EOF'
+Uso: vpn-shell [-- zsh-args...]
+Abre o Zsh do container terminal com TERM encaminhado e título da aba sincronizado.
+Todo OSC 0/1/2 emitido dentro (oh-my-zsh, IA, `title`, printf manual) replica na aba do host.
+Em tmux, libera allow-rename da janela atual (best-effort).
+Env: VPN_SHELL_TITLE_PREFIX (default "VPN"), VPN_SHELL_LABEL (default "terminal").
+EOF
+  exit 0
+fi
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || { echo "Erro: dependência ausente: $1" >&2; exit 2; }
+}
+need docker
+
+# TERM do host: preserva tmux/screen para o branch correto do OMZ;
+# sem TERM no host, cai para xterm-256color (emite OSC 0/1/2).
+TERM_VALUE="${TERM:-xterm-256color}"
+[[ -n "$TERM_VALUE" ]] || TERM_VALUE="xterm-256color"
+
+PREFIX="${VPN_SHELL_TITLE_PREFIX:-VPN}"
+LABEL="${VPN_SHELL_LABEL:-terminal}"
+SHORT_TITLE="${PREFIX} ▸ ${LABEL} ▸ ${PWD##*/}"
+LONG_TITLE="${PREFIX} ▸ ${LABEL} ▸ ${PWD}"
+
+set_host_title() {
+  local short="$1" long="${2:-$1}"
+  # Aba/janela do emulador via OSC (0 = ícone+janela, 2 = janela).
+  if [[ -t 1 || -t 2 ]]; then
+    printf '\033]0;%s\007' "$long" >&2 || true
+  fi
+  # tmux: rename explícito sempre funciona; o in-band (\ek...\e\\) precisa
+  # de allow-rename on, liberado abaixo por janela.
+  if [[ -n "${TMUX:-}" ]] && command -v tmux >/dev/null 2>&1; then
+    tmux rename-window -t "${TMUX_PANE:-}" "${short:0:30}" 2>/dev/null || true
+  fi
+}
+
+# Libera rename in-band só na janela atual; nunca falha o fluxo.
+if [[ -n "${TMUX:-}" ]] && command -v tmux >/dev/null 2>&1; then
+  tmux set-window-option -t "${TMUX_PANE:-}" allow-rename on 2>/dev/null || true
+fi
+
+restore_title() {
+  local fallback="${USER:-user}@${HOSTNAME:-host}:${PWD}"
+  set_host_title "${fallback:0:30}" "$fallback"
+}
+trap restore_title EXIT INT TERM
+
+set_host_title "$SHORT_TITLE" "$LONG_TITLE"
+
+compose_args=(compose --profile vpn exec)
+# Encaminha detecção de cor/terminal que as TUIs de IA consultam.
+compose_args+=(-e "TERM=${TERM_VALUE}")
+[[ -n "${COLORTERM:-}" ]] && compose_args+=(-e "COLORTERM=${COLORTERM}")
+[[ -n "${TERM_PROGRAM:-}" ]] && compose_args+=(-e "TERM_PROGRAM=${TERM_PROGRAM}")
+compose_args+=(terminal zsh)
+
+if [[ "${1:-}" == "--" ]]; then
+  shift
+fi
+if (($# > 0)); then
+  compose_args+=("$@")
+fi
+
+cd "$ROOT_DIR" && docker "${compose_args[@]}"

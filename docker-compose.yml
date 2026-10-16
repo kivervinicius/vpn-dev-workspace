@@ -119,6 +119,11 @@ services:
       HOME: ${HOST_HOME_DIR:-${HOME}}
       PATH: ${HOST_HOME_DIR:-${HOME:-/home/developer}}/.opencode/bin:${HOST_HOME_DIR:-${HOME:-/home/developer}}/.local/bin:${HOST_HOME_DIR:-${HOME:-/home/developer}}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       SHELL: /usr/bin/zsh
+      # Paridade de título/TTY: `docker compose exec`/`docker exec` não
+      # encaminham TERM sozinhos (dentro ficava vazio e OMZ/IAs não emitiam
+      # OSC 0/1/2 para a aba). Interpolado a cada invocação, então até o exec
+      # direto herda o TERM corrente do host; sem TERM no host, xterm-256color.
+      TERM: ${TERM:-xterm-256color}
       # Rotação automática de servidor (opt-in; ver .env.example).
       VPN_ROTATE_SERVERS: ${VPN_ROTATE_SERVERS:-false}
       VPN_SERVER_HOSTNAMES: ${VPN_SERVER_HOSTNAMES:-}
