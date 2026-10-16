@@ -276,7 +276,17 @@ function Stop-SshAgentBridge {
 
 function Set-ActiveComposeEnvironment {
     param([switch]$StartBridge)
-    $workspace = [IO.Path]::GetFullPath($script:RootDir)
+    # WORKSPACE_DIR (mesma variavel do modo Linux) permite escolher a pasta do host
+    # que vira /workspace. Sem definicao, usa a raiz do repositorio (compat).
+    $workspaceSetting = Get-ConfigValue 'WORKSPACE_DIR'
+    if ($workspaceSetting -and $workspaceSetting.Trim()) {
+        $workspace = [IO.Path]::GetFullPath($workspaceSetting.Trim())
+        if (-not (Test-Path -LiteralPath $workspace -PathType Container)) {
+            Fail "WORKSPACE_DIR nao encontrado: $workspace" 2
+        }
+    } else {
+        $workspace = [IO.Path]::GetFullPath($script:RootDir)
+    }
     if ($StartBridge) {
         $bridge = Start-SshAgentBridge
         Set-WindowsComposeEnvironment -Workspace $workspace -BridgePort $bridge.port -BridgeToken $bridge.token
