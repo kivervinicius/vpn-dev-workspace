@@ -63,18 +63,33 @@ sudo apt-get install ./opencode-desktop.deb
 
 ### Sincronização de versões (importante)
 
-O Desktop do host é cliente; o servidor roda no container. O `PATH` do
-terminal prioriza o binário da home montada do host
+O Desktop do host é cliente; o servidor roda no container. No fluxo Linux, o
+`PATH` do terminal prioriza o binário da home montada do host
 (`${HOST_HOME_DIR}/.opencode/bin`), então atualizar o OpenCode no host reflete
 instantaneamente no container; a versão fixada no `Dockerfile`
 (`OPENCODE_VERSION` + checksums, hoje 1.18.31) é o fallback usado quando a home
 não fornece o binário. Desktop mais novo que o servidor pode dar tela
 branca/falha de conexão (anomalyco/opencode#23851).
 
+No fluxo Windows a home do host não é montada (o `/workspace` vem de
+`WORKSPACE_DIR`), então o slot `~/.opencode/bin` do container fica vazio e o
+fallback do `Dockerfile` assume. Para a linha 2.x — que NÃO é publicada no
+GitHub Releases (lá o máximo é a 1.x; o canal oficial é o npm) — instale no
+slot PATH-first, dentro do volume `vpn_windows_home`:
+
+```bash
+docker exec vpn-dev-workspace-terminal-1 npm install -g @opencode/cli@2.0.28 --prefix /home/developer/.opencode
+docker exec vpn-dev-workspace-terminal-1 opencode --version  # confirma o 2.x
+```
+
+O binário persiste entre starts (volume); reinstale apenas se `down -v` remover
+o volume. O fallback 1.18.31 da imagem permanece como rede de segurança.
+
 Ao atualizar o Desktop, atualize na MESMA alteração:
 
 1. `Dockerfile`: `OPENCODE_VERSION` e os `sha256` das duas arquiteturas
-   (obtidos nas releases oficiais do GitHub).
+   (obtidos nas releases oficiais do GitHub — válido para a linha 1.x, o
+   fallback).
 2. `./scripts/vpn-switch <perfil>` para reconstruir a imagem.
 
 ## 6. Troubleshooting conhecidos

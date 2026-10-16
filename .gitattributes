@@ -1,0 +1,5 @@
+# Normalizacao de fim de linha: o repositorio (blobs) e o working tree usam LF
+# inclusive no Windows. Os scripts Bash sao montados e executados em containers
+# Linux; CRLF quebra a execucao ("env: can't execute 'sh\r'" e
+# "$'\r': command not found"). `text=auto` detecta binarios e nao os converte.
+* text=auto eol=lf

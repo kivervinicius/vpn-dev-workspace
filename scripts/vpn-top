@@ -66,6 +66,8 @@ if $output_json; then
       opencode_json="$(jq -nc --argjson port "$OPENCODE_PORT" '{status: "down", port: $port, detail: "tcp-fechado"}')"
     fi
   fi
+  # Mascara credenciais (user/password/keys) em qualquer nivel do settings do
+  # Gluetun antes de expor o JSON; campos vazios permanecem como estao.
   jq -nc \
     --argjson vpn_status "${vpn_status:-null}" \
     --argjson settings "${settings:-null}" \
@@ -73,7 +75,17 @@ if $output_json; then
     --argjson dns "${dns_data:-null}" \
     --arg auto_reconnect "$auto_state" \
     --argjson opencode "$opencode_json" \
-    '{vpn: $vpn_status, settings: $settings, public_ip: $public_ip, dns: $dns, auto_reconnect: $auto_reconnect, opencode: $opencode}'
+    'def redact:
+       if type == "object" then
+         with_entries(
+           if (.key | test("^(password|user|username|key|key_passphrase|encrypted_key|private_key|pre_shared_key)$"; "i"))
+           then .value = (if (.value | type) == "string" and (.value | length) > 0 then "***" else .value end)
+           else .value |= redact
+           end
+         )
+       elif type == "array" then map(redact)
+       else . end;
+     {vpn: $vpn_status, settings: ($settings | redact), public_ip: $public_ip, dns: $dns, auto_reconnect: $auto_reconnect, opencode: $opencode}'
   exit 0
 fi
 

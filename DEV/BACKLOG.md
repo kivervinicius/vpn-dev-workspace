@@ -8,14 +8,16 @@ explicitamente descartado.
 |---|---|---|---|
 | 1 | Conexão real do Desktop App à ponta `serve` (`vpn-opencode serve` + `http://127.0.0.1:10001`) | alta | pendente (runtime no host) |
 | 2 | `verify-compose` + ShellCheck + build rodados na CI/host com Docker (indisponível no ambiente de edição em 2026-09-17) | alta | pendente |
-| 3 | Estreitar `VPN_PORT_RANGE` padrão (hoje 101 portas) + exigir senha do painel quando bind ≠ `127.0.0.1` | média | proposto (fase 2 segurança) |
+| 3 | Estreitar `VPN_PORT_RANGE` padrão (hoje 101 portas) + exigir senha do painel quando bind ≠ `127.0.0.1` | alta | proposto (fase 2 segurança; priorizado 2026-10-16) |
 | 4 | Higiene de segredos: ver item 8 (parcial; falta remover `secrets/` dup e decidir `secrets.zip`) | média | ver 8 |
 | 5 | Limits/logs/fs imutável por serviço (`mem/cpu/pids`, `logging max-size`, `read_only+tmpfs`, `cap_drop`, `no-new-privileges`) | média | proposto (fase 2 segurança) |
 | 6 | Bumps (feito 2026-09-17): Node `22.17.1` → `22.23.2`, OpenCode `1.18.25` → `1.18.31`, digest jammy refresh, CI `ubuntu-24.04` + `checkout@v6` + `build --pull` | média | feito |
 | 8 | Higiene segredos locais (concluído 2026-10-01): `chmod 600`, remoção de `secrets/` legada duplicada, `.gitignore` e `.dockerignore` protegidos | média | feito |
-| 9 | Supply-chain restante: gitleaks/Trivy na CI, Dependabot/Renovate p/ pins, `read_only+tmpfs` (adiado: exige validação runtime), estreitar `VPN_PORT_RANGE` | média | proposto |
+| 9 | Supply-chain restante: gitleaks/Trivy na CI, Dependabot/Renovate p/ pins, `read_only+tmpfs` (adiado: exige validação runtime) | alta | proposto (gitleaks como próximo passo; priorizado 2026-10-16) |
 | 7 | Exemplo avançado opt-ins (LAN/DNS/GUI) + teste mock de DNS/leak | baixa | feito 2026-10-01 (`examples/cenarios-avancados.md`, runbook troubleshooting) |
 | 10 | Disparo do `OPENCODE_LIMIT_HOOK` dentro do container + `check` real contra OpenCode (402/429 Zen) | alta | pendente (runtime no host) |
+| 11 | CRLF no checkout Windows: `.gitattributes` com `* text=auto eol=lf` | média | feito 2026-10-16 |
+| 12 | Robustez 2026-10-16: wait da ponte SSH 5s→30s, teste Pester de `WORKSPACE_DIR`, mascaramento de credenciais no `vpn-top --json` + teste na suíte Linux | média | feito 2026-10-16 |
 
 Descartados: nenhum. "ShellCheck na CI" saiu daqui — já existe em
 `.github/workflows/validate.yml:16-19` (era pendência fantasma).

@@ -131,3 +131,33 @@ O túnel VPN funciona para a internet, mas servidores locais como `http://192.16
    vpn-check --only internal
    vpn-check --only hosts
    ```
+
+---
+
+## 6. Ponte SSH do Windows não sobe (`Tempo limite iniciando a ponte SSH`)
+
+### Sintoma
+`.\scripts\vpn.ps1 start <perfil>` falha com
+`Tempo limite iniciando a ponte SSH do Windows.` mesmo com o Docker Desktop
+saudável e o agente `ssh-agent` em execução.
+
+### Causa Raiz
+Cold start: logo após rebuild/`--pull` ou reinício do Docker Desktop, o
+processo `pwsh` que publica a ponte demora mais que o timeout para abrir a
+porta TCP. O limite era 5s e foi ampliado para 30s em 2026-10-16.
+
+### Solução
+1. Confirme o agente e a chave carregada:
+   ```powershell
+   Get-Service ssh-agent
+   ssh-add -l
+   ```
+2. Com a máquina ociosa, repita o start (idempotente):
+   ```powershell
+   .\scripts\vpn.ps1 start <perfil>
+   ```
+3. Se persistir, inspecione estado e processos órfãos:
+   ```powershell
+   Get-Content .vpn\windows-ssh-agent.json -ErrorAction SilentlyContinue
+   Get-Process pwsh | Select-Object Id,StartTime
+   ```

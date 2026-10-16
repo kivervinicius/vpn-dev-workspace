@@ -86,7 +86,45 @@ run_test "Supervisor classifica normal text como none" test_classify "agent comp
 # 7. Testes do vpn-doctor
 run_test "vpn-doctor emite JSON válido com jq" bash -c "${SCRIPTS_DIR}/vpn-doctor --json | jq empty"
 
-# 8. Classificação HTTP do vpn-opencode check. Precisa de socat para servir
+# 8. vpn-top --json mascara credenciais do Gluetun (curl simulado no PATH)
+test_vpn_top_redact() {
+  local tmp out
+  tmp="$(mktemp -d)"
+  printf 'chave-de-teste' > "${tmp}/api_key"
+  cat > "${tmp}/curl" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"/v1/vpn/status") printf '{"status":"running"}' ;;
+  *"/v1/vpn/settings") printf '{"type":"openvpn","openvpn":{"user":"SECRETO-user","password":"SECRETO-pass","key":"SECRETO-key","key_passphrase":"SECRETO-passphrase","encrypted_key":"SECRETO-enc"},"provider":{"port_forwarding":{"username":"SECRETO-pfu","password":"SECRETO-pfp"}},"wireguard":{"private_key":"SECRETO-wg","pre_shared_key":"SECRETO-psk"}}' ;;
+  *"/v1/publicip/ip") printf '{"public_ip":"203.0.113.10"}' ;;
+  *"/v1/dns/status") printf '{"status":"running"}' ;;
+  *) printf '{}' ;;
+esac
+exit 0
+STUB
+  chmod +x "${tmp}/curl"
+  if ! out="$(PATH="${tmp}:${PATH}" GLUETUN_API_KEY_FILE="${tmp}/api_key" bash "${SCRIPTS_DIR}/vpn-top" --json 2>/dev/null)"; then
+    rm -rf "${tmp}"
+    return 1
+  fi
+  rm -rf "${tmp}"
+  [[ -n "$out" ]] || return 1
+  printf '%s' "$out" | jq -e '
+    .settings.openvpn.user == "***" and
+    .settings.openvpn.password == "***" and
+    .settings.openvpn.key == "***" and
+    .settings.openvpn.key_passphrase == "***" and
+    .settings.openvpn.encrypted_key == "***" and
+    .settings.provider.port_forwarding.username == "***" and
+    .settings.provider.port_forwarding.password == "***" and
+    .settings.wireguard.private_key == "***" and
+    .settings.wireguard.pre_shared_key == "***"
+  ' >/dev/null 2>&1 || return 1
+  ! printf '%s' "$out" | grep -q 'SECRETO-'
+}
+run_test "vpn-top --json mascara credenciais do Gluetun" test_vpn_top_redact
+
+# 9. Classificação HTTP do vpn-opencode check. Precisa de socat para servir
 # respostas; sem ele o bloco é pulado em vez de reprovar a suíte.
 if command -v socat >/dev/null 2>&1; then
   # O check abre a conexão uma vez para o teste de TCP e outra para o HTTP,

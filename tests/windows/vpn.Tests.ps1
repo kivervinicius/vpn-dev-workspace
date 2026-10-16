@@ -68,6 +68,34 @@ Describe 'vpn.ps1 Windows interface' {
         $result.Output | Should -Match 'arquivo de segredo ausente'
     }
 
+    It 'rejeita WORKSPACE_DIR inexistente antes de tocar a ponte SSH' {
+        $secret = Join-Path $script:TempRoot 'secret-ok'
+        'conteudo-de-teste' | Set-Content -LiteralPath $secret -Encoding ASCII
+        $env:GLUETUN_API_KEY_FILE = $secret
+        $env:NORDVPN_USER_FILE = $secret
+        $env:NORDVPN_PASSWORD_FILE = $secret
+        # Porta unica fora do range efemero + env controlados: o teste nao pode
+        # depender do host (a faixa padrao fica ocupada com o ambiente no ar).
+        $oldBind = $env:HOST_BIND_ADDRESS
+        $oldRange = $env:VPN_PORT_RANGE
+        $oldProxy = $env:VPN_HTTP_PROXY
+        $env:HOST_BIND_ADDRESS = '127.0.0.1'
+        $env:VPN_PORT_RANGE = '39999'
+        $env:VPN_HTTP_PROXY = 'off'
+        $oldWorkspace = $env:WORKSPACE_DIR
+        $env:WORKSPACE_DIR = Join-Path $script:TempRoot 'workspace-inexistente'
+        try {
+            $result = Invoke-VpnTest @('start', 'nordvpn-openvpn')
+            $result.Code | Should -Be 2
+            $result.Output | Should -Match 'WORKSPACE_DIR nao encontrado'
+        } finally {
+            if ($null -eq $oldWorkspace) { Remove-Item Env:WORKSPACE_DIR -ErrorAction SilentlyContinue } else { $env:WORKSPACE_DIR = $oldWorkspace }
+            if ($null -eq $oldBind) { Remove-Item Env:HOST_BIND_ADDRESS -ErrorAction SilentlyContinue } else { $env:HOST_BIND_ADDRESS = $oldBind }
+            if ($null -eq $oldRange) { Remove-Item Env:VPN_PORT_RANGE -ErrorAction SilentlyContinue } else { $env:VPN_PORT_RANGE = $oldRange }
+            if ($null -eq $oldProxy) { Remove-Item Env:VPN_HTTP_PROXY -ErrorAction SilentlyContinue } else { $env:VPN_HTTP_PROXY = $oldProxy }
+        }
+    }
+
     It 'encaminha comandos simulados ao Compose Windows' {
         Remove-Item -LiteralPath $script:MockLog -Force -ErrorAction SilentlyContinue
         $result = Invoke-VpnTest @('status', '--json')

@@ -4,14 +4,23 @@ This file should stay small. Refresh it after substantive work or run `orquestra
 
 ## Snapshot
 
-- Updated: 2026-10-15
+- Updated: 2026-10-16
 - Read order: `INDEX.md` -> `HANDOFF.md` -> `CONTEXT.md` -> `SPECS/ACTIVE.md`
 - Active spec: `SPECS/ACTIVE.md`
 - Verification source: `VERIFY.md`
 - Worklog archive: `HANDOFFS/WORKLOG_ARCHIVE.md`
 
 ## Latest Work
-- Current: instalacao Windows validada (Docker Desktop 4.94, modo PowerShell sem WSL, sem distribuicao WSL).
+- Current: follow-ups de 2026-10-16 (robustez/seguranca/DX) aplicados e verificados:
+  `.gitattributes` (`* text=auto eol=lf`), wait da ponte SSH 5s->30s, `vpn-top --json`
+  mascarando credenciais do Gluetun, testes novos (suite Linux 38/38; Pester 8/8),
+  runbooks alinhados (npm 2.x no `opencode-desktop-vpn.md`; secao 6 no troubleshooting)
+  e backlog triado (#3/#9 priorizados; itens 11/12 feitos).
+  - Verified: ubuntu:24.04 limpo com shellcheck/`bash -n`/`git diff --check` limpos;
+    Pester 6.2.0 no host; `verify-docs` OK; container real sem segredos no `vpn-top --json`.
+  - Pending: `verify-compose`/build nao afetados (CI cobre); commit/push ficam com o usuario.
+
+- Previous: instalacao Windows validada (Docker Desktop 4.94, modo PowerShell sem WSL, sem distribuicao WSL).
   O ambiente conecta pelo perfil **`custom-openvpn`** com `.secrets/nordvpn-br71-tcp80.ovpn`
   (config oficial NordVPN, `proto tcp-client`, `remote 189.1.170.129 80`) porque esta rede
   bloqueia UDP 1194/51820 e reseta TCP 443/1231; a porta 80 completa o handshake TLS.

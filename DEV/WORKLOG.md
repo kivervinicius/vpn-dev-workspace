@@ -2,6 +2,19 @@
 
 Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for older entries after compaction.
 
+## 2026-10-16 - Follow-ups da avaliacao de saude do repo (robustez, seguranca, DX)
+
+- Changed: rodada de follow-ups da avaliacao de 2026-10-16:
+  - `.gitattributes` novo (`* text=auto eol=lf`): trava LF no repositorio e no working tree (o clone Windows tinha sido renormalizado na mao com `core.autocrlf=false`); CRLF quebra os `.sh` montados nos containers.
+  - `scripts/vpn.ps1` (`Start-SshAgentBridge`): wait da ponte SSH de 5s (50x100ms) para 30s (150x200ms) - o cold start pos-`build --no-cache` estourava o limite antigo (incidente real de 2026-10-15/16).
+  - `scripts/vpn-top` (`--json`): credenciais do Gluetun mascaradas com `***` em qualquer nivel do `settings` (user/password/username/key/key_passphrase/encrypted_key/private_key/pre_shared_key); campos vazios permanecem vazios. Antes o JSON imprimia user/password do OpenVPN em claro.
+  - Testes: suite Linux ganhou o teste 33 (curl simulado no PATH prova o mascaramento); Pester ganhou teste de `WORKSPACE_DIR` inexistente (exit 2 antes de tocar na ponte SSH, com env hermeticos: `VPN_PORT_RANGE=39999` de porta unica, bind e proxy fixos).
+  - Docs: runbook `opencode-desktop-vpn.md` documenta o canal npm 2.x (releases GitHub param na 1.x) e o fluxo Windows do slot PATH-first; `troubleshooting-vpn.md` ganhou a secao 6 (timeout da ponte SSH); `BACKLOG.md` itens 11/12 feitos e #3/#9 priorizados.
+- Why: itens da avaliacao (gitattributes, robustez da ponte, vazamento no `vpn-top --json`, alinhamento de runbooks, triagem do backlog).
+- Verified: suite Linux 38/38 em ubuntu:24.04 limpo (paridade CI; `shellcheck -S error` + `bash -n` + `git diff --check` limpos); Pester 8/8 no host (Pester 6.2.0 instalado em CurrentUser); `verify-docs` OK no host via Git Bash; `vpn-top --json` real no container: campos = `***` e nenhum valor de `.secrets/nordvpn_user`/`.secrets/nordvpn_password` no output; Ast do PowerShell OK nos `.ps1` editados.
+- Next context: #3 (estreitar `VPN_PORT_RANGE` + senha do painel fora do bind local) e #9 (gitleaks/Trivy na CI) priorizados como proxima rodada de seguranca.
+- Nota: mudanca em codigo rastreado; commit/push ficam para o usuario.
+
 ## 2026-10-15 (noite, II) - WORKSPACE_DIR unificado Linux/Windows
 
 - Changed: `scripts/vpn.ps1` (`Set-ActiveComposeEnvironment`) agora honra `WORKSPACE_DIR` do `.env`/ambiente como fonte do `/workspace` no modo Windows; antes forçava a raiz do repositorio. `.env.example` atualizado (mesma variavel vale nos dois sistemas).

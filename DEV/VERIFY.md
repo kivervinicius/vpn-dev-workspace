@@ -1,5 +1,22 @@
 # Verify
 
+## Latest Verification - 2026-10-16 (follow-ups: gitattributes, ponte SSH, vpn-top)
+
+### Passaram
+
+- Suite Linux completa em ubuntu:24.04 limpo (paridade com a CI, com socat): **38/38**, incluindo o teste 33 novo (`vpn-top --json` mascara credenciais com curl simulado no PATH).
+- `shellcheck -S error` + `bash -n` (todos os scripts) + `git diff --check`: limpos.
+- Pester no host (Pester 6.2.0 em CurrentUser): **8/8**, incluindo o teste novo de `WORKSPACE_DIR` inexistente (exit 2 em 1.4s, sem depender do estado do host).
+- `verify-docs` no host (Git Bash + `pwsh` no PATH): "Documentacao e perfis consistentes." (trava runbook x `OPENCODE_VERSION=1.18.31` mantida).
+- Container real (bind mount vivo): `vpn-top --json` com `settings.openvpn.user/password` e `settings.provider.port_forwarding.username/password` = `***`; valores de `.secrets/nordvpn_user` e `.secrets/nordvpn_password` ausentes no output; `bash -n` OK no arquivo montado.
+- Parser (Ast) do PowerShell OK em `scripts/vpn.ps1` e `tests/windows/vpn.Tests.ps1` apos as edicoes.
+
+### Nao rodaram / observacoes
+
+- `verify-compose`/`docker build`: nao afetados nesta rodada (sem mudanca em Compose/Dockerfile); CI cobre no push.
+- `verify-docs` dentro de container ubuntu falha por ambiente (sem `pwsh`, o loop de `--help` tenta executar os `.ps1` porque a montagem Windows marca tudo como executavel) - rodado no host em vez disso.
+- Host nao tinha Pester 5+ (so 3.4.0); Pester 6.2.0 foi instalado em `CurrentUser` para a verificacao (`Uninstall-Module Pester -Scope CurrentUser` reverte).
+
 ## Latest Verification - 2026-10-15 (Instalacao Windows, modo PowerShell sem WSL)
 
 ### Passaram

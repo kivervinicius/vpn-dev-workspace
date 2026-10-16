@@ -79,4 +79,6 @@
 - State: opencode-vpn-self-heal-implemented (limites do Zen corrigidos e verificados
   estaticamente; CI e runtime de recuperação pendentes de validação)
 - Owner: Codex
-- Last updated: 2026-10-14
+- Last updated: 2026-10-16 (follow-ups de robustez/seguranca verificados:
+  `.gitattributes`, wait da ponte SSH, mascaramento do `vpn-top --json`;
+  ver WORKLOG/VERIFY)

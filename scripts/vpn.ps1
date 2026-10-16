@@ -253,8 +253,9 @@ function Start-SshAgentBridge {
     $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $script:RootDir 'scripts/vpn-ssh-agent-bridge.ps1'), '-TokenFile', $script:BridgeTokenFile, '-ReadyFile', $script:BridgeReadyFile)
     $argumentLine = (($arguments | ForEach-Object { Quote-ProcessArgument $_ }) -join ' ')
     $process = Start-Process -FilePath $powershell -ArgumentList $argumentLine -WindowStyle Hidden -PassThru
-    for ($attempt = 0; $attempt -lt 50; $attempt++) {
-        Start-Sleep -Milliseconds 100
+    # Cold start pos-build/reinicio do Docker Desktop pode passar de 5s; 30s cobre o pior caso.
+    for ($attempt = 0; $attempt -lt 150; $attempt++) {
+        Start-Sleep -Milliseconds 200
         if (Test-Path -LiteralPath $script:BridgeReadyFile -PathType Leaf) { break }
         if ($process.HasExited) { throw 'A ponte SSH encerrou antes de publicar a porta TCP.' }
     }
