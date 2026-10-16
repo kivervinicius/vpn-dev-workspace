@@ -76,10 +76,19 @@ stop_container_service() {
 }
 
 # Validacao (smoke) do banco copiado: abre em readOnly e le o catalogo.
-# Fail-open sem node (nao bloqueia o fluxo).
+# Fail-open: sem node ou sem `node:sqlite` (Node < 22.5), considera valido.
+# VPN_SESSION_VALIDATE=off desliga a checagem (ambientes de teste).
 db_valid() {
+  [[ "${VPN_SESSION_VALIDATE:-on}" == "off" ]] && return 0
   command -v node >/dev/null 2>&1 || return 0
-  node -e 'const{DatabaseSync}=require("node:sqlite");const d=new DatabaseSync(process.argv[1],{readOnly:true});d.prepare("select count(*) as c from sqlite_master").get();' "$1" >/dev/null 2>&1
+  node -e '
+    let sqlite;
+    try { sqlite = require("node:sqlite"); } catch (e) { process.exit(0); }
+    try {
+      const d = new sqlite.DatabaseSync(process.argv[1], { readOnly: true });
+      d.prepare("select count(*) as c from sqlite_master").get();
+    } catch (e) { process.exit(3); }
+  ' "$1" >/dev/null 2>&1
 }
 
 # Com o OpenCode ativo no container o banco esta em uso: evita copiar por cima

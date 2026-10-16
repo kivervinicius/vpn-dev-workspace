@@ -185,18 +185,18 @@ test_session_sync_auto() {
   printf 'db-host' > "${host_share}/opencode.db"
   printf 'db-antigo' > "${share}/opencode.db"
   touch -d '2020-01-01 00:00:00' "${share}/opencode.db"
-  env "HOME=${sandbox}/home" "VPN_SESSION_SYNC_DIR=${staging}" "VPN_HOST_SHARE_DIR=${host_share}" \
+  env "HOME=${sandbox}/home" "VPN_SESSION_SYNC_DIR=${staging}" "VPN_HOST_SHARE_DIR=${host_share}" "VPN_SESSION_VALIDATE=off" \
     bash "${SCRIPTS_DIR}/vpn-session-sync" autopull >/dev/null 2>&1 || { rm -rf "${sandbox}"; return 1; }
   [[ "$(cat "${share}/opencode.db")" == "db-host" ]] || { rm -rf "${sandbox}"; return 1; }
   [[ -f "${share}/opencode.db.bak" ]] || { rm -rf "${sandbox}"; return 1; }
   # Container mais novo -> autopush publica no staging.
   printf 'db-container' > "${share}/opencode.db"
-  env "HOME=${sandbox}/home" "VPN_SESSION_SYNC_DIR=${staging}" "VPN_HOST_SHARE_DIR=${host_share}" \
+  env "HOME=${sandbox}/home" "VPN_SESSION_SYNC_DIR=${staging}" "VPN_HOST_SHARE_DIR=${host_share}" "VPN_SESSION_VALIDATE=off" \
     bash "${SCRIPTS_DIR}/vpn-session-sync" autopush >/dev/null 2>&1 || { rm -rf "${sandbox}"; return 1; }
   [[ "$(cat "${staging}/out/opencode.db")" == "db-container" ]] || { rm -rf "${sandbox}"; return 1; }
   # Host mais antigo -> autopull NAO sobrescreve o container.
   touch -d '2020-01-01 00:00:00' "${host_share}/opencode.db"
-  env "HOME=${sandbox}/home" "VPN_SESSION_SYNC_DIR=${staging}" "VPN_HOST_SHARE_DIR=${host_share}" \
+  env "HOME=${sandbox}/home" "VPN_SESSION_SYNC_DIR=${staging}" "VPN_HOST_SHARE_DIR=${host_share}" "VPN_SESSION_VALIDATE=off" \
     bash "${SCRIPTS_DIR}/vpn-session-sync" autopull >/dev/null 2>&1 || { rm -rf "${sandbox}"; return 1; }
   [[ "$(cat "${share}/opencode.db")" == "db-container" ]] || { rm -rf "${sandbox}"; return 1; }
   rm -rf "${sandbox}"
