@@ -334,14 +334,31 @@ recarrega o file sharing em runtime (o `start` falha com `the path is not
 shared`). Sem `WORKSPACE_DIR`, o comportamento volta ao padrão: `/workspace` =
 raiz do repositório.
 
-O terminal também recebe paridade do OpenCode do host (`HOST_HOME_DIR`,
-montado no `compose.windows.yml`): skills (`~/.opencode/skills`, somente
-leitura) e configuração global (`~/.config/opencode/opencode.json`, somente
-leitura). O histórico/sessões (`~/.local/share/opencode`) **não** é
-compartilhado porque o SQLite (WAL) não funciona sobre o File Sharing do
-Docker Desktop (locks POSIX não são suportados). As sessões do container
-ficam no volume `vpn_windows_home`, isoladas do host. O binário em
-`~/.opencode/bin` continua no volume do container.
+A home Windows inteira é montada em `/mnt/host-home` dentro do container. No
+boot, o `vpn-home-link` cria symlinks da home Linux para essa montagem — por
+padrão: skills, configuração global (`opencode.json`) e preferências do TUI
+(`cli.json`) e plugins (`package.json`) do OpenCode, `.gitconfig`, `.npmrc`,
+`.orquestrador-maestro`, `.codex/skills` e `AGENTS.md`. A lista é
+configurável via `WINDOWS_HOME_LINKS` no `.env` (itens relativos à home).
+Plugins declarados no `package.json` do host são instalados no container
+(`node_modules` Windows nunca é usado).
+
+O histórico/conversas (`~/.local/share/opencode`) **não** é linkado porque o
+SQLite (WAL) não funciona sobre o File Sharing do Docker Desktop (sem locks
+POSIX). Em vez disso as conversas são **sincronizadas automaticamente**: o
+wrapper `vpn-opencode-wrapper` (prioridade no PATH do container) importa o
+banco do host ao abrir uma sessão interativa e publica as mudanças no staging
+ao fechar (`vpn-session-sync`); o `vpn.ps1` aplica o staging pendente no host
+quando o OpenCode do host está fechado, com backup `.bak`. Nenhum comando
+extra é necessário além do `docker exec ... opencode`. Para controle manual:
+`.\scripts\vpn.ps1 sessions-sync` (importar do host) e `sessions-sync --push`
+(exportar para o host). O binário real segue em `~/.opencode/bin/opencode`; o
+wrapper só intercepta sessões interativas de topo.
+
+> **Projetos:** o OpenCode agrupa conversas por projeto (diretório). Repositórios
+> **git** têm identidade independente do caminho — o mesmo repo em
+> `/workspace/<repo>` enxerga as conversas do host em `C:\Dev\<repo>`. Diretórios
+> sem git não se enxergam entre host e container (retome por ID: `opencode -s <id>`).
 
 Abra PowerShell na raiz do projeto e use:
 

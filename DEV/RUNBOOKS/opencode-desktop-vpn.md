@@ -85,26 +85,49 @@ docker exec vpn-dev-workspace-terminal-1 opencode --version  # confirma o 2.x
 O binário persiste entre starts (volume); reinstale apenas se `down -v` remover
 o volume. O fallback 1.18.31 da imagem permanece como rede de segurança.
 
-Paridade de dados no modo Windows (2026-10-16): o `compose.windows.yml` monta,
-por cima do volume da home, dois caminhos do host (`HOST_HOME_DIR`; a pasta
-precisa estar no File Sharing do Docker Desktop):
+Paridade de dados no modo Windows (2026-10-16): a home Windows inteira
+(`HOST_HOME_DIR`, precisa estar no File Sharing do Docker Desktop) é montada
+em `/mnt/host-home`. No boot, `vpn-home-link` cria symlinks da home do
+container (`vpn_windows_home`) para a montagem — paridade de skills, configs
+e ferramentas sem tocar no SQLite.
 
-| Origem no host | Destino no container | Modo |
-|---|---|---|
-| `~/.opencode/skills` | `/home/developer/.opencode/skills` | somente leitura |
-| `~/.config/opencode/opencode.json` | `/home/developer/.config/opencode/opencode.json` | somente leitura |
+Lista padrão (`WINDOWS_HOME_LINKS`, sobrescrevível no `.env`):
 
-O histórico/sessões (`~/.local/share/opencode`) **não** é montado do host
-porque o SQLite em modo WAL exige locks POSIX que o File Sharing do Docker
-Desktop (9P/gRPC-FUSE) não implementa. As sessões do container ficam no volume
-`vpn_windows_home` (isoladas). Se precisar migrar sessões, use `opencode
-session move` dentro de cada ambiente.
+| Item (relativo à home) | Uso |
+|---|---|
+| `.opencode/skills` | skills do OpenCode |
+| `.config/opencode/opencode.json` | configuração global (providers/modelos) |
+| `.config/opencode/cli.json` | preferências do TUI |
+| `.config/opencode/package.json` | declaração de plugins (instalados via npm no container) |
+| `.gitconfig`, `.npmrc` | identidade e registries |
+| `.orquestrador-maestro`, `.codex/skills`, `AGENTS.md` | contratos/ferramentas |
 
-Assim o terminal usa os mesmos skills e a mesma configuração global (providers)
-do host. Limitações: o binário e os plugins npm instalados na home do container
-continuam no volume (`~/.opencode/bin`, `~/.config/opencode/node_modules`); se
-o `opencode.json` do host referenciar plugins, instale-os também dentro do
-container.
+Sessões/conversas do OpenCode: **sincronização automática** — o wrapper
+`vpn-opencode-wrapper` (prioridade no PATH do container) importa o banco do
+host ao abrir uma sessão interativa e publica as mudanças no staging ao
+fechar; o `vpn.ps1` aplica o staging pendente no host quando o OpenCode do
+host está fechado (com backup `.bak` do banco anterior). Uso normal, sem
+comandos extras:
+
+```bash
+docker exec -it -e TERM=xterm-256color vpn-dev-workspace-terminal-1 opencode
+# ou, do host: .\scripts\vpn.ps1 terminal   →   opencode
+```
+
+Controle manual (opcional): `.\scripts\vpn.ps1 sessions-sync` força a
+importação do host e `sessions-sync --push` força a exportação. O SQLite nunca
+é montado (File Sharing sem locks POSIX); a cópia valida a integridade antes
+de aplicar e mantém backup do banco substituído.
+
+> **Projetos (importante):** o OpenCode agrupa as conversas por *projeto
+> (diretório)*. Repositórios **git** têm identidade independente do caminho, então
+> o mesmo repo montado em `/workspace/<repo>` enxerga as conversas criadas no host
+> em `C:\Dev\<repo>` (validado). Diretórios **sem git** não se enxergam entre
+> host e container; nesses casos retome a conversa pelo ID (`opencode -s <id>`).
+
+Limitações: o binário (`~/.opencode/bin`) e o `node_modules` do container
+ficam no volume; configs com caminhos Windows (`C:\...`) podem gerar avisos
+inofensivos no Linux.
 
 Ao atualizar o Desktop, atualize na MESMA alteração:
 

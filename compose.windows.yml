@@ -5,7 +5,7 @@ services:
   terminal:
     environment:
       HOME: /home/developer
-      PATH: /home/developer/.opencode/bin:/home/developer/.local/bin:/home/developer/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      PATH: /home/developer/.local/bin:/home/developer/.opencode/bin:/home/developer/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       SSH_AUTH_SOCK: /tmp/vpn-ssh-agent.sock
       WINDOWS_SSH_BRIDGE_HOST: ${WINDOWS_SSH_BRIDGE_HOST:-host.docker.internal}
       WINDOWS_SSH_BRIDGE_PORT: ${WINDOWS_SSH_BRIDGE_PORT:?WINDOWS_SSH_BRIDGE_PORT is required}
@@ -25,20 +25,21 @@ services:
       - ./scripts/vpn-hosts-import:/usr/local/bin/vpn-hosts-import:ro
       - ./scripts/vpn-hosts-apply:/usr/local/bin/vpn-hosts-apply:ro
       - ./scripts/vpn-ssh-agent-relay:/usr/local/bin/vpn-ssh-agent-relay:ro
-      # Paridade com o host (skills e config do OpenCode).
-      # NOTA: .local/share/opencode (SQLite/WAL) NAO e montado — o File Sharing
-      # do Docker Desktop nao suporta locks POSIX exigidos pelo SQLite.
-      # Sessoes do container ficam no volume vpn_windows_home (isoladas do host).
+      - ./scripts/vpn-home-link:/usr/local/bin/vpn-home-link:ro
+      # Paridade com o host: home Windows inteira em /mnt/host-home. O boot roda
+      # vpn-home-link (symlinks configuraveis por WINDOWS_HOME_LINKS).
+      # SQLite (.local/share/opencode) NAO e linkado (File Sharing sem locks
+      # POSIX): as conversas sao sincronizadas pelo wrapper `opencode` abaixo.
       - type: bind
-        source: ${HOST_HOME_DIR:?HOST_HOME_DIR is required}/.opencode/skills
-        target: /home/developer/.opencode/skills
-        read_only: true
-      - type: bind
-        source: ${HOST_HOME_DIR}/.config/opencode/opencode.json
-        target: /home/developer/.config/opencode/opencode.json
-        read_only: true
+        source: ${HOST_HOME_DIR:?HOST_HOME_DIR is required}
+        target: /mnt/host-home
+      # Wrapper do opencode (prioridade no PATH): importa as conversas do host
+      # ao abrir e publica no staging ao fechar, sem comandos manuais.
+      - ./scripts/vpn-opencode-wrapper:/home/developer/.local/bin/opencode:ro
+      - ./scripts/vpn-session-sync:/usr/local/bin/vpn-session-sync:ro
+      - ./.vpn/sync:/tmp/vpn-session-sync
     working_dir: /workspace
-    command: ["/usr/local/bin/vpn-ssh-agent-relay"]
+    command: ["bash", "-lc", "/usr/local/bin/vpn-home-link; exec /usr/local/bin/vpn-ssh-agent-relay"]
 
 
   opencode-supervisor:
@@ -59,19 +60,16 @@ services:
       - ./scripts/vpn-reconnect:/usr/local/bin/vpn-reconnect:ro
       - ./scripts/vpn-server-rotate:/usr/local/bin/vpn-server-rotate:ro
       - ./scripts/vpn-ssh-agent-relay:/usr/local/bin/vpn-ssh-agent-relay:ro
-      # Paridade com o host (skills e config do OpenCode).
-      # NOTA: .local/share/opencode (SQLite/WAL) NAO e montado — o File Sharing
-      # do Docker Desktop nao suporta locks POSIX exigidos pelo SQLite.
+      - ./scripts/vpn-home-link:/usr/local/bin/vpn-home-link:ro
+      # Paridade com o host: home Windows inteira em /mnt/host-home; o boot roda
+      # vpn-home-link (symlinks configuraveis via WINDOWS_HOME_LINKS). SQLite
+      # NAO e linkado (File Sharing sem locks POSIX); sessoes via snapshot no
+      # vpn.ps1 (start/stop).
       - type: bind
-        source: ${HOST_HOME_DIR:?HOST_HOME_DIR is required}/.opencode/skills
-        target: /home/developer/.opencode/skills
-        read_only: true
-      - type: bind
-        source: ${HOST_HOME_DIR}/.config/opencode/opencode.json
-        target: /home/developer/.config/opencode/opencode.json
-        read_only: true
+        source: ${HOST_HOME_DIR:?HOST_HOME_DIR is required}
+        target: /mnt/host-home
     working_dir: /workspace
-    command: ["bash", "-lc", "/usr/local/bin/vpn-ssh-agent-relay & exec bash /usr/local/bin/opencode-supervisor"]
+    command: ["bash", "-lc", "/usr/local/bin/vpn-home-link; /usr/local/bin/vpn-ssh-agent-relay & exec bash /usr/local/bin/opencode-supervisor"]
 
 volumes:
   vpn_windows_home:

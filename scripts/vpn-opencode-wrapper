@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Wrapper do binario `opencode` DENTRO do container: sincroniza as conversas
+# com o host de forma automatica (importa ao abrir, publica ao fechar), sem
+# exigir comandos manuais. O binario real fica intacto em
+# /home/developer/.opencode/bin/opencode; este wrapper tem prioridade no PATH.
+#
+# Somente sessoes interativas de topo sincronizam (TTY + primeira invocacao);
+# servicos internos (serve/supervisor) e chamadas nao interativas passam direto,
+# evitando recursao e atraso no boot.
+set -uo pipefail
+
+readonly REAL_OPENCODE="${VPN_OPENCODE_REAL:-/home/developer/.opencode/bin/opencode}"
+readonly SYNC_HELPER="${VPN_OPENCODE_SYNC:-/usr/local/bin/vpn-session-sync}"
+
+usage() {
+  echo "Uso: opencode [--help]" >&2
+  echo "Wrapper de paridade de conversas (host<->container) sobre o binario real." >&2
+  exit 0
+}
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  # Com o binario presente, mostra o help real; sem ele (ex.: CI), responde o wrapper.
+  if [[ -x "$REAL_OPENCODE" ]]; then exec "$REAL_OPENCODE" "$@"; fi
+  usage
+fi
+
+if [[ -t 0 && -t 1 && "${VPN_OPENCODE_WRAPPED:-}" != "1" && -x "$REAL_OPENCODE" ]]; then
+  export VPN_OPENCODE_WRAPPED=1
+  export VPN_OPENCODE_REAL="$REAL_OPENCODE"
+  # Importa as conversas do host (o helper para o servico de background antes
+  # de trocar o banco). Best-effort: nunca impede o OpenCode de abrir.
+  if [[ -x "$SYNC_HELPER" ]]; then
+    timeout 60 "$SYNC_HELPER" autopull >/dev/null 2>&1 || true
+  fi
+  "$REAL_OPENCODE" "$@"
+  status=$?
+  # Publica as conversas no staging; o vpn.ps1 aplica no host quando possivel.
+  if [[ -x "$SYNC_HELPER" ]]; then
+    timeout 60 "$SYNC_HELPER" autopush >/dev/null 2>&1 || true
+  fi
+  exit $status
+fi
+
+exec "$REAL_OPENCODE" "$@"

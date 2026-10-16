@@ -47,6 +47,7 @@ Ambiente:
   hosts-import             importa /etc/hosts do Windows (--domain <sufixo>)
   hosts-apply              reaplica LOCAL_HOSTS nos contêineres ativos
   agent-start|agent-stop  gerencia a ponte para openssh-ssh-agent
+  sessions-sync [--push]  replica conversas OpenCode host<->container (--push exporta)
 
 O modo Windows exige Docker Desktop e Docker Compose >= 2.24.4. O workspace
 Windows é montado em /workspace; a home Linux fica no volume vpn_windows_home.
@@ -379,6 +380,102 @@ function Wait-ForHealthyVpn {
     throw 'tempo limite aguardando o healthcheck do perfil VPN.'
 }
 
+function Test-HostOpenCodeRunning {
+    [bool](Get-Process -Name 'opencode', 'opencode-service' -ErrorAction SilentlyContinue)
+}
+
+function Invoke-ContainerSessionSync {
+    param(
+        [Parameter(Mandatory = $true)] [string]$Mode,
+        [Parameter(Mandatory = $true)] [string[]]$Compose
+    )
+    # Best-effort: sem container ativo (ou script ausente) nao bloqueia o fluxo.
+    Invoke-Compose -Arguments @($Compose + @('exec', '-T', 'terminal', 'vpn-session-sync', $Mode)) -IgnoreFailure | Out-Null
+}
+
+function Sync-OpenCodeSessionsFromHost {
+    # Snapshot host -> staging (.vpn/sync/opencode); o container faz o pull.
+    $hostHome = Get-ConfigValue 'HOST_HOME_DIR'
+    if (-not $hostHome) { return $false }
+    $share = Join-Path $hostHome '.local\share\opencode'
+    $db = Join-Path $share 'opencode.db'
+    if (-not (Test-Path -LiteralPath $db -PathType Leaf)) { return $false }
+    if (Test-HostOpenCodeRunning) {
+        Write-Warning 'OpenCode ativo no host: snapshot de conversas pulado (banco em uso). Feche o OpenCode no host e rode: .\scripts\vpn.ps1 sessions-sync'
+        return $false
+    }
+    $staging = Join-Path $script:StateDir 'sync\opencode'
+    New-Item -ItemType Directory -Path $staging -Force | Out-Null
+    foreach ($name in 'opencode.db', 'opencode.db-wal', 'opencode.db-shm') {
+        $source = Join-Path $share $name
+        if (Test-Path -LiteralPath $source -PathType Leaf) {
+            Copy-Item -LiteralPath $source -Destination (Join-Path $staging $name) -Force
+        } else {
+            Remove-Item -LiteralPath (Join-Path $staging $name) -Force -ErrorAction SilentlyContinue
+        }
+    }
+    return $true
+}
+
+function Sync-PendingSessionPush {
+    # Aplica no host o staging pendente (conversas do container) quando o banco
+    # do host estiver fechado e o staging for mais novo. Guarda backup .bak do
+    # banco do host antes de sobrescrever.
+    $staging = Join-Path $script:StateDir 'sync\out'
+    $stagedDb = Join-Path $staging 'opencode.db'
+    if (-not (Test-Path -LiteralPath $stagedDb -PathType Leaf)) { return $false }
+    $hostHome = Get-ConfigValue 'HOST_HOME_DIR'
+    if (-not $hostHome) { return $false }
+    if (Test-HostOpenCodeRunning) {
+        Write-Warning 'OpenCode ativo no host: conversas do container ficam pendentes (banco em uso). Feche o OpenCode e rode: .\scripts\vpn.ps1 sessions-sync --push'
+        return $false
+    }
+    $share = Join-Path $hostHome '.local\share\opencode'
+    $hostDb = Join-Path $share 'opencode.db'
+    if ((Test-Path -LiteralPath $hostDb -PathType Leaf) -and ((Get-Item -LiteralPath $hostDb).LastWriteTimeUtc -ge (Get-Item -LiteralPath $stagedDb).LastWriteTimeUtc)) {
+        return $false
+    }
+    New-Item -ItemType Directory -Path $share -Force | Out-Null
+    if (Test-Path -LiteralPath $hostDb -PathType Leaf) { Copy-Item -LiteralPath $hostDb -Destination "$hostDb.bak" -Force }
+    foreach ($name in 'opencode.db', 'opencode.db-wal', 'opencode.db-shm') {
+        $source = Join-Path $staging $name
+        if (Test-Path -LiteralPath $source -PathType Leaf) {
+            Copy-Item -LiteralPath $source -Destination (Join-Path $share $name) -Force
+        } else {
+            Remove-Item -LiteralPath (Join-Path $share $name) -Force -ErrorAction SilentlyContinue
+        }
+    }
+    Write-Output 'Conversas do container aplicadas no host.'
+    return $true
+}
+
+function Invoke-OpenCodeSessionSync {
+    param([string[]]$Arguments = @())
+    $push = $false
+    foreach ($argument in $Arguments) {
+        switch ($argument) {
+            '--push' { $push = $true }
+            '--pull' { $push = $false }
+            default { Fail "sessions-sync: argumento desconhecido: $argument (use --push para exportar)." 2 }
+        }
+    }
+    Ensure-DockerCompose
+    Set-ActiveComposeEnvironment | Out-Null
+    $compose = Get-ComposeArguments
+    if ($push) {
+        Invoke-ContainerSessionSync 'push' $compose
+        if (Sync-PendingSessionPush) { Write-Output 'Conversas do container exportadas para o host.' }
+        else { Write-Output 'Exportacao NAO aplicada ao host (ver avisos). Staging preservado em .vpn\sync\out.' }
+    } else {
+        if (Sync-OpenCodeSessionsFromHost) {
+            Invoke-ContainerSessionSync 'pull' $compose
+            Write-Output 'Conversas do host importadas para o container.'
+        } else {
+            Write-Output 'Importacao NAO aplicada (ver avisos).'
+        }
+    }
+}
+
 function Start-Vpn {
     param([string]$Profile)
     Validate-Profile $Profile
@@ -392,6 +489,10 @@ function Start-Vpn {
     }
     $bridge = Set-ActiveComposeEnvironment -StartBridge
     $compose = Get-ComposeArguments $Profile
+    # Staging das conversas do OpenCode (mount do compose.windows.yml) e
+    # aplicacao de exportacoes pendentes do container (wrapper do opencode).
+    New-Item -ItemType Directory -Path (Join-Path $script:StateDir 'sync') -Force | Out-Null
+    Sync-PendingSessionPush | Out-Null
     try {
         Invoke-Compose -Arguments @($compose + @('config', '--quiet')) | Out-Null
         Invoke-Compose -Arguments @($compose + @('down', '--remove-orphans')) | Out-Null
@@ -411,8 +512,11 @@ function Stop-Vpn {
     Set-ActiveComposeEnvironment | Out-Null
     if ($Profile) { Validate-Profile $Profile }
     $compose = Get-ComposeArguments $Profile
+    # Exporta as conversas do container antes do down (best-effort).
+    Invoke-ContainerSessionSync 'push' $compose
     try { Invoke-Compose -Arguments @($compose + @('down', '--remove-orphans')) | Out-Null }
     finally { Stop-SshAgentBridge }
+    if (Sync-PendingSessionPush) { Write-Output 'Conversas do container exportadas para o host.' }
 }
 
 function Invoke-TerminalScript {
@@ -427,6 +531,8 @@ function Open-Terminal {
     Ensure-DockerCompose
     Set-ActiveComposeEnvironment | Out-Null
     $compose = Get-ComposeArguments
+    # Aplica exportacoes pendentes do container antes de abrir o terminal.
+    Sync-PendingSessionPush | Out-Null
     & docker compose @($compose + @('exec', 'terminal', 'zsh'))
     exit $LASTEXITCODE
 }
@@ -703,6 +809,7 @@ try {
         'hosts-apply' { Ensure-DockerCompose; Set-ActiveComposeEnvironment | Out-Null; Apply-LocalHosts }
         'agent-start' { Ensure-DockerCompose; $bridge = Start-SshAgentBridge; Write-Output "Ponte SSH ativa na porta $($bridge.port)." }
         'agent-stop' { Stop-SshAgentBridge; Write-Output 'Ponte SSH encerrada.' }
+        'sessions-sync' { Invoke-OpenCodeSessionSync $CommandArgs }
         default { Fail "comando desconhecido: $Command" 2 }
     }
 } catch {

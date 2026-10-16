@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Paridade da home no modo Windows: cria symlinks idempotentes da home do
+# container (volume vpn_windows_home) para a home do Windows montada em
+# /mnt/host-home. O conteúdo SQLite (.local/share/opencode) NAO e linkado:
+# o File Sharing do Docker Desktop nao suporta locks POSIX exigidos pelo
+# SQLite/WAL. As sessoes do OpenCode sao sincronizadas por snapshot pelo
+# scripts/vpn.ps1 (start/stop).
+#
+# Best-effort: nunca bloqueia o boot do container (sempre exit 0).
+set -uo pipefail
+
+readonly HOST_HOME_MOUNT="${HOST_HOME_MOUNT:-/mnt/host-home}"
+# Lista padrao: configs portaveis + ferramentas do host. Sobrescrevivel por
+# WINDOWS_HOME_LINKS (itens separados por espaco, relativos a home).
+readonly LINKS="${WINDOWS_HOME_LINKS:-.opencode/skills .config/opencode/opencode.json .config/opencode/cli.json .config/opencode/package.json .gitconfig .npmrc .orquestrador-maestro .codex/skills AGENTS.md}"
+
+usage() {
+  echo "Uso: vpn-home-link [--help]" >&2
+  echo "Cria symlinks da home do container para a home Windows em ${HOST_HOME_MOUNT}." >&2
+  exit 0
+}
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then usage; fi
+
+if [[ ! -d "$HOST_HOME_MOUNT" ]]; then
+  echo "vpn-home-link: ${HOST_HOME_MOUNT} nao montado; paridade pulada." >&2
+  exit 0
+fi
+
+link_item() {
+  local rel="$1"
+  local src="${HOST_HOME_MOUNT}/${rel}"
+  local dst="${HOME}/${rel}"
+  [[ -e "$src" ]] || return 0
+  if [[ -L "$dst" ]]; then
+    [[ "$(readlink "$dst")" == "$src" ]] && return 0
+    rm -f "$dst"
+  elif [[ -e "$dst" ]]; then
+    local backup="${dst}.volume-backup"
+    [[ -e "$backup" ]] && backup="${dst}.volume-backup.$(date +%s)"
+    mv "$dst" "$backup"
+    echo "vpn-home-link: ${dst} preservado como $(basename "$backup")." >&2
+  fi
+  mkdir -p "$(dirname "$dst")"
+  ln -s "$src" "$dst"
+  echo "vpn-home-link: ${dst} -> ${src}" >&2
+}
+
+# shellcheck disable=SC2086  # word splitting intencional da lista
+for rel in $LINKS; do
+  link_item "$rel" || echo "vpn-home-link: falha ao linkar ${rel}." >&2
+done
+
+# Plugins do OpenCode: o package.json do host declara as dependencias; instala
+# no container (incremental, node_modules persiste no volume). O node_modules
+# Windows nunca e usado (binarios incompativeis).
+if [[ -f "${HOME}/.config/opencode/package.json" ]] && command -v npm >/dev/null 2>&1; then
+  if ! timeout 120 npm install --prefix "${HOME}/.config/opencode" --no-audit --no-fund --loglevel=error >/dev/null 2>&1; then
+    echo "vpn-home-link: npm install dos plugins do OpenCode falhou (nao bloqueante)." >&2
+  fi
+fi
+
+exit 0

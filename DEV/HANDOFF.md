@@ -4,14 +4,35 @@ This file should stay small. Refresh it after substantive work or run `orquestra
 
 ## Snapshot
 
-- Updated: 2026-10-16 (II)
+- Updated: 2026-10-16 (III)
 - Read order: `INDEX.md` -> `HANDOFF.md` -> `CONTEXT.md` -> `SPECS/ACTIVE.md`
 - Active spec: `SPECS/ACTIVE.md`
 - Verification source: `VERIFY.md`
 - Worklog archive: `HANDOFFS/WORKLOG_ARCHIVE.md`
 
 ## Latest Work
-- Current: paridade OpenCode host<->container no modo Windows (2026-10-16 II):
+- Current: sincronização **automática e invisível** das conversas (2026-10-16 V):
+  `vpn-opencode-wrapper` intercepta o `opencode` do container (PATH) e faz
+  `autopull`/`autopush` em sessões interativas; `vpn.ps1` aplica o staging no
+  host (mtime + guarda + backup `.bak`). Uso: só `docker exec ... opencode`.
+  Descoberta: conversas são por **projeto**; repos **git** têm identidade
+  independente do caminho (validado: sessões do host visíveis em
+  `/workspace/appce-monorepo`). Suite Linux 41/41, Pester 9/9, verify-docs OK.
+  Commit/push ficam com o usuario.
+- Previous: comando `sessions-sync` (2026-10-16 IV): `.\scripts\vpn.ps1 sessions-sync`
+  importa as conversas do host para o container e `sessions-sync --push` exporta
+  de volta (modelo B, via `vpn-session-sync` + staging `.vpn/sync`); guardas com
+  mensagem acionável quando o OpenCode do host está aberto. Pester 9/9 e
+  verify-docs OK; runtime validado (push exportou o banco, guarda bloqueou a
+  gravação no host). Commit/push ficam com o usuario.
+- Previous: paridade completa da home Windows (2026-10-16 III): home inteira em
+  `/mnt/host-home`; `vpn-home-link` cria symlinks configuraveis
+  (`WINDOWS_HOME_LINKS`) no boot (skills, configs do OpenCode, preferencias
+  TUI, plugins, git, npmrc, orquestrador, AGENTS.md); sessoes do OpenCode por
+  snapshot no start/stop do `vpn.ps1` (SQLite nunca linkado — File Sharing sem
+  locks POSIX), staging `.vpn/sync` (gitignored) com guardas de processo/mtime.
+  Commit/push ficam com o usuario.
+- Previous: paridade OpenCode host<->container no modo Windows (2026-10-16 II):
   `compose.windows.yml` monta skills (ro) e config global (ro) do host
   (`HOST_HOME_DIR`) nos dois servicos; `.local/share/opencode` (SQLite/WAL)
   NAO e montado (File Sharing nao suporta locks POSIX). Sessoes ficam isoladas

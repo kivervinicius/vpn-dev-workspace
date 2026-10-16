@@ -124,7 +124,86 @@ STUB
 }
 run_test "vpn-top --json mascara credenciais do Gluetun" test_vpn_top_redact
 
-# 9. Classificação HTTP do vpn-opencode check. Precisa de socat para servir
+# 9. Paridade da home no modo Windows: vpn-home-link em sandbox (sem Docker).
+test_home_link() {
+  local sandbox host_home cont_home
+  sandbox="$(mktemp -d)"
+  host_home="${sandbox}/host-home"
+  cont_home="${sandbox}/container-home"
+  mkdir -p "${host_home}/.opencode/skills" "${host_home}/.config/opencode" "${cont_home}"
+  echo cfg > "${host_home}/.config/opencode/opencode.json"
+  echo git > "${host_home}/.gitconfig"
+  local env_prefix=(env "HOME=${cont_home}" "HOST_HOME_MOUNT=${host_home}" "WINDOWS_HOME_LINKS=.opencode/skills .config/opencode/opencode.json .gitconfig")
+  "${env_prefix[@]}" bash "${SCRIPTS_DIR}/vpn-home-link" >/dev/null 2>&1 || { rm -rf "${sandbox}"; return 1; }
+  [[ "$(readlink "${cont_home}/.config/opencode/opencode.json")" == "${host_home}/.config/opencode/opencode.json" ]] || { rm -rf "${sandbox}"; return 1; }
+  [[ -L "${cont_home}/.opencode/skills" ]] || { rm -rf "${sandbox}"; return 1; }
+  # Idempotencia: segundo run nao falha nem gera backup duplicado.
+  "${env_prefix[@]}" bash "${SCRIPTS_DIR}/vpn-home-link" >/dev/null 2>&1 || { rm -rf "${sandbox}"; return 1; }
+  # Alvo real existente no volume vira backup antes do link.
+  rm -f "${cont_home}/.gitconfig"
+  echo local > "${cont_home}/.gitconfig"
+  env "HOME=${cont_home}" "HOST_HOME_MOUNT=${host_home}" "WINDOWS_HOME_LINKS=.gitconfig" \
+    bash "${SCRIPTS_DIR}/vpn-home-link" >/dev/null 2>&1 || { rm -rf "${sandbox}"; return 1; }
+  [[ -L "${cont_home}/.gitconfig" && -f "${cont_home}/.gitconfig.volume-backup" ]] || { rm -rf "${sandbox}"; return 1; }
+  rm -rf "${sandbox}"
+}
+run_test "vpn-home-link cria symlinks idempotentes com backup" test_home_link
+
+# 10. Snapshot de sessoes do OpenCode: round-trip pull/push do vpn-session-sync.
+test_session_sync() {
+  local sandbox share staging
+  sandbox="$(mktemp -d)"
+  share="${sandbox}/home/.local/share/opencode"
+  staging="${sandbox}/staging"
+  mkdir -p "${share}" "${staging}/opencode"
+  printf 'db-host' > "${staging}/opencode/opencode.db"
+  printf 'wal-host' > "${staging}/opencode/opencode.db-wal"
+  # pull: staging -> home do container
+  env "HOME=${sandbox}/home" "VPN_SESSION_SYNC_DIR=${staging}" \
+    bash "${SCRIPTS_DIR}/vpn-session-sync" pull >/dev/null 2>&1 || { rm -rf "${sandbox}"; return 1; }
+  [[ "$(cat "${share}/opencode.db")" == "db-host" ]] || { rm -rf "${sandbox}"; return 1; }
+  # push: home -> staging/out (somente arquivos existentes)
+  printf 'db-container' > "${share}/opencode.db"
+  rm -f "${share}/opencode.db-wal"
+  env "HOME=${sandbox}/home" "VPN_SESSION_SYNC_DIR=${staging}" \
+    bash "${SCRIPTS_DIR}/vpn-session-sync" push >/dev/null 2>&1 || { rm -rf "${sandbox}"; return 1; }
+  [[ "$(cat "${staging}/out/opencode.db")" == "db-container" ]] || { rm -rf "${sandbox}"; return 1; }
+  [[ ! -f "${staging}/out/opencode.db-wal" ]] || { rm -rf "${sandbox}"; return 1; }
+  rm -rf "${sandbox}"
+}
+run_test "vpn-session-sync faz round-trip pull/push do banco" test_session_sync
+
+# 11. vpn-session-sync autopull/autopush (wrapper do opencode): respeitam mtime.
+test_session_sync_auto() {
+  local sandbox share host_share staging
+  sandbox="$(mktemp -d)"
+  share="${sandbox}/home/.local/share/opencode"
+  host_share="${sandbox}/host/.local/share/opencode"
+  staging="${sandbox}/staging"
+  mkdir -p "$share" "$host_share" "$staging"
+  # Host mais novo -> autopull importa (e guarda backup do banco anterior).
+  printf 'db-host' > "${host_share}/opencode.db"
+  printf 'db-antigo' > "${share}/opencode.db"
+  touch -d '2020-01-01 00:00:00' "${share}/opencode.db"
+  env "HOME=${sandbox}/home" "VPN_SESSION_SYNC_DIR=${staging}" "VPN_HOST_SHARE_DIR=${host_share}" \
+    bash "${SCRIPTS_DIR}/vpn-session-sync" autopull >/dev/null 2>&1 || { rm -rf "${sandbox}"; return 1; }
+  [[ "$(cat "${share}/opencode.db")" == "db-host" ]] || { rm -rf "${sandbox}"; return 1; }
+  [[ -f "${share}/opencode.db.bak" ]] || { rm -rf "${sandbox}"; return 1; }
+  # Container mais novo -> autopush publica no staging.
+  printf 'db-container' > "${share}/opencode.db"
+  env "HOME=${sandbox}/home" "VPN_SESSION_SYNC_DIR=${staging}" "VPN_HOST_SHARE_DIR=${host_share}" \
+    bash "${SCRIPTS_DIR}/vpn-session-sync" autopush >/dev/null 2>&1 || { rm -rf "${sandbox}"; return 1; }
+  [[ "$(cat "${staging}/out/opencode.db")" == "db-container" ]] || { rm -rf "${sandbox}"; return 1; }
+  # Host mais antigo -> autopull NAO sobrescreve o container.
+  touch -d '2020-01-01 00:00:00' "${host_share}/opencode.db"
+  env "HOME=${sandbox}/home" "VPN_SESSION_SYNC_DIR=${staging}" "VPN_HOST_SHARE_DIR=${host_share}" \
+    bash "${SCRIPTS_DIR}/vpn-session-sync" autopull >/dev/null 2>&1 || { rm -rf "${sandbox}"; return 1; }
+  [[ "$(cat "${share}/opencode.db")" == "db-container" ]] || { rm -rf "${sandbox}"; return 1; }
+  rm -rf "${sandbox}"
+}
+run_test "vpn-session-sync autopull/autopush respeitam mtime" test_session_sync_auto
+
+# 12. Classificação HTTP do vpn-opencode check. Precisa de socat para servir
 # respostas; sem ele o bloco é pulado em vez de reprovar a suíte.
 if command -v socat >/dev/null 2>&1; then
   # O check abre a conexão uma vez para o teste de TCP e outra para o HTTP,

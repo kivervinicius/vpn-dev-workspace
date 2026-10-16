@@ -2,6 +2,34 @@
 
 Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for older entries after compaction.
 
+## 2026-10-16 (V) - Sincronizacao automatica e invisivel das conversas (wrapper do opencode)
+
+- Changed: `scripts/vpn-opencode-wrapper` (novo; montado em `/home/developer/.local/bin/opencode`, com prioridade no PATH do terminal): em sessao interativa de topo importa as conversas do host (`autopull`) e publica as mudancas no staging (`autopush`), sem comandos manuais. `vpn-session-sync` ganhou os modos `autopull`/`autopush`, deteccao de processo por `/proc` (o processo aparece como `opencode.exe`), parada do servico de background antes de trocar o banco, comparacao de recencia pelo conjunto db+wal+shm (WAL mode!) e validacao de integridade (node:sqlite) antes de aplicar. `vpn.ps1`: `Sync-PendingSessionPush` aplica o staging no host (mtime + guarda de processo + backup `.bak`) e roda no start/stop/terminal; `sessions-sync` segue para controle manual.
+- Why: o usuario pediu o modelo "automatico invisivel" (uso real: `docker exec ... opencode`), sem cerimonia de sincronizacao.
+- Discovered: as conversas sao agrupadas por **projeto** (chaveado pelo diretorio), mas para **repositorios git** a identidade e independente do caminho — validado em runtime: `cd /workspace/appce-monorepo && opencode session list` lista as conversas criadas no host em `C:/Dev/appce-monorepo`. Diretorios sem git (`C:/Users/kiver` vs `/workspace`) nao se enxergam; nesses casos da para retomar por ID (`opencode -s <id>`).
+- Verified: shellcheck/`bash -n`/diff limpos; suite Linux 41/41 (novo teste de autopull/autopush por mtime); Pester 9/9; verify-docs OK; runtime: PATH resolve o wrapper, `opencode --help` repassa o help real, sessao interativa (pty) importou o banco do host (44 MB, `.bak` do anterior) e publicou no staging; servico de background detectado e parado antes da troca; sessoes do host visiveis no repo montado.
+- Next context: diretorio nao-git nao compartilha sessoes (limite do modelo de projeto do OpenCode); o host aplica o staging pendente quando o OpenCode do host estiver fechado.
+
+## 2026-10-16 (IV) - sessions-sync: replicacao de conversas on-demand (modelo B)
+
+- Changed: comando novo `.\scripts\vpn.ps1 sessions-sync [--push]` — replica as conversas do OpenCode host<->container sem reiniciar o ambiente, reusando `vpn-session-sync` (pull/push via staging `.vpn/sync`). `Sync-OpenCodeSessionsFromHost`/`ToHost` agora retornam booleano; start/stop exibem o resultado; mensagens das guardas ficaram acionaveis (dizem qual comando rodar quando o OpenCode do host esta aberto). Help, README e runbook atualizados; teste Pester novo.
+- Why: o usuario escolheu o modelo B (sincronizacao bidirecional), mas o fluxo exigia stop/start completo e a guarda nao indicava o proximo passo. Com o comando on-demand, o ciclo importar -> trabalhar no container -> exportar fica explicito (container como ambiente principal; host como origem/destino do historico).
+- Verified: Pester 9/9; verify-docs OK; help lista o comando; runtime: `sessions-sync --push` exportou o banco do container para `.vpn/sync/out` (opencode.db 13.6 MB + wal/shm) e a guarda impediu gravar no host com o OpenCode aberto (mensagem acionavel); `sessions-sync` (pull) respondeu com a guarda equivalente.
+- Next context: com o OpenCode do host fechado, `sessions-sync` importa e o `start` importa automaticamente; `stop`/`--push` exportam de volta.
+
+## 2026-10-16 (III) - Paridade completa da home no modo Windows (home inteira + snapshot de sessoes)
+
+- Changed: substituicao dos 2 mounts pontuais por paridade completa no estilo Linux:
+  - `compose.windows.yml`: home Windows inteira (`HOST_HOME_DIR`) montada em `/mnt/host-home` nos dois servicos; staging `.vpn/sync` montado no terminal.
+  - `scripts/vpn-home-link` (novo): roda no boot, cria symlinks idempotentes da home do container para `/mnt/host-home` conforme `WINDOWS_HOME_LINKS` (default: skills, opencode.json, cli.json, package.json, .gitconfig, .npmrc, .orquestrador-maestro, .codex/skills, AGENTS.md); alvo existente no volume vira `*.volume-backup`; instala plugins declarados no package.json do host via npm no container; best-effort (sempre exit 0).
+  - `scripts/vpn-session-sync` (novo): pull/push do banco SQLite das sessoes entre o volume e o staging (o File Sharing nao suporta locks POSIX; por isso o SQLite nunca e linkado).
+  - `scripts/vpn.ps1`: no start, snapshot host->staging (guarda: OpenCode aberto no host = pula) e `pull` no container apos o up; no stop, `push` antes do down e gravacao staging->host com guardas (OpenCode ativo no host, ou mtime do banco do host mais novo que o start -> nao sobrescreve).
+  - verify-docs: travas novas (/mnt/host-home e vpn-home-link no compose.windows.yml) + scripts no loop de README; testes Linux novos (sandbox do vpn-home-link e round-trip do vpn-session-sync); README/.env.example/runbook atualizados.
+- Why: o usuario queria paridade real como no Linux (toda config/ferramenta/historico visivel no terminal), nao apenas 2 mounts do OpenCode.
+- Verified: shellcheck/bash -n/diff limpos; suite Linux 40/40 (testes 34/35 novos: sandbox do vpn-home-link e round-trip do vpn-session-sync); Pester 8/8; verify-docs OK; `compose config` dos dois perfis OK. Runtime real: `vpn.ps1 start custom-openvpn` subiu; /mnt/host-home com a home inteira (rw); 6 symlinks ativos (skills, opencode.json, cli.json, .gitconfig, .npmrc, AGENTS.md) apontando para o host com conteudo real; alvos antigos do volume preservados como *.volume-backup; opencode session list lendo o volume. Snapshot de sessoes: guarda funcionou (OpenCode ativo no host = aviso e pulo; import ocorre com o host fechado).
+- Risks: snapshot e "ultimo a escrever vence" com guardas de mtime/processo; configs com caminhos `C:\...` podem gerar avisos no Linux; o staging nao leva snapshots git do share.
+- Next context: para adicionar item a paridade, por em `WINDOWS_HOME_LINKS` (nao precisa editar compose); sessoes só vao ao host no stop.
+
 ## 2026-10-16 (II) - Paridade OpenCode host<->container no modo Windows
 
 - Changed: `compose.windows.yml` (terminal + opencode-supervisor) ganhou dois mounts de paridade por cima do volume da home: `~/.opencode/skills` (ro) e `~/.config/opencode/opencode.json` (ro) — skills e config global (providers) do host agora sao os mesmos dentro do tunel. `.local/share/opencode` (SQLite/WAL) NAO e montado: o File Sharing do Docker Desktop nao suporta locks POSIX, causando "database is locked" / "disk I/O error". Sessoes ficam isoladas no volume. `verify-compose` ganhou `HOST_HOME_DIR` dummy na env de interpolacao; `vpn.ps1` deriva `HOST_HOME_DIR` de `%USERPROFILE%` quando ausente; `.env.example`, README 8.1 e runbook documentam.

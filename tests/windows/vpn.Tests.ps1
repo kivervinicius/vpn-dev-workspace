@@ -107,6 +107,22 @@ Describe 'vpn.ps1 Windows interface' {
         $log | Should -Match '--json'
     }
 
+    It 'sessions-sync encaminha o push ao terminal' {
+        Remove-Item -LiteralPath $script:MockLog -Force -ErrorAction SilentlyContinue
+        # HOST_HOME_DIR isolado: mesmo que a gravacao no host execute, vai para o temp.
+        $oldHomeDir = $env:HOST_HOME_DIR
+        $env:HOST_HOME_DIR = $script:TempRoot
+        try {
+            $result = Invoke-VpnTest @('sessions-sync', '--push')
+            $result.Code | Should -Be 0
+            $log = Get-Content -LiteralPath $script:MockLog -Raw
+            $log | Should -Match 'vpn-session-sync'
+            $log | Should -Match 'push'
+        } finally {
+            if ($null -eq $oldHomeDir) { Remove-Item Env:HOST_HOME_DIR -ErrorAction SilentlyContinue } else { $env:HOST_HOME_DIR = $oldHomeDir }
+        }
+    }
+
     It 'encaminha status do supervisor OpenCode ao perfil opencode' {
         Remove-Item -LiteralPath $script:MockLog -Force -ErrorAction SilentlyContinue
         $result = Invoke-VpnTest @('opencode', 'supervise-status')

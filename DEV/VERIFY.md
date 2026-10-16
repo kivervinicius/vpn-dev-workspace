@@ -1,5 +1,48 @@
 # Verify
 
+## Latest Verification - 2026-10-16 V (sincronizacao automatica via wrapper)
+
+### Passaram
+
+- Estático: shellcheck -S error + `bash -n` + `git diff --check` limpos; `verify-docs` OK (travas novas: wrapper no Compose + scripts no README).
+- Suíte Linux 41/41 em ubuntu:24.04 (novo teste: `autopull`/`autopush` respeitam mtime, com backup no pull).
+- Pester 9/9 no host.
+- Runtime no container: `command -v opencode` resolve o wrapper (`/home/developer/.local/bin/opencode`) e `opencode --help` repassa o help real; sessão interativa simulada (pty) disparou `autopull` (importou o banco do host, 44 MB, preservando o anterior como `.bak`) e `autopush` (publicou o conjunto db+wal+shm no staging); o serviço de background (`opencode.exe serve --service`) foi detectado e parado antes da troca do banco.
+- **Conversas visíveis**: `cd /workspace/appce-monorepo && opencode session list` lista as sessões criadas no host em `C:/Dev/appce-monorepo` (projetos git têm identidade independente do caminho).
+
+### Não rodaram / observações
+
+- Diretórios **sem git** (ex.: `C:/Users/kiver` vs `/workspace`) não compartilham sessões — o agrupamento é por projeto/diretório; retomada por ID (`opencode -s <id>`) continua possível.
+- Aplicação no host de um `autopush` pendente exige o OpenCode do host fechado (guarda de banco em uso).
+
+## Latest Verification - 2026-10-16 IV (sessions-sync on-demand)
+
+### Passaram
+
+- Pester 9/9 no host (novo caso: `sessions-sync --push` encaminha o push ao terminal via mock Docker).
+- `verify-docs` OK (trava do README sobre `vpn-session-sync` mantida).
+- Runtime: `vpn.ps1 help` lista `sessions-sync [--push]`; `sessions-sync --push` exportou o banco do container para `.vpn/sync/out` (`opencode.db` 13.6 MB + wal/shm) e a guarda bloqueou a gravação no host (OpenCode ativo) com mensagem acionável; `sessions-sync` (pull) respondeu com a guarda equivalente.
+
+### Não rodaram / observações
+
+- Importação/exportação **efetiva no host** exige o OpenCode do host fechado (guarda de banco em uso) — validada por mecanismo + mensagem, não pela cópia final.
+
+## Latest Verification - 2026-10-16 III (paridade completa da home Windows)
+
+### Passaram
+
+- Estático: shellcheck -S error + bash -n + `git diff --check` limpos; `verify-docs` OK (incl. travas novas /mnt/host-home e vpn-home-link).
+- Suíte Linux 40/40 em ubuntu:24.04 limpo (paridade CI): inclui teste 34 (vpn-home-link em sandbox: links idempotentes + backup de alvo existente) e 35 (vpn-session-sync round-trip pull/push).
+- Pester 8/8 no host (Pester 6.2.0).
+- `compose config --quiet` (perfis vpn e vpn+opencode com compose.windows.yml) OK.
+- Runtime real (`vpn.ps1 start custom-openvpn`): /mnt/host-home montado com a home Windows inteira (rw); symlinks ativos para skills, opencode.json, cli.json, .gitconfig, .npmrc, AGENTS.md — todos resolvendo conteúdo real do host; alvos pré-existentes do volume preservados como `.volume-backup`; `opencode session list` lendo o volume.
+- Guarda do snapshot validada em runtime: OpenCode ativo no host → aviso claro e snapshot pulado (banco em uso); `vpn-session-sync pull` com staging vazio = "nada para importar" (exit 0).
+
+### Nao rodaram / observacoes
+
+- Import/export real de sessões com o host fechado (exige OpenCode do host fechado; comportamento validado por testes + guardas em runtime).
+- `docker build` não afetado (sem mudança de imagem); CI cobre no push.
+
 ## Latest Verification - 2026-10-16 (follow-ups: gitattributes, ponte SSH, vpn-top)
 
 ### Passaram

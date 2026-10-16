@@ -19,6 +19,7 @@ explicitamente descartado.
 | 11 | CRLF no checkout Windows: `.gitattributes` com `* text=auto eol=lf` | média | feito 2026-10-16 |
 | 12 | Robustez 2026-10-16: wait da ponte SSH 5s→30s, teste Pester de `WORKSPACE_DIR`, mascaramento de credenciais no `vpn-top --json` + teste na suíte Linux | média | feito 2026-10-16 |
 | 13 | Paridade OpenCode host↔container no modo Windows (skills/config via mounts em `compose.windows.yml`; SQLite/sessoes isolados por limitacao do File Sharing) | média | feito 2026-10-16 |
+| 14 | Paridade completa da home Windows: `/mnt/host-home` + `vpn-home-link` (symlinks via `WINDOWS_HOME_LINKS`) + snapshot de sessoes do OpenCode no start/stop | média | feito 2026-10-16 |
 
 Descartados: nenhum. "ShellCheck na CI" saiu daqui — já existe em
 `.github/workflows/validate.yml:16-19` (era pendência fantasma).

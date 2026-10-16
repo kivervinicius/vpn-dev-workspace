@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+# Sincronizacao das conversas do OpenCode entre o host (Windows, montado em
+# /mnt/host-home) e o container. O SQLite NUNCA e montado (o File Sharing do
+# Docker Desktop nao suporta locks POSIX); sempre copiamos db + wal + shm.
+#
+# Modos:
+#   pull      staging -> home do container        (vpn.ps1 start / manual)
+#   push      home do container -> staging        (vpn.ps1 stop / manual)
+#   autopull  host -> container, se o host estiver mais novo   (wrapper)
+#   autopush  container -> staging, se o container for mais novo (wrapper)
+#
+# Best-effort: nunca derruba o fluxo (erros sao reportados, exit 0).
+set -uo pipefail
+
+readonly STAGING_DIR="${VPN_SESSION_SYNC_DIR:-/tmp/vpn-session-sync}"
+readonly SHARE_DIR="${VPN_SESSION_SHARE_DIR:-${HOME}/.local/share/opencode}"
+readonly HOST_SHARE_DIR="${VPN_HOST_SHARE_DIR:-/mnt/host-home/.local/share/opencode}"
+readonly DB_FILES=(opencode.db opencode.db-wal opencode.db-shm)
+readonly BACKUP_SUFFIX=".bak"
+
+usage() {
+  echo "Uso: vpn-session-sync <pull|push|autopull|autopush> [--help]" >&2
+  echo "  pull      staging -> home do container" >&2
+  echo "  push      home do container -> staging" >&2
+  echo "  autopull  host -> container (se o host estiver mais novo)" >&2
+  echo "  autopush  container -> staging (se o container estiver mais novo)" >&2
+  exit 0
+}
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then usage; fi
+
+mode="${1:-}"
+case "$mode" in
+  pull|push|autopull|autopush) ;;
+  *) echo "Erro: modo invalido (use pull|push|autopull|autopush)." >&2; exit 2 ;;
+esac
+
+# Copia o conjunto do banco (db + wal + shm), removendo arquivos obsoletos no
+# destino (um WAL antigo corromperia a leitura do db novo).
+copy_db_set() {
+  local src="$1" dst="$2" f
+  rm -f "${dst}/opencode.db-wal" "${dst}/opencode.db-shm"
+  for f in "${DB_FILES[@]}"; do
+    [[ -f "${src}/${f}" ]] && cp -f "${src}/${f}" "${dst}/${f}"
+  done
+  return 0
+}
+
+file_mtime() {
+  if stat -c %Y "$1" >/dev/null 2>&1; then stat -c %Y "$1"; else echo 0; fi
+}
+
+# Em WAL mode a atividade aparece no -wal/-shm, nao no .db: usa o mais novo do
+# conjunto para comparar "quem escreveu por ultimo".
+newest_mtime() {
+  local dir="$1" f m max=0
+  for f in "${DB_FILES[@]}"; do
+    [[ -f "${dir}/${f}" ]] || continue
+    m="$(file_mtime "${dir}/${f}")"
+    if (( m > max )); then max="$m"; fi
+  done
+  echo "$max"
+}
+
+# Servico de background do OpenCode segura o banco: para antes de trocar.
+stop_container_service() {
+  local bin="${VPN_OPENCODE_REAL:-/home/developer/.opencode/bin/opencode}"
+  [[ -x "$bin" ]] || return 0
+  container_busy || return 0
+  timeout 20 "$bin" service stop >/dev/null 2>&1 || true
+  local i
+  for i in 1 2 3 4 5; do
+    container_busy || return 0
+    sleep 1
+  done
+  return 0
+}
+
+# Validacao (smoke) do banco copiado: abre em readOnly e le o catalogo.
+# Fail-open sem node (nao bloqueia o fluxo).
+db_valid() {
+  command -v node >/dev/null 2>&1 || return 0
+  node -e 'const{DatabaseSync}=require("node:sqlite");const d=new DatabaseSync(process.argv[1],{readOnly:true});d.prepare("select count(*) as c from sqlite_master").get();' "$1" >/dev/null 2>&1
+}
+
+# Com o OpenCode ativo no container o banco esta em uso: evita copiar por cima
+# nos modos pull/autopull (os modos de exportacao copiam o snapshot atual).
+# Nota: o processo aparece como `opencode` ou `opencode.exe` — inspeciona /proc.
+container_busy() {
+  local d comm
+  for d in /proc/[0-9]*; do
+    [[ -r "$d/comm" ]] || continue
+    comm="$(cat "$d/comm" 2>/dev/null || true)"
+    case "$comm" in
+      opencode*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+case "$mode" in
+  pull)
+    if [[ ! -f "${STAGING_DIR}/opencode/opencode.db" ]]; then
+      echo "vpn-session-sync: staging vazio; nada para importar." >&2
+      exit 0
+    fi
+    stop_container_service
+    if container_busy; then
+      echo "vpn-session-sync: opencode ativo no container; importacao pulada." >&2
+      exit 0
+    fi
+    mkdir -p "$SHARE_DIR"
+    [[ -f "${SHARE_DIR}/opencode.db" ]] && cp -f "${SHARE_DIR}/opencode.db" "${SHARE_DIR}/opencode.db${BACKUP_SUFFIX}"
+    copy_db_set "${STAGING_DIR}/opencode" "$SHARE_DIR"
+    echo "vpn-session-sync: conversas importadas do staging (host)." >&2
+    ;;
+  autopull)
+    host_db="${HOST_SHARE_DIR}/opencode.db"
+    if [[ ! -f "$host_db" ]]; then
+      echo "vpn-session-sync: host sem banco; nada a importar." >&2
+      exit 0
+    fi
+    host_newest="$(newest_mtime "$HOST_SHARE_DIR")"
+    container_newest="$(newest_mtime "$SHARE_DIR")"
+    if (( container_newest > 0 && container_newest >= host_newest )); then
+      echo "vpn-session-sync: container ja esta atualizado." >&2
+      exit 0
+    fi
+    stop_container_service
+    if container_busy; then
+      echo "vpn-session-sync: opencode ativo no container; importacao pulada." >&2
+      exit 0
+    fi
+    tmp="$(mktemp -d)"
+    copy_db_set "$HOST_SHARE_DIR" "$tmp"
+    if [[ ! -f "${tmp}/opencode.db" ]] || ! db_valid "${tmp}/opencode.db"; then
+      echo "vpn-session-sync: copia do banco do host inconsistente; importacao pulada." >&2
+      rm -rf "$tmp"
+      exit 0
+    fi
+    mkdir -p "$SHARE_DIR"
+    [[ -f "${SHARE_DIR}/opencode.db" ]] && cp -f "${SHARE_DIR}/opencode.db" "${SHARE_DIR}/opencode.db${BACKUP_SUFFIX}"
+    copy_db_set "$tmp" "$SHARE_DIR"
+    rm -rf "$tmp"
+    echo "vpn-session-sync: conversas do host importadas." >&2
+    ;;
+  push)
+    if [[ ! -f "${SHARE_DIR}/opencode.db" ]]; then
+      echo "vpn-session-sync: sem banco no container para exportar." >&2
+      exit 0
+    fi
+    mkdir -p "${STAGING_DIR}/out"
+    copy_db_set "$SHARE_DIR" "${STAGING_DIR}/out"
+    echo "vpn-session-sync: conversas exportadas para o staging." >&2
+    ;;
+  autopush)
+    if [[ ! -f "${SHARE_DIR}/opencode.db" ]]; then
+      exit 0
+    fi
+    staged_db="${STAGING_DIR}/out/opencode.db"
+    if [[ -f "$staged_db" ]] && (( $(newest_mtime "${STAGING_DIR}/out") >= $(newest_mtime "$SHARE_DIR") )); then
+      echo "vpn-session-sync: staging ja esta atualizado." >&2
+      exit 0
+    fi
+    tmp="$(mktemp -d)"
+    copy_db_set "$SHARE_DIR" "$tmp"
+    if [[ ! -f "${tmp}/opencode.db" ]] || ! db_valid "${tmp}/opencode.db"; then
+      echo "vpn-session-sync: snapshot do container inconsistente; publicacao pulada." >&2
+      rm -rf "$tmp"
+      exit 0
+    fi
+    mkdir -p "${STAGING_DIR}/out"
+    copy_db_set "$tmp" "${STAGING_DIR}/out"
+    rm -rf "$tmp"
+    echo "vpn-session-sync: conversas preparadas para o host." >&2
+    ;;
+esac
+exit 0

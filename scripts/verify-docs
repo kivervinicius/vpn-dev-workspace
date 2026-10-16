@@ -94,7 +94,7 @@ grep -Fq 'vpn-reconnect' "$README_FILE" || {
   fails=$((fails + 1))
 }
 
-for script_name in vpn-status vpn-reconnect vpn-check vpn-top vpn-server-rotate vpn-opencode opencode-supervisor vpn-hosts-import vpn-hosts-apply vpn-doctor vpn-setup; do
+for script_name in vpn-status vpn-reconnect vpn-check vpn-top vpn-server-rotate vpn-opencode opencode-supervisor vpn-hosts-import vpn-hosts-apply vpn-doctor vpn-setup vpn-home-link vpn-session-sync vpn-opencode-wrapper; do
   [[ -f "${ROOT_DIR}/scripts/${script_name}" ]] || {
     echo "Erro: script ausente: ${script_name}." >&2
     exit 1
@@ -255,6 +255,18 @@ grep -Fq '!override' "$WINDOWS_COMPOSE_FILE" || {
 }
 grep -Fq '2.24.4' "$WINDOWS_COMPOSE_FILE" || {
   echo "Erro: requisito mínimo do Docker Compose Windows não está documentado." >&2
+  fails=$((fails + 1))
+}
+grep -Fq '/mnt/host-home' "$WINDOWS_COMPOSE_FILE" || {
+  echo "Erro: paridade da home Windows (/mnt/host-home) ausente do Compose." >&2
+  fails=$((fails + 1))
+}
+grep -Fq 'vpn-home-link' "$WINDOWS_COMPOSE_FILE" || {
+  echo "Erro: vpn-home-link ausente do Compose Windows (paridade da home)." >&2
+  fails=$((fails + 1))
+}
+grep -Fq 'vpn-opencode-wrapper' "$WINDOWS_COMPOSE_FILE" || {
+  echo "Erro: wrapper do opencode ausente do Compose Windows (sync automatica)." >&2
   fails=$((fails + 1))
 }
 grep -Fq 'vpn.ps1' "$README_FILE" || {
