@@ -2,6 +2,13 @@
 
 Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for older entries after compaction.
 
+## 2026-10-16 (VII) - Caminhos Windows das instrucoes do host resolvidos no container
+
+- Changed: `scripts/vpn-home-link` passa a criar tambem uma arvore de compatibilidade para os caminhos Windows citados nas instrucoes/configs do host (`$HOME/C:/Users/<user>` -> `/mnt/host-home`, `$HOME/C:/Dev` -> `/workspace`), derivada de `VPN_HOST_HOME_DIR`/`VPN_HOST_WORKSPACE_DIR`. Motivo: o `AGENTS.md` do host (carregado no container por symlink) referencia `C:/Users/kiver/...`; no Linux esse caminho e relativo a home, entao `rules.md`, `maestro.md`, `PERSISTENCE.md`, `SKILLS_INDEX.md`, as skills e o `C:/Dev` nao resolviam. Tambem foram corrigidos os caminhos de skills no `AGENTS.md` do host (`.codex/skills/<nome>` -> `.opencode/skills/<nome>`, onde elas de fato existem), mantendo `.codex/skills/.system/*`.
+- Why: ao abrir o OpenCode dentro do container, a hierarquia obrigatoria e as skills daquele contrato nao resolviam.
+- Verified: `bash -n` OK; sandbox do script cria a arvore e e idempotente; no container, 13/14 referencias do AGENTS.md resolvem a partir da home.
+- Next context: `doctor` segue referenciado no AGENTS.md mas nao existe em `.opencode/skills`, `.orquestrador-maestro/skills` nem `.codex/skills`.
+
 ## 2026-10-16 (VI) - Retomar conversas criadas no Windows dentro do container
 
 - Changed: `vpn-session-sync` reescreve os caminhos gravados nas conversas ao importar/exportar (`rewrite_db_paths`), corrigindo `Location not found: C:/...` ao retomar uma sessao criada no Windows. Mapeamento host<->container via novas env do `compose.windows.yml` (`VPN_HOST_WORKSPACE_DIR`, `VPN_HOST_HOME_DIR`, `VPN_CONTAINER_WORKSPACE_DIR=/workspace`, `VPN_CONTAINER_HOME_DIR=/home/developer`): `C:/Dev` -> `/workspace`, `C:/Users/kiver` -> `/home/developer`, demais caminhos Windows -> `/workspace` (fallback). Reescrita idempotente no `autopull` (mesmo quando o import e pulado) e inversa no `autopush`/`push` (o host recebe caminhos Windows). Detector de "banco em uso" passou a considerar apenas o **servidor** (`serve` na cmdline), nao clientes curtos.

@@ -11,7 +11,14 @@ This file should stay small. Refresh it after substantive work or run `orquestra
 - Worklog archive: `HANDOFFS/WORKLOG_ARCHIVE.md`
 
 ## Latest Work
-- Current: retomar conversas criadas no Windows dentro do container (2026-10-16 VI):
+- Current: caminhos Windows das instruções do host resolvidos no container
+  (2026-10-16 VII): `vpn-home-link` cria a árvore de compatibilidade
+  (`$HOME/C:/Users/<user>` → `/mnt/host-home`, `$HOME/C:/Dev` → `/workspace`),
+  fazendo `rules.md`/`maestro.md`/`PERSISTENCE.md`/`SKILLS_INDEX.md`/skills do
+  `AGENTS.md` do host resolverem; caminhos de skills do `AGENTS.md` corrigidos
+  (`.codex/skills` → `.opencode/skills`, com backup). Commit/push ficam com o
+  usuario.
+- Previous: retomar conversas criadas no Windows dentro do container (2026-10-16 VI):
   `vpn-session-sync` reescreve os caminhos das conversas ao importar/exportar
   (`C:/Dev` → `/workspace`, `C:/Users/kiver` → `/home/developer`; mapeamento por
   env do compose), corrigindo `Location not found: C:/...`; o detector de banco

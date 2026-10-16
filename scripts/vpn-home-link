@@ -50,6 +50,35 @@ for rel in $LINKS; do
   link_item "$rel" || echo "vpn-home-link: falha ao linkar ${rel}." >&2
 done
 
+# Compatibilidade com caminhos Windows citados nas instrucoes/configs do host
+# (ex.: o AGENTS.md referencia C:/Users/<user>/...). No Linux esse caminho e
+# relativo a home, entao a arvore abaixo faz as referencias do host resolverem
+# dentro do container. Derivada do mapeamento do compose.
+host_home="${VPN_HOST_HOME_DIR:-}"
+if [[ -n "$host_home" ]]; then
+  drive="$(printf '%s' "$host_home" | cut -c1 | tr '[:lower:]' '[:upper:]')"
+  host_user="$(printf '%s' "$host_home" | sed 's#.*[\\/]##')"
+  compat_root="${WINDOWS_COMPAT_ROOT:-${HOME}/${drive}:}"
+  if [[ -n "$drive" && -n "$host_user" ]]; then
+    mkdir -p "${compat_root}/Users" 2>/dev/null || true
+    if [[ ! -e "${compat_root}/Users/${host_user}" ]]; then
+      ln -sfn "$HOST_HOME_MOUNT" "${compat_root}/Users/${host_user}" 2>/dev/null || true
+      echo "vpn-home-link: compat ${compat_root}/Users/${host_user} -> ${HOST_HOME_MOUNT}" >&2
+    fi
+  fi
+  host_ws="${VPN_HOST_WORKSPACE_DIR:-}"
+  if [[ -n "$host_ws" ]]; then
+    ws_rel="$(printf '%s' "$host_ws" | sed 's#^[A-Za-z]:[\\/]*##')"
+    if [[ -n "$ws_rel" && "$ws_rel" != "$host_ws" ]]; then
+      mkdir -p "$(dirname "${compat_root}/${ws_rel}")" 2>/dev/null || true
+      if [[ ! -e "${compat_root}/${ws_rel}" ]]; then
+        ln -sfn "${VPN_CONTAINER_WORKSPACE_DIR:-/workspace}" "${compat_root}/${ws_rel}" 2>/dev/null || true
+        echo "vpn-home-link: compat ${compat_root}/${ws_rel} -> ${VPN_CONTAINER_WORKSPACE_DIR:-/workspace}" >&2
+      fi
+    fi
+  fi
+fi
+
 # Plugins do OpenCode: o package.json do host declara as dependencias; instala
 # no container (incremental, node_modules persiste no volume). O node_modules
 # Windows nunca e usado (binarios incompativeis).

@@ -1,5 +1,18 @@
 # Verify
 
+## Latest Verification - 2026-10-16 VII (caminhos Windows das instrucoes no container)
+
+### Passaram
+
+- `bash -n scripts/vpn-home-link` OK; teste em sandbox: cria `$HOME/C:/Users/<user>` -> `HOST_HOME_MOUNT` e `$HOME/C:/Dev` -> `/workspace`, idempotente e respeitando os overrides de ambiente.
+- No container (com as env do compose): 13/14 referências `(file: ...)` do `AGENTS.md` resolvem a partir da home; a hierarquia obrigatória (`rules.md`, `maestro.md`, `PERSISTENCE.md`, `AGENTS.md`) resolve.
+- `AGENTS.md` do host corrigido (`.codex/skills/<nome>` → `.opencode/skills/<nome>`), com backup `AGENTS.md.bak-<ts>`; as linhas `.codex/skills/.system/*` (skill-creator/skill-installer) foram preservadas.
+
+### Não rodaram / observações
+
+- `doctor` é referenciada no `AGENTS.md` mas não existe em `.opencode/skills`, `.orquestrador-maestro/skills` nem `.codex/skills`.
+- As referências resolvem quando o runtime resolve o caminho relativo à home (comportamento observado do opencode); a partir de outro diretório, não.
+
 ## Latest Verification - 2026-10-16 VI (retomar conversas do Windows no container)
 
 ### Passaram
