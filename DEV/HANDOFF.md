@@ -4,13 +4,36 @@ This file should stay small. Refresh it after substantive work or run `orquestra
 
 ## Snapshot
 
-- Updated: 2026-10-14
+- Updated: 2026-10-15
 - Read order: `INDEX.md` -> `HANDOFF.md` -> `CONTEXT.md` -> `SPECS/ACTIVE.md`
 - Active spec: `SPECS/ACTIVE.md`
 - Verification source: `VERIFY.md`
 - Worklog archive: `HANDOFFS/WORKLOG_ARCHIVE.md`
 
 ## Latest Work
+- Current: instalacao Windows validada (Docker Desktop 4.94, modo PowerShell sem WSL, sem distribuicao WSL).
+  O ambiente conecta pelo perfil **`custom-openvpn`** com `.secrets/nordvpn-br71-tcp80.ovpn`
+  (config oficial NordVPN, `proto tcp-client`, `remote 189.1.170.129 80`) porque esta rede
+  bloqueia UDP 1194/51820 e reseta TCP 443/1231; a porta 80 completa o handshake TLS.
+  Requisitos locais ja aplicados: `HOST_HOME_DIR` no `.env` (PowerShell sem `HOME`),
+  clone com LF (`core.autocrlf=false`), `C:\Projects` no File Sharing do Docker Desktop e
+  servico `ssh-agent` habilitado.
+  Comandos: `.\scripts\vpn.ps1 start custom-openvpn` / `terminal` / `status` / `stop`.
+  - `WORKSPACE_DIR` no `.env` (mesma variavel do modo Linux) escolhe a pasta do host
+    que vira `/workspace`; hoje `C:\Dev` (File Sharing do Docker Desktop inclui
+    `C:\Users\kiver`, `C:\Projects` e `C:\Dev`). Sem a variavel, `/workspace` volta
+    a ser a raiz do repositorio. Patch no `vpn.ps1` (`Set-ActiveComposeEnvironment`).
+  - Verified: `vpn-check` 5/5, IP publico 189.1.170.12 (BR), terminal com OpenCode 2.0.28
+    (npm `@opencode/cli` em `/home/developer/.opencode/bin`, slot PATH-first; fallback do
+    Dockerfile 1.18.31 so se o volume da home for perdido - reinstalar com
+    `npm install -g @opencode/cli@2.0.28 --prefix /home/developer/.opencode`) e saida
+    externa pelo tunel confirmada.
+  - SSH: chave ed25519 gerada (`C:\Users\kiver\.ssh\id_ed25519`), carregada no agente e
+    visivel no terminal via ponte, registrada no GitHub. `ssh -T git@github.com` =
+    `Hi kivervinicius!` e `git ls-remote` do repo passam pelo tunel.
+  - Pending: `FIREWALL_SUBNETS` atual so libera a rede do Docker Desktop; ajustar para a
+    LAN real quando precisar de impressoras/NAS; `verify-compose`/testes Linux nao rodados
+    no host Windows.
 
 - Current: correção da detecção de limites do Zen (trabalho de 2026-10-13 revisado antes
   do commit). Quatro defeitos foram encontrados e corrigidos:

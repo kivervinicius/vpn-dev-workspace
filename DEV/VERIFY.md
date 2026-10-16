@@ -1,6 +1,28 @@
 # Verify
 
-## Latest Verification — 2026-10-14 (Detecção de limites do Zen, corrigida)
+## Latest Verification - 2026-10-15 (Instalacao Windows, modo PowerShell sem WSL)
+
+### Passaram
+
+- `.\scripts\vpn.ps1 start custom-openvpn` em Docker Desktop 4.94 / Compose v5.5.1: build das imagens, `vpn` healthy, terminal e `vpn-auto-reconnect` iniciados.
+- `docker exec terminal vpn-check` - **5/5**: tunel ativo, IP publico 189.1.170.12 (NordVPN Sao Paulo/BR), DNS do tunel ativo, resolucao de `github.com` funcional, `resolv.conf` apontando para o DNS do tunel.
+- `vpn-status` no terminal: perfil `custom (openvpn)`, IP publico correto.
+- Terminal: usuario `developer`, `/workspace` = projeto Windows, OpenCode 2.0.28 (`/home/developer/.opencode/bin/opencode`, npm `@opencode/cli`, paridade com o host; fallback da imagem 1.18.31), saida externa via tunel confirmada (`curl https://api.ipify.org` = 189.1.170.12).
+- Ponte SSH do Windows ativa (`agent-start` implicito no start; `.vpn/windows-ssh-agent.json`, processo pwsh vivo).
+- Ponte SSH funcional dentro do terminal: `LOCAL_HOSTS=host.docker.internal=192.168.65.254` + `FIREWALL_SUBNETS=192.168.65.0/24`; `ssh-add -l` no terminal devolve a identidade do host.
+- SSH ao GitHub pelo tunel: chave ed25519 gerada e registrada (kivervinicius); `ssh -T git@github.com` = "Hi kivervinicius!" e `git ls-remote` do repo lista as branches.
+- Publicacao de porta validada: host `127.0.0.1:10050` -> listener no terminal devolveu HTTP 200.
+- `WORKSPACE_DIR` no Windows: patch no `vpn.ps1` (`Set-ActiveComposeEnvironment` le a variavel via `Get-ConfigValue`, fallback na raiz do repo); `.env` com `WORKSPACE_DIR=C:\Dev` e `C:\Dev` no File Sharing do Docker Desktop (restart do Desktop necessario - nao recarrega em runtime). Validado: `/workspace` lista `appce-monorepo` (conteudo real de `C:\Dev`), escrita bidirecional host<->container, `opencode --version` = 2.0.28, `ssh-add -l` via ponte.
+
+### Nao rodaram / observacoes
+
+- `verify-compose`, `verify-docs` e `tests/linux/test-scripts.sh`: nao executados neste host (Windows; sem jq/make no PATH).
+- `ssh-add -l` vazio no host e no terminal: chaves SSH nao foram carregadas no agente.
+- `FIREWALL_SUBNETS` nao definido: LAN do Windows permanece bloqueada dentro do tunel (aviso documentado do `vpn.ps1 start`).
+- Rede deste host bloqueia UDP de VPN (1194/51820 sem resposta) e reseta TCP 443/1231 da NordVPN; a porta 80 TCP funciona. Perfis `nordvpn-*` nao conectam aqui - usar `custom-openvpn`.
+
+### Anterior
+ — 2026-10-14 (Detecção de limites do Zen, corrigida)
 
 ### Passaram
 

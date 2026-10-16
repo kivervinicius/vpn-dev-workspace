@@ -325,6 +325,15 @@ instalada: o Docker Desktop fornece o motor Linux e o projeto Windows é
 montado em `/workspace`. A home Linux fica no volume Docker persistente
 `vpn_windows_home`, separada da home Windows.
 
+Por padrão o `/workspace` recebe a raiz do repositório. Defina `WORKSPACE_DIR`
+no `.env` para montar outra pasta do host como workspace — é a mesma variável
+usada no modo Linux, e vale nos dois sistemas (ex.: `WORKSPACE_DIR=C:\Dev`).
+A pasta precisa estar em **Settings > Resources > File Sharing** do Docker
+Desktop; após adicionar uma nova pasta, reinicie o Desktop, porque ele não
+recarrega o file sharing em runtime (o `start` falha com `the path is not
+shared`). Sem `WORKSPACE_DIR`, o comportamento volta ao padrão: `/workspace` =
+raiz do repositório.
+
 Abra PowerShell na raiz do projeto e use:
 
 ```powershell

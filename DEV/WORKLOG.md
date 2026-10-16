@@ -2,6 +2,46 @@
 
 Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for older entries after compaction.
 
+## 2026-10-15 (noite, II) - WORKSPACE_DIR unificado Linux/Windows
+
+- Changed: `scripts/vpn.ps1` (`Set-ActiveComposeEnvironment`) agora honra `WORKSPACE_DIR` do `.env`/ambiente como fonte do `/workspace` no modo Windows; antes forçava a raiz do repositorio. `.env.example` atualizado (mesma variavel vale nos dois sistemas).
+- Why: o usuario queria compartilhar `C:\Users\kiver\dev` no terminal (paridade com o modo Linux, onde `${WORKSPACE_DIR:-/projetos}` ja e o mecanismo). No Windows `WINDOWS_WORKSPACE_DIR` e definido pelo script e ignorava o `.env`.
+- Fix: fallback mantido (sem `WORKSPACE_DIR`, `/workspace` = raiz do repo); `Test-Path` falha cedo se o caminho nao existir. `.env` local: `WORKSPACE_DIR=C:\Users\kiver\dev`. Docker Desktop ja compartilhava `C:\Users\kiver` (sem mudanca de file sharing).
+- Verified: container recriado; `/workspace` = `C:\Users\kiver\dev` (arquivo criado no container apareceu no host e vice-versa); OpenCode 2.0.28 persistiu (volume `vpn_windows_home`).
+- Nota: mudanca em codigo rastreado (`scripts/vpn.ps1`, `.env.example`) a pedido do usuario; commit fica para o usuario.
+- Rebuild completo validado (2026-10-16): `vpn.ps1 stop` -> `docker compose build --no-cache --pull` (env dummy de interpolacao: `WINDOWS_WORKSPACE_DIR=C:\Users\kiver\dev`, bridge port/token fake) -> `vpn.ps1 start custom-openvpn`. Resultado: imagens `terminal` e `vpn-auto-reconnect` reconstruidas de raiz; `vpn-check` 6/6; IP 189.1.170.11; `/workspace` = pasta dev; OpenCode 2.0.28 (volume) + fallback 1.18.31 (imagem nova); ponte SSH e `ssh -T git@github.com` = "Hi kivervinicius!".
+- Incidente no rebuild: o primeiro `start` falhou com "Tempo limite iniciando a ponte SSH" - o build --no-cache consumiu CPU/disco e o cold start do PowerShell da ponte (>5s) estourou o wait de 5s do `Start-SshAgentBridge`. Com a maquina ociosa o mesmo start passou. Se recorrer: rodar `vpn.ps1 start` de novo.
+- Ajuste (2026-10-16): `WORKSPACE_DIR` no `.env` trocado de `C:\Users\kiver\dev` (pasta vazia criada na instalacao) para `C:\Dev` (pasta real do usuario, contem `appce-monorepo`). `C:\Dev` adicionado ao File Sharing do Docker Desktop (`settings-store.json` + `settings.json`, backups `.bak-20261016-*`) - o Desktop em execucao NAO recarrega o file sharing em runtime: foi necessario fechar (`Stop-Process 'Docker Desktop'`) e reabrir o app antes do start. Validado: `/workspace` lista o conteudo de `C:\Dev`, tunel running, OpenCode 2.0.28, ponte SSH com identidade.
+
+## 2026-10-15 (noite) - OpenCode 2.0.28 no container + correcao do docker exec para TUI
+
+- Changed: o terminal passou a rodar OpenCode 2.0.28 (paridade com o host, `@opencode/cli` npm); antes usava o fallback 1.18.31 do Dockerfile.
+- Why: no modo Windows a home do host nao e montada (home = named volume `vpn_windows_home`), entao o slot PATH-first `/home/developer/.opencode/bin` ficava vazio e o PATH caia sempre no binario fixado no Dockerfile. Alem disso as GitHub releases do repo (`anomalyco/opencode`, a que `sst/opencode` redireciona) nao tem tag 2.x - `releases/download/v2.0.28/opencode-linux-x64.tar.gz` = 404; a 2.x so existe no npm (`@opencode/cli`, latest 2.0.30). Bump de `OPENCODE_VERSION` no Dockerfile nao e possivel para 2.x.
+- Fix (sem tocar em codigo rastreado): `docker exec vpn-dev-workspace-terminal-1 npm install -g @opencode/cli@2.0.28 --prefix /home/developer/.opencode` - instala no slot que o PATH ja prioriza e persiste no volume da home (refazer se o volume for removido com `down -v`).
+- Verified: `command -v opencode` = `/home/developer/.opencode/bin/opencode`; `opencode --version` = v2.0.28; fallback `/usr/local/bin/opencode` (1.18.31) continua disponivel.
+- Tela pequena no `docker exec ... opencode`: causa e rodar sem `-it` (sem TTY alocado; `TERM=[]` no env do exec). Comando correto: `docker exec -it -e TERM=xterm-256color vpn-dev-workspace-terminal-1 opencode`, ou o caminho suportado `.\scripts\vpn.ps1 terminal` + `opencode`.
+
+## 2026-10-15 (tardiо) - Ponte SSH do Windows consertada via LOCAL_HOSTS + FIREWALL_SUBNETS
+
+- Changed: a ponte SSH (relay Unix->TCP do `vpn-ssh-agent-relay`) falhava dentro do terminal com `ssh-add -l` = "error fetching identities: invalid format".
+- Why: dentro do terminal o DNS e o do Gluetun (127.0.0.1), que nao resolve `host.docker.internal`; e o kill switch bloqueava a sub-rede do Docker Desktop. O relay nao conseguia abrir `/dev/tcp/host.docker.internal/<porta>` e devolvia lixo.
+- Fix (`.env`): `LOCAL_HOSTS=host.docker.internal=192.168.65.254` (mapeia o nome no /etc/hosts pos-up) e `FIREWALL_SUBNETS=192.168.65.0/24` (libera a rede do Docker Desktop fora do tunel). Reiniciado com `vpn.ps1 start custom-openvpn`.
+- Verified: `getent hosts host.docker.internal` = 192.168.65.254; TCP conecta na ponte; `ssh-add -l` = "The agent has no identities" (resposta valida do agente). SSH real ao github via terminal conecta (chega em "Permission denied (publickey)" = sem chave carregada no agente, comportamento esperado).
+- Nota: publicacao de porta validada (host 127.0.0.1:10050 -> container devolveu HTTP 200 via faixa do Gluetun). O loopback direto (127.0.0.1) dentro do terminal nao responde em portas publicadas; use a porta mapeada pelo Docker.
+- SSH finalizado (mesmo dia): chave ed25519 gerada em `C:\Users\kiver\.ssh\id_ed25519`, carregada no agente OpenSSH e registrada no GitHub (kivervinicius). Validado pelo tunel: `ssh -T git@github.com` -> "Hi kivervinicius!" e `git ls-remote git@github.com:kivervinicius/vpn-dev-workspace.git` listou as 4 branches.
+
+## 2026-10-15 - Instalacao Windows (PowerShell sem WSL) validada em runtime real
+
+- Changed: primeira instalacao funcional do fluxo Windows (`scripts/vpn.ps1`) em Docker Desktop 4.94 / engine 29.8.2. Ajustes locais de ambiente (sem mudar codigo do repo):
+  - `.env` ganhou `HOST_HOME_DIR=C:\Users\kiver`: o PowerShell do Windows nao define `HOME`, entao `${HOST_HOME_DIR:-${HOME}}` interpolava vazio e o Compose falhava com `invalid spec: ::rw` (o arquivo base e validado antes do merge com `compose.windows.yml`).
+  - Clone renormalizado com `core.autocrlf=false` + `git rm --cached -r . && git reset --hard`: o clone inicial em CRLF quebrou os `.sh` montados por bind (`env: can't execute 'sh\r'`).
+  - Docker Desktop: `C:\Projects` adicionado ao File Sharing (`filesharingDirectories` em `settings.json`/`settings-store.json`; backup `.bak-<ts>`); sem isso o bind mount e recusado.
+  - Servico Windows `ssh-agent` habilitado (StartupType Automatic), exigido pelo start do modo Windows.
+- Why: os perfis `nordvpn-openvpn` e `nordvpn-wireguard` nao conectaram nesta rede: UDP 1194/51820 enviam o handshake mas nao recebem resposta (captura via netshoot: Out 148B, 0 In) e TCP 443/1231 recebem RST imediato. Com a config oficial da NordVPN na porta 80 TCP (`ovpn_tcp/br71.nordvpn.com.tcp_2.6.ovpn`) o handshake TLS completa (`Peer Connection Initiated`, TLSv1.3). O Gluetun recusa `OPENVPN_ENDPOINT_PORT` para o provider `nordvpn` e exige IP (nao hostname) na linha `remote` de config custom; por isso o perfil efetivo e `custom-openvpn` com `.secrets/nordvpn-br71-tcp80.ovpn` (`proto tcp-client`, `remote 189.1.170.129 80`, `verify-x509-name CN=br71.nordvpn.com`).
+- Verified: `vpn.ps1 start custom-openvpn` -> `vpn` healthy; `vpn-check` 5/5 (tunel, IP publico 189.1.170.12 Sao Paulo/BR, DNS do tunel, resolucao, resolv.conf); `vpn-status` perfil custom/openvpn; terminal `developer` em `/workspace` com OpenCode 1.18.31 e `curl https://api.ipify.org` retornando o IP da VPN; ponte SSH do Windows ativa (`.vpn/windows-ssh-agent.json`).
+- Pending: chave ainda nao carregada no agente (`ssh-add -l` vazio); LAN do Windows inacessivel ate definir `FIREWALL_SUBNETS` (aviso do start); `verify-compose` e testes Linux nao rodados (host Windows, sem jq/make).
+- Next context: iniciar com `.\scripts\vpn.ps1 start custom-openvpn`, shell com `.\scripts\vpn.ps1 terminal`, parar com `.\scripts\vpn.ps1 stop`.
+
 ## 2026-10-14 - Correções na detecção de limites do Zen antes do commit
 
 - Changed:
