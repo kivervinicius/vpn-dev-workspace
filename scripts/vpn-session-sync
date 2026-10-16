@@ -68,11 +68,71 @@ stop_container_service() {
   container_busy || return 0
   timeout 20 "$bin" service stop >/dev/null 2>&1 || true
   local i
-  for i in 1 2 3 4 5; do
+  for i in 1 2 3 4 5 6 7 8 9 10; do
     container_busy || return 0
     sleep 1
   done
   return 0
+}
+
+# Reescreve os caminhos gravados nas conversas (host <-> container). As sessoes
+# criadas no Windows apontam para diretorios como `C:/Dev/appce-monorepo`, que
+# nao existem no container ("Location not found"); e o caminho inverso para que
+# o host enxergue as sessoes criadas aqui. Fail-open sem node/node:sqlite.
+rewrite_db_paths() {
+  local db="$1" direction="$2" js
+  [[ "${VPN_SESSION_REWRITE:-on}" == "off" ]] && return 0
+  [[ -f "$db" ]] || return 0
+  command -v node >/dev/null 2>&1 || return 0
+  js="$(mktemp)"
+  cat > "$js" <<'JS'
+const { DatabaseSync } = require('node:sqlite');
+const [dbPath, direction, hostWs, hostHome, contWs, contHome] = process.argv.slice(2);
+const norm = (p) => String(p || '').replace(/\\/g, '/').replace(/\/+$/, '');
+const cmp = (p) => norm(p).toLowerCase();
+const under = (p, base) => cmp(p) === cmp(base) || cmp(p).startsWith(cmp(base) + '/');
+
+function mapToContainer(p) {
+  if (!/^[A-Za-z]:/.test(norm(p))) return p;
+  if (hostWs && under(p, hostWs)) return contWs + norm(p).slice(norm(hostWs).length);
+  if (hostHome && under(p, hostHome)) return contHome + norm(p).slice(norm(hostHome).length);
+  return contWs; // qualquer outro caminho Windows -> workspace do container
+}
+function mapToHost(p) {
+  if (!/^\//.test(norm(p))) return p;
+  if (contWs && under(p, contWs)) return norm(hostWs) + norm(p).slice(norm(contWs).length);
+  if (contHome && under(p, contHome)) return norm(hostHome) + norm(p).slice(norm(contHome).length);
+  return p;
+}
+
+const map = direction === 'to-container' ? mapToContainer : mapToHost;
+const db = new DatabaseSync(dbPath);
+let changed = 0;
+const targets = [
+  ['session_v2', 'directory'],
+  ['project', 'worktree'],
+  ['worktree', 'directory'],
+];
+db.exec('begin');
+try {
+  for (const [table, column] of targets) {
+    const rows = db.prepare(`select rowid as rid, ${column} as val from ${table}`).all();
+    const upd = db.prepare(`update ${table} set ${column} = ? where rowid = ?`);
+    for (const r of rows) {
+      if (!r.val) continue;
+      const next = map(r.val);
+      if (next !== r.val) { upd.run(next, r.rid); changed++; }
+    }
+  }
+  db.exec('commit');
+} catch (e) {
+  db.exec('rollback');
+  throw e;
+}
+if (changed > 0) console.error(`vpn-session-sync: ${changed} caminho(s) reescrito(s) (${direction}).`);
+JS
+  node "$js" "$db" "$direction" "${VPN_HOST_WORKSPACE_DIR:-}" "${VPN_HOST_HOME_DIR:-}" "${VPN_CONTAINER_WORKSPACE_DIR:-/workspace}" "${VPN_CONTAINER_HOME_DIR:-$HOME}" >/dev/null 2>&1 || true
+  rm -f "$js"
 }
 
 # Validacao (smoke) do banco copiado: abre em readOnly e le o catalogo.
@@ -91,19 +151,23 @@ db_valid() {
   ' "$1" >/dev/null 2>&1
 }
 
-# Com o OpenCode ativo no container o banco esta em uso: evita copiar por cima
-# nos modos pull/autopull (os modos de exportacao copiam o snapshot atual).
-# Nota: o processo aparece como `opencode` ou `opencode.exe` — inspeciona /proc.
-container_busy() {
-  local d comm
+# O banco esta em uso quando o SERVIDOR de background esta no ar (quem mantem o
+# SQLite aberto). Clientes curtos (list/export) nao impedem a troca.
+# Nota: o processo pode aparecer como `opencode` ou `opencode.exe` — inspeciona
+# /proc e considera apenas quem tem `serve` na linha de comando.
+server_pids() {
+  local d cmd
   for d in /proc/[0-9]*; do
-    [[ -r "$d/comm" ]] || continue
-    comm="$(cat "$d/comm" 2>/dev/null || true)"
-    case "$comm" in
-      opencode*) return 0 ;;
+    [[ -r "$d/cmdline" ]] || continue
+    cmd="$(tr '\0' ' ' < "$d/cmdline" 2>/dev/null || true)"
+    case "$cmd" in
+      *opencode*serve*) basename "$d" ;;
     esac
   done
-  return 1
+}
+
+container_busy() {
+  [[ -n "$(server_pids)" ]]
 }
 
 case "$mode" in
@@ -120,9 +184,13 @@ case "$mode" in
     mkdir -p "$SHARE_DIR"
     [[ -f "${SHARE_DIR}/opencode.db" ]] && cp -f "${SHARE_DIR}/opencode.db" "${SHARE_DIR}/opencode.db${BACKUP_SUFFIX}"
     copy_db_set "${STAGING_DIR}/opencode" "$SHARE_DIR"
+    rewrite_db_paths "${SHARE_DIR}/opencode.db" to-container
     echo "vpn-session-sync: conversas importadas do staging (host)." >&2
     ;;
   autopull)
+    # Idempotente: corrige caminhos residuais do host no banco atual (sessoes
+    # criadas no Windows apontam para `C:/...`, que nao existe aqui).
+    rewrite_db_paths "${SHARE_DIR}/opencode.db" to-container
     host_db="${HOST_SHARE_DIR}/opencode.db"
     if [[ ! -f "$host_db" ]]; then
       echo "vpn-session-sync: host sem banco; nada a importar." >&2
@@ -150,6 +218,7 @@ case "$mode" in
     [[ -f "${SHARE_DIR}/opencode.db" ]] && cp -f "${SHARE_DIR}/opencode.db" "${SHARE_DIR}/opencode.db${BACKUP_SUFFIX}"
     copy_db_set "$tmp" "$SHARE_DIR"
     rm -rf "$tmp"
+    rewrite_db_paths "${SHARE_DIR}/opencode.db" to-container
     echo "vpn-session-sync: conversas do host importadas." >&2
     ;;
   push)
@@ -159,6 +228,7 @@ case "$mode" in
     fi
     mkdir -p "${STAGING_DIR}/out"
     copy_db_set "$SHARE_DIR" "${STAGING_DIR}/out"
+    rewrite_db_paths "${STAGING_DIR}/out/opencode.db" to-host
     echo "vpn-session-sync: conversas exportadas para o staging." >&2
     ;;
   autopush)
@@ -180,6 +250,7 @@ case "$mode" in
     mkdir -p "${STAGING_DIR}/out"
     copy_db_set "$tmp" "${STAGING_DIR}/out"
     rm -rf "$tmp"
+    rewrite_db_paths "${STAGING_DIR}/out/opencode.db" to-host
     echo "vpn-session-sync: conversas preparadas para o host." >&2
     ;;
 esac

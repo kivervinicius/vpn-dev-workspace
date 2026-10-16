@@ -124,6 +124,13 @@ de aplicar e mantém backup do banco substituído.
 > o mesmo repo montado em `/workspace/<repo>` enxerga as conversas criadas no host
 > em `C:\Dev\<repo>` (validado). Diretórios **sem git** não se enxergam entre
 > host e container; nesses casos retome a conversa pelo ID (`opencode -s <id>`).
+>
+> **Caminhos:** ao importar, os diretórios gravados nas conversas são reescritos
+> (`C:\Dev` → `/workspace`, `C:\Users\<user>` → `/home/developer`) para que o
+> `opencode -s <id>` funcione dentro do container; ao exportar, o caminho inverso
+> é aplicado. O mapeamento vem das variáveis `VPN_HOST_WORKSPACE_DIR`,
+> `VPN_HOST_HOME_DIR`, `VPN_CONTAINER_WORKSPACE_DIR` e `VPN_CONTAINER_HOME_DIR`
+> (compose.windows.yml).
 
 Limitações: o binário (`~/.opencode/bin`) e o `node_modules` do container
 ficam no volume; configs com caminhos Windows (`C:\...`) podem gerar avisos

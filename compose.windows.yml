@@ -7,6 +7,12 @@ services:
       HOME: /home/developer
       PATH: /home/developer/.local/bin:/home/developer/.opencode/bin:/home/developer/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       SSH_AUTH_SOCK: /tmp/vpn-ssh-agent.sock
+      # Mapeamento host<->container usado pelo vpn-session-sync para reescrever os
+      # diretorios gravados nas conversas (sessoes do Windows nao resolvem aqui).
+      VPN_HOST_WORKSPACE_DIR: ${WINDOWS_WORKSPACE_DIR:?WINDOWS_WORKSPACE_DIR is required}
+      VPN_HOST_HOME_DIR: ${HOST_HOME_DIR:?HOST_HOME_DIR is required}
+      VPN_CONTAINER_WORKSPACE_DIR: /workspace
+      VPN_CONTAINER_HOME_DIR: /home/developer
       WINDOWS_SSH_BRIDGE_HOST: ${WINDOWS_SSH_BRIDGE_HOST:-host.docker.internal}
       WINDOWS_SSH_BRIDGE_PORT: ${WINDOWS_SSH_BRIDGE_PORT:?WINDOWS_SSH_BRIDGE_PORT is required}
       WINDOWS_SSH_BRIDGE_TOKEN: ${WINDOWS_SSH_BRIDGE_TOKEN:?WINDOWS_SSH_BRIDGE_TOKEN is required}

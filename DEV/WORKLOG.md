@@ -2,6 +2,13 @@
 
 Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for older entries after compaction.
 
+## 2026-10-16 (VI) - Retomar conversas criadas no Windows dentro do container
+
+- Changed: `vpn-session-sync` reescreve os caminhos gravados nas conversas ao importar/exportar (`rewrite_db_paths`), corrigindo `Location not found: C:/...` ao retomar uma sessao criada no Windows. Mapeamento host<->container via novas env do `compose.windows.yml` (`VPN_HOST_WORKSPACE_DIR`, `VPN_HOST_HOME_DIR`, `VPN_CONTAINER_WORKSPACE_DIR=/workspace`, `VPN_CONTAINER_HOME_DIR=/home/developer`): `C:/Dev` -> `/workspace`, `C:/Users/kiver` -> `/home/developer`, demais caminhos Windows -> `/workspace` (fallback). Reescrita idempotente no `autopull` (mesmo quando o import e pulado) e inversa no `autopush`/`push` (o host recebe caminhos Windows). Detector de "banco em uso" passou a considerar apenas o **servidor** (`serve` na cmdline), nao clientes curtos.
+- Why: o usuario relatou que ao continuar uma conversa iniciada no Windows o container recusava ("a pasta nao existe, exemplo c:"). Reproduzido: `opencode run --session <id>` -> `Error: Location not found: C:/Dev/appce-monorepo`.
+- Verified: repro antes/depois no container (o erro sumiu; o comando passa a resolver o diretorio e segue para o modelo); `session_v2.directory` reescrito para `/workspace/appce-monorepo`, `/workspace` e `/home/developer`; suite Linux/Pester/verify-docs mantidos.
+- Next context: apos recriar o container (novas env do compose) o mapeamento fica preciso; sem elas o fallback manda qualquer caminho Windows para `/workspace`.
+
 ## 2026-10-16 (V) - Sincronizacao automatica e invisivel das conversas (wrapper do opencode)
 
 - Changed: `scripts/vpn-opencode-wrapper` (novo; montado em `/home/developer/.local/bin/opencode`, com prioridade no PATH do terminal): em sessao interativa de topo importa as conversas do host (`autopull`) e publica as mudancas no staging (`autopush`), sem comandos manuais. `vpn-session-sync` ganhou os modos `autopull`/`autopush`, deteccao de processo por `/proc` (o processo aparece como `opencode.exe`), parada do servico de background antes de trocar o banco, comparacao de recencia pelo conjunto db+wal+shm (WAL mode!) e validacao de integridade (node:sqlite) antes de aplicar. `vpn.ps1`: `Sync-PendingSessionPush` aplica o staging no host (mtime + guarda de processo + backup `.bak`) e roda no start/stop/terminal; `sessions-sync` segue para controle manual.

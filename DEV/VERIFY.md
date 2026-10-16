@@ -1,5 +1,19 @@
 # Verify
 
+## Latest Verification - 2026-10-16 VI (retomar conversas do Windows no container)
+
+### Passaram
+
+- Repro do defeito no container: `cd /workspace/appce-monorepo && opencode run --session ses_ebe31a0e8ffeyk5x5bE70zQ3Yc ping` → `Error: Location not found: C:/Dev/appce-monorepo` (a sessão guardava o diretório do Windows).
+- Após a reescrita de caminhos (`rewrite_db_paths`): `session_v2.directory` = `/workspace/appce-monorepo`, `/workspace`, `/home/developer`; o mesmo comando deixa de emitir o erro e passa a resolver o diretório (segue para o modelo; timeout de 25s no modelo grátis = exit 124).
+- Detector de banco em uso restrito ao processo `serve` (antes um cliente residual `opencode --yolo` bloqueava o import).
+- Estático: shellcheck + `bash -n` limpos; suíte Linux 41/41 (com nodejs instalado, reproduzindo a CI); Pester 9/9; verify-docs OK.
+
+### Não rodaram / observações
+
+- As variáveis de mapeamento entram por `compose.windows.yml`: valem após recriar o container. Sem elas, o fallback mapeia qualquer caminho Windows para `/workspace`.
+- A reescrita altera apenas `session_v2.directory`, `project.worktree` e `worktree.directory` (não toca no conteúdo das mensagens).
+
 ## Latest Verification - 2026-10-16 V (sincronizacao automatica via wrapper)
 
 ### Passaram
