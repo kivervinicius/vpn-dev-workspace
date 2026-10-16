@@ -87,16 +87,32 @@ rewrite_db_paths() {
   js="$(mktemp)"
   cat > "$js" <<'JS'
 const { DatabaseSync } = require('node:sqlite');
+const fs = require('fs');
 const [dbPath, direction, hostWs, hostHome, contWs, contHome] = process.argv.slice(2);
 const norm = (p) => String(p || '').replace(/\\/g, '/').replace(/\/+$/, '');
 const cmp = (p) => norm(p).toLowerCase();
 const under = (p, base) => cmp(p) === cmp(base) || cmp(p).startsWith(cmp(base) + '/');
 
+// Maior sufixo do caminho apos a unidade (ex.: C:/Dev/appce-monorepo ->
+// Dev/appce-monorepo, appce-monorepo).
+function suffixCandidates(p) {
+  const parts = norm(p).replace(/^[A-Za-z]:/, '').split('/').filter(Boolean);
+  const out = [];
+  for (let i = 0; i < parts.length; i++) out.push(parts.slice(i).join('/'));
+  return out;
+}
+
 function mapToContainer(p) {
   if (!/^[A-Za-z]:/.test(norm(p))) return p;
   if (hostWs && under(p, hostWs)) return contWs + norm(p).slice(norm(hostWs).length);
   if (hostHome && under(p, hostHome)) return contHome + norm(p).slice(norm(hostHome).length);
-  return contWs; // qualquer outro caminho Windows -> workspace do container
+  // Sem mapeamento explicito: usa o maior sufixo que existe sob o workspace do
+  // container (ex.: C:/Dev/appce-monorepo -> /workspace/appce-monorepo).
+  for (const suffix of suffixCandidates(p)) {
+    const candidate = contWs + '/' + suffix;
+    try { if (fs.existsSync(candidate)) return candidate; } catch (e) { /* ignora */ }
+  }
+  return contWs;
 }
 function mapToHost(p) {
   if (!/^\//.test(norm(p))) return p;

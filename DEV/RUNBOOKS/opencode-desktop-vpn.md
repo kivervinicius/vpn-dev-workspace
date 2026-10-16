@@ -130,7 +130,9 @@ de aplicar e mantém backup do banco substituído.
 > `opencode -s <id>` funcione dentro do container; ao exportar, o caminho inverso
 > é aplicado. O mapeamento vem das variáveis `VPN_HOST_WORKSPACE_DIR`,
 > `VPN_HOST_HOME_DIR`, `VPN_CONTAINER_WORKSPACE_DIR` e `VPN_CONTAINER_HOME_DIR`
-> (compose.windows.yml).
+> (compose.windows.yml). Sem elas, o script usa o maior sufixo do caminho que
+> existir sob `/workspace` (ex.: `C:\Dev\appce-monorepo` →
+> `/workspace/appce-monorepo`) e, na falta dele, `/workspace`.
 
 Limitações: o binário (`~/.opencode/bin`) e o `node_modules` do container
 ficam no volume; configs com caminhos Windows (`C:\...`) podem gerar avisos
