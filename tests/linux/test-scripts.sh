@@ -203,7 +203,18 @@ test_session_sync_auto() {
 }
 run_test "vpn-session-sync autopull/autopush respeitam mtime" test_session_sync_auto
 
-# 12. Classificação HTTP do vpn-opencode check. Precisa de socat para servir
+# 12. Config ALSA nula: sem placa de som no container, o device default vai para
+# o plugin null (o cli.json do host tem attention.sound=true; sem isso o TUI
+# imprime "ALSA lib ... Unknown PCM default").
+test_alsa_null_conf() {
+  local conf="${ROOT_DIR}/config/alsa-null.conf"
+  [[ -f "$conf" ]] || return 1
+  grep -q 'pcm.!default' "$conf" || return 1
+  grep -q 'type null' "$conf" || return 1
+}
+run_test "alsa-null.conf redireciona o device default para null" test_alsa_null_conf
+
+# 13. Classificação HTTP do vpn-opencode check. Precisa de socat para servir
 # respostas; sem ele o bloco é pulado em vez de reprovar a suíte.
 if command -v socat >/dev/null 2>&1; then
   # O check abre a conexão uma vez para o teste de TCP e outra para o HTTP,

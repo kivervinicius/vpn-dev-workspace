@@ -2,6 +2,13 @@
 
 Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for older entries after compaction.
 
+## 2026-10-16 (VIII) - TUI sem ruido de ALSA no container
+
+- Changed: `config/alsa-null.conf` (novo) carrega a config do sistema e aponta o device `default` do ALSA para o plugin `null`; `compose.windows.yml` (terminal + supervisor) define `ALSA_CONFIG_PATH=/etc/alsa-null.conf` e monta o arquivo. Trava nova no `verify-docs` e teste 12 na suite Linux.
+- Why: o usuario relatou caracteres começando com "ALSA" estragando o TUI. Causa: o compose base usa `ALSA_CONFIG_PATH=/dev/null` (ALSA sem configuracao) e o `cli.json` compartilhado com o host tem `attention.sound=true` — cada tentativa de tocar som imprimia `ALSA lib pcm.c:2664:(snd_pcm_open_noupdate) Unknown PCM default`.
+- Verified: repro em container descartavel com `aplay` (instalado so para o teste): com `/dev/null` -> exit 1 + a mensagem ALSA; com o config novo -> exit 0 e silencioso; `aplay -L` lista `null` e `default`. Suite Linux 42/42, Pester 9/9, verify-docs OK, `compose config` OK nos dois perfis.
+- Next context: o arquivo fica em `config/` (nao em `scripts/`) porque o shellcheck e o loop de `--help` do verify-docs varrem `scripts/*`.
+
 ## 2026-10-16 (VII) - Caminhos Windows das instrucoes do host resolvidos no container
 
 - Changed: `scripts/vpn-home-link` passa a criar tambem uma arvore de compatibilidade para os caminhos Windows citados nas instrucoes/configs do host (`$HOME/C:/Users/<user>` -> `/mnt/host-home`, `$HOME/C:/Dev` -> `/workspace`), derivada de `VPN_HOST_HOME_DIR`/`VPN_HOST_WORKSPACE_DIR`. Motivo: o `AGENTS.md` do host (carregado no container por symlink) referencia `C:/Users/kiver/...`; no Linux esse caminho e relativo a home, entao `rules.md`, `maestro.md`, `PERSISTENCE.md`, `SKILLS_INDEX.md`, as skills e o `C:/Dev` nao resolviam. Tambem foram corrigidos os caminhos de skills no `AGENTS.md` do host (`.codex/skills/<nome>` -> `.opencode/skills/<nome>`, onde elas de fato existem), mantendo `.codex/skills/.system/*`.

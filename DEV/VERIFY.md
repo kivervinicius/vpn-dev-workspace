@@ -1,5 +1,17 @@
 # Verify
 
+## Latest Verification - 2026-10-16 VIII (TUI sem ruído de ALSA)
+
+### Passaram
+
+- Repro em container descartável (com `alsa-utils` instalado só para o teste): `ALSA_CONFIG_PATH=/dev/null aplay -d 1 /dev/zero` → exit 1 + `ALSA lib pcm.c:2664:(snd_pcm_open_noupdate) Unknown PCM default`; com `config/alsa-null.conf` → exit 0 e silencioso; `aplay -L` lista `null` e `default`.
+- `docker compose config --quiet` OK nos perfis `vpn` e `vpn+opencode` (env + mounts do ALSA nos dois serviços).
+- Suíte Linux 42/42 (teste 12 novo: `alsa-null.conf` define `pcm.!default` como `null`); Pester 9/9; `verify-docs` OK (trava nova do `alsa-null.conf`); shellcheck/`bash -n` limpos.
+
+### Não rodaram / observações
+
+- O container em execução precisa ser recriado para pegar `ALSA_CONFIG_PATH` e o mount (env/vínculo de compose).
+
 ## Latest Verification - 2026-10-16 VII (caminhos Windows das instrucoes no container)
 
 ### Passaram

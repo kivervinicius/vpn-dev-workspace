@@ -7,6 +7,9 @@ services:
       HOME: /home/developer
       PATH: /home/developer/.local/bin:/home/developer/.opencode/bin:/home/developer/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       SSH_AUTH_SOCK: /tmp/vpn-ssh-agent.sock
+      # TUI sem placa de som: device default do ALSA -> null (evita mensagens
+      # "ALSA lib ..." quebrando a tela quando attention.sound esta ligado).
+      ALSA_CONFIG_PATH: /etc/alsa-null.conf
       # Mapeamento host<->container usado pelo vpn-session-sync para reescrever os
       # diretorios gravados nas conversas (sessoes do Windows nao resolvem aqui).
       VPN_HOST_WORKSPACE_DIR: ${WINDOWS_WORKSPACE_DIR:?WINDOWS_WORKSPACE_DIR is required}
@@ -32,6 +35,7 @@ services:
       - ./scripts/vpn-hosts-apply:/usr/local/bin/vpn-hosts-apply:ro
       - ./scripts/vpn-ssh-agent-relay:/usr/local/bin/vpn-ssh-agent-relay:ro
       - ./scripts/vpn-home-link:/usr/local/bin/vpn-home-link:ro
+      - ./config/alsa-null.conf:/etc/alsa-null.conf:ro
       # Paridade com o host: home Windows inteira em /mnt/host-home. O boot roda
       # vpn-home-link (symlinks configuraveis por WINDOWS_HOME_LINKS).
       # SQLite (.local/share/opencode) NAO e linkado (File Sharing sem locks
@@ -53,6 +57,7 @@ services:
       HOME: /home/developer
       PATH: /home/developer/.opencode/bin:/home/developer/.local/bin:/home/developer/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       SSH_AUTH_SOCK: /tmp/vpn-ssh-agent.sock
+      ALSA_CONFIG_PATH: /etc/alsa-null.conf
       WINDOWS_SSH_BRIDGE_HOST: ${WINDOWS_SSH_BRIDGE_HOST:-host.docker.internal}
       WINDOWS_SSH_BRIDGE_PORT: ${WINDOWS_SSH_BRIDGE_PORT:?WINDOWS_SSH_BRIDGE_PORT is required}
       WINDOWS_SSH_BRIDGE_TOKEN: ${WINDOWS_SSH_BRIDGE_TOKEN:?WINDOWS_SSH_BRIDGE_TOKEN is required}
@@ -67,6 +72,7 @@ services:
       - ./scripts/vpn-server-rotate:/usr/local/bin/vpn-server-rotate:ro
       - ./scripts/vpn-ssh-agent-relay:/usr/local/bin/vpn-ssh-agent-relay:ro
       - ./scripts/vpn-home-link:/usr/local/bin/vpn-home-link:ro
+      - ./config/alsa-null.conf:/etc/alsa-null.conf:ro
       # Paridade com o host: home Windows inteira em /mnt/host-home; o boot roda
       # vpn-home-link (symlinks configuraveis via WINDOWS_HOME_LINKS). SQLite
       # NAO e linkado (File Sharing sem locks POSIX); sessoes via snapshot no

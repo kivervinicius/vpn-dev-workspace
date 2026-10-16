@@ -11,7 +11,13 @@ This file should stay small. Refresh it after substantive work or run `orquestra
 - Worklog archive: `HANDOFFS/WORKLOG_ARCHIVE.md`
 
 ## Latest Work
-- Current: caminhos Windows das instruções do host resolvidos no container
+- Current: TUI sem ruído de ALSA (2026-10-16 VIII): `config/alsa-null.conf`
+  redireciona o device `default` do ALSA para o plugin `null` e o
+  `compose.windows.yml` aponta `ALSA_CONFIG_PATH` para ele (terminal +
+  supervisor) — sem isso, `attention.sound` do `cli.json` compartilhado
+  imprimia `ALSA lib ... Unknown PCM default` e quebrava a tela. Suite 42/42,
+  Pester 9/9, verify-docs OK. Commit/push ficam com o usuario.
+- Previous: caminhos Windows das instruções do host resolvidos no container
   (2026-10-16 VII): `vpn-home-link` cria a árvore de compatibilidade
   (`$HOME/C:/Users/<user>` → `/mnt/host-home`, `$HOME/C:/Dev` → `/workspace`),
   fazendo `rules.md`/`maestro.md`/`PERSISTENCE.md`/`SKILLS_INDEX.md`/skills do

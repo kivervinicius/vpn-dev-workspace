@@ -343,6 +343,11 @@ configurável via `WINDOWS_HOME_LINKS` no `.env` (itens relativos à home).
 Plugins declarados no `package.json` do host são instalados no container
 (`node_modules` Windows nunca é usado).
 
+Som/ALSA: o container não tem placa de som e o `cli.json` compartilhado liga
+`sound`, então o device default do ALSA é redirecionado para o plugin `null`
+(`config/alsa-null.conf`), evitando linhas `ALSA lib ... Unknown PCM default`
+que quebrariam a TUI do OpenCode.
+
 O histórico/conversas (`~/.local/share/opencode`) **não** é linkado porque o
 SQLite (WAL) não funciona sobre o File Sharing do Docker Desktop (sem locks
 POSIX). Em vez disso as conversas são **sincronizadas automaticamente**: o

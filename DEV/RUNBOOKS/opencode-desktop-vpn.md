@@ -138,6 +138,11 @@ Limitações: o binário (`~/.opencode/bin`) e o `node_modules` do container
 ficam no volume; configs com caminhos Windows (`C:\...`) podem gerar avisos
 inofensivos no Linux.
 
+Som: sem placa de som no container, `attention.sound` (ligado no `cli.json`
+compartilhado) imprimia `ALSA lib ... Unknown PCM default` no terminal. O
+`compose.windows.yml` aponta `ALSA_CONFIG_PATH` para `config/alsa-null.conf`
+(device default -> plugin `null`): o som vira no-op silencioso.
+
 Ao atualizar o Desktop, atualize na MESMA alteração:
 
 1. `Dockerfile`: `OPENCODE_VERSION` e os `sha256` das duas arquiteturas
