@@ -4,20 +4,36 @@ This file should stay small. Refresh it after substantive work or run `orquestra
 
 ## Snapshot
 
-- Updated: 2026-10-16 (III)
+- Updated: 2026-10-17
 - Read order: `INDEX.md` -> `HANDOFF.md` -> `CONTEXT.md` -> `SPECS/ACTIVE.md`
 - Active spec: `SPECS/ACTIVE.md`
 - Verification source: `VERIFY.md`
 - Worklog archive: `HANDOFFS/WORKLOG_ARCHIVE.md`
 
 ## Latest Work
-- Current: XKIRO_API_KEY no container (2026-10-17): modelos free do xKiro
+- Current: XKIRO_API_KEY validado no runtime (2026-10-17): a chave chega ao
+  container por `.secrets/xkiro_api_key` e o `vpn-opencode-wrapper` a exporta;
+  o modelo do print (`xkiro/meta/muse-spark-1.3-contributor:free`) foi
+  aposentado pelo provider hoje (`Model ... was retired`) e o default
+  `xkiro/qwen/qwen3-coder-plus:free` inicia sem o erro do Console. De quebra:
+  wrapper movido para `/opt/vpn/bin/opencode` (evita `.local` root-owned em
+  volume novo), `NPM_CONFIG_CACHE` no compose (o `.npmrc` do host tem cache
+  `D:\...`) e CLI 2.0.28 reinstalado apos o reset do volume.
+- Previous: Ambiente Docker restaurado; stack religada (2026-10-17). O store do
+  Docker Desktop estava corrompido (containerd bbolt) e foi resetado; engine
+  religado via CLI oficial (`docker desktop start`), dados em
+  `D:\Docker\vm-data` (junction a partir de `%LOCALAPPDATA%\Docker\vm-data`),
+  VM com 3GB. `.\scripts\vpn.ps1 start custom-openvpn` subiu os 3 containers
+  (vpn/terminal/auto-reconnect) healthy; `vpn-status`: IP publico 189.1.170.11
+  (Sao Paulo). Runtime do XKIRO_API_KEY no container agora desbloqueado.
+  Detalhes em `WORKLOG.md` e `VERIFY.md`.
+- Previous: XKIRO_API_KEY no container (2026-10-17): modelos free do xKiro
   respondiam `Error from provider (Console): free tier can only be used from
   within OpenCode` no container (no host funcionava). A chave do host agora
   chega por `.secrets/xkiro_api_key` (`XKIRO_API_KEY_FILE` no `.env`), montada
   em `/run/secrets/xkiro_api_key` e exportada pelo `vpn-opencode-wrapper` (TUI,
-  run e serve) e pelo boot do supervisor. Estatico OK; runtime pendente (Docker
-  Desktop nao sobe o engine no momento).
+  run e serve) e pelo boot do supervisor. Estatico OK; runtime ficou pendente
+  naquele momento (Docker Desktop sem engine) — desbloqueado na entrada atual.
 - Previous: título da aba replica o container + status de IA (2026-10-16 IX):
   `scripts/vpn-shell` (TERM/COLORTERM/TERM_PROGRAM, marca `VPN ▸ …`, restore,
   allow-rename no tmux) + `TERM` no Compose (exec direto herda do host) +

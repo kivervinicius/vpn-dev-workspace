@@ -136,7 +136,9 @@ de aplicar e mantém backup do banco substituído.
 
 Limitações: o binário (`~/.opencode/bin`) e o `node_modules` do container
 ficam no volume; configs com caminhos Windows (`C:\...`) podem gerar avisos
-inofensivos no Linux.
+inofensivos no Linux. Em especial, um `.npmrc` do host com `cache`/`prefix`
+apontando para `D:\...` quebra o npm no container — por isso o compose define
+`NPM_CONFIG_CACHE=/home/developer/.npm`.
 
 Som: sem placa de som no container, `attention.sound` (ligado no `cli.json`
 compartilhado) imprimia `ALSA lib ... Unknown PCM default` no terminal. O

@@ -5,8 +5,11 @@ services:
   terminal:
     environment:
       HOME: /home/developer
-      PATH: /home/developer/.local/bin:/home/developer/.opencode/bin:/home/developer/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      PATH: /opt/vpn/bin:/home/developer/.local/bin:/home/developer/.opencode/bin:/home/developer/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       SSH_AUTH_SOCK: /tmp/vpn-ssh-agent.sock
+      # O .npmrc do host pode ter cache/prefix com caminho Windows (D:\...);
+      # dentro do container o cache fica na home Linux.
+      NPM_CONFIG_CACHE: /home/developer/.npm
       # TUI sem placa de som: device default do ALSA -> null (evita mensagens
       # "ALSA lib ..." quebrando a tela quando attention.sound esta ligado).
       ALSA_CONFIG_PATH: /etc/alsa-null.conf
@@ -46,9 +49,9 @@ services:
       - type: bind
         source: ${HOST_HOME_DIR:?HOST_HOME_DIR is required}
         target: /mnt/host-home
-      # Wrapper do opencode (prioridade no PATH): importa as conversas do host
-      # ao abrir e publica no staging ao fechar, sem comandos manuais.
-      - ./scripts/vpn-opencode-wrapper:/home/developer/.local/bin/opencode:ro
+      # Wrapper do opencode fora da home: evita que o bind mount crie diretorios
+      # root-owned em /home/developer (volume novo) e quebre ~/.local/share.
+      - ./scripts/vpn-opencode-wrapper:/opt/vpn/bin/opencode:ro
       - ./scripts/vpn-session-sync:/usr/local/bin/vpn-session-sync:ro
       - ./.vpn/sync:/tmp/vpn-session-sync
     working_dir: /workspace
@@ -61,6 +64,7 @@ services:
       PATH: /home/developer/.opencode/bin:/home/developer/.local/bin:/home/developer/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       SSH_AUTH_SOCK: /tmp/vpn-ssh-agent.sock
       ALSA_CONFIG_PATH: /etc/alsa-null.conf
+      NPM_CONFIG_CACHE: /home/developer/.npm
       WINDOWS_SSH_BRIDGE_HOST: ${WINDOWS_SSH_BRIDGE_HOST:-host.docker.internal}
       WINDOWS_SSH_BRIDGE_PORT: ${WINDOWS_SSH_BRIDGE_PORT:?WINDOWS_SSH_BRIDGE_PORT is required}
       WINDOWS_SSH_BRIDGE_TOKEN: ${WINDOWS_SSH_BRIDGE_TOKEN:?WINDOWS_SSH_BRIDGE_TOKEN is required}

@@ -1,5 +1,18 @@
 # Verify
 
+## Latest Verification - 2026-10-17 (ambiente Docker restaurado; stack religada)
+
+### Passaram
+
+- Engine: `docker desktop start` -> `SERVER=29.8.2` (Docker Desktop 4.94.0, containerd 2.3.6); dados em `D:\Docker\vm-data` via junction; pull+build+run do ciclo completo sem incidente.
+- Stack: `.\scripts\vpn.ps1 start custom-openvpn` -> 3 containers de pe (`vpn-1` e `vpn-auto-reconnect-1` healthy); `LOCAL_HOSTS` (`host.docker.internal`) aplicado no terminal.
+- `vpn-status` no terminal: `VPN: running`, `Perfil: custom (openvpn)`, `IP publico: 189.1.170.11 (Sao Paulo, Brazil)`; `docker exec ... sh -c "whoami"` -> `developer`.
+
+### Nao rodaram / observacoes
+
+- Runtime do `XKIRO_API_KEY` (TUI `xkiro/meta/muse-spark-1.3-contributor:free`) agora possivel (engine de pe); nao executado nesta rodada.
+- Push das conversas do container pendente (OpenCode do host ativo durante o start): fechar e rodar `.\scripts\vpn.ps1 sessions-sync --push`.
+
 ## Latest Verification - 2026-10-17 (XKIRO_API_KEY no container)
 
 ### Passaram
@@ -7,9 +20,16 @@
 - Estatico: `bash -n` (wrapper, suite e verify-docs) OK; `docker compose config` resolve o mount do segredo (`.secrets/xkiro_api_key` -> `/run/secrets/xkiro_api_key`, ro) no terminal e no supervisor.
 - Diagnostico: o host tem `XKIRO_API_KEY` no ambiente do usuario; o container nao a recebia. O gateway (api.xkiro.com) responde 401 sem a chave; a mensagem do Console nao existe no binario (vem do servidor).
 
-### Nao rodaram / observacoes
+### Runtime (feito no container)
 
-- Runtime (TUI no container com `xkiro/meta/muse-spark-1.3-contributor:free`) pendente: o Docker Desktop nao esta subindo o engine (daemon 500 em `docker ps`; VM desligada).
+- `/run/secrets/xkiro_api_key` montado (54 bytes); o wrapper exporta `XKIRO_API_KEY` antes do binário real.
+- `xkiro/meta/muse-spark-1.3-contributor:free` (o modelo do print) → `Model "..." was retired by its provider on 2026-10-17` (aposentado pelo provider hoje) — trocar de modelo.
+- `xkiro/qwen/qwen3-coder-plus:free` (default da config) inicia sem o erro do Console.
+- Reset do backend do Docker (troca para o distro Ubuntu) recriou o volume `vpn_windows_home`: CLI 2.0.28 reinstalado; `/home/developer/.local` estava root-owned e foi corrigido (`docker run -u root` sobre o volume, pois o terminal tem `cap_drop: ALL`); `.npmrc` do host tem `cache=D:\...` → `NPM_CONFIG_CACHE=/home/developer/.npm` no compose; wrapper movido para `/opt/vpn/bin/opencode` (o bind mount em `~/.local/bin` criava diretórios root-owned na home).
+
+### Não rodaram / observações
+
+- Suíte Linux/CI: o teste 13 (wrapper carrega a chave) roda na CI; não foi possível rodar a suíte localmente durante a janela de instabilidade do Docker.
 
 ## Latest Verification - 2026-10-16 IX (título da aba + vpn-ai)
 

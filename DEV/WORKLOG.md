@@ -2,11 +2,18 @@
 
 Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for older entries after compaction.
 
+## 2026-10-17 - Ambiente Docker restaurado; stack religada (custom-openvpn)
+
+- Changed: nenhuma alteracao no codigo do projeto. Restauracao de ambiente da maquina: store do Docker Desktop estava corrompido (containerd bbolt panic) e foi resetado; engine religado pelo CLI oficial (`docker desktop start`), dados redirecionados para `D:\Docker\vm-data` (junction em `%LOCALAPPDATA%\Docker\vm-data`), memoria do VM reduzida para 3GB; stack religada com `.\scripts\vpn.ps1 start custom-openvpn`.
+- Why: `docker ps` respondia 500/engine parado e o terminal VPN nao subia (a entrada XKIRO ficou com runtime pendente por isso).
+- Verified: pull do gluetun + build das duas imagens + os 3 containers de pe (`vpn-1` e `vpn-auto-reconnect-1` healthy); `vpn-status` no container: `VPN: running`, `IP publico: 189.1.170.11 (Sao Paulo, Brazil)`; `docker exec` como `developer` OK; engine 29.8.2 estavel sob o ciclo completo (pull+build+run).
+- Next context: runtime do `XKIRO_API_KEY` no container agora desbloqueado (rodar a TUI com `xkiro/meta/muse-spark-1.3-contributor:free`). Conversas do container ficaram pendentes de push no host (OpenCode do host ativo durante o start): fechar e rodar `.\scripts\vpn.ps1 sessions-sync --push`.
+
 ## 2026-10-17 - XKIRO_API_KEY no container (erro do Console em modelos free)
 
 - Changed: a chave do provider xKiro passa a chegar ao container por arquivo de segredo: `.secrets/xkiro_api_key` (criado a partir da env do host), `XKIRO_API_KEY_FILE` no `.env`, mount `${XKIRO_API_KEY_FILE:-/dev/null}:/run/secrets/xkiro_api_key:ro` no terminal e no supervisor; `vpn-opencode-wrapper` exporta `XKIRO_API_KEY` antes de abrir o OpenCode (vale para TUI, `run` e `serve`) e o boot do supervisor faz o mesmo export.
 - Why: dentro do container, modelos free do xKiro (ex.: `xkiro/meta/muse-spark-1.3-contributor:free`) respondiam `Error from provider (Console): OpenCode's free tier can only be used from within OpenCode`; no host funcionava. Diferenca encontrada: o host tem `XKIRO_API_KEY` no ambiente do usuario e o container nao recebia a chave (o provider e um gateway OpenAI-compatible que repassa os free para o Console).
-- Verified: (pendente de runtime — Docker Desktop precisou ser reiniciado; suite/testes a rodar).
+- Verified: runtime no container: `/run/secrets/xkiro_api_key` montado (54 bytes) e o wrapper exporta a chave; o modelo do print (`xkiro/meta/muse-spark-1.3-contributor:free`) agora responde `Model ... was retired by its provider on 2026-10-17` (aposentado hoje) e o default `xkiro/qwen/qwen3-coder-plus:free` inicia sem o erro do Console. Efeitos colaterais do reset do backend do Docker resolvidos junto: volume da home recriado (CLI 2.0.28 reinstalado), `/home/developer/.local` estava root-owned (corrigido via container avulso) e o `.npmrc` do host tem cache `D:\...` (agora `NPM_CONFIG_CACHE` no compose); wrapper movido para `/opt/vpn/bin/opencode` para nao criar diretorios root-owned na home.
 - Next context: `XKIRO_API_KEY_FILE` default e `/dev/null` (nada e montado); o wrapper faz fail-open quando o arquivo nao existe.
 
 ## 2026-10-16 (VIII) - TUI sem ruido de ALSA no container
