@@ -273,6 +273,10 @@ grep -Fq 'alsa-null.conf' "$WINDOWS_COMPOSE_FILE" || {
   echo "Erro: config ALSA nula ausente do Compose Windows (TUI sem placa de som)." >&2
   fails=$((fails + 1))
 }
+grep -Fq 'xkiro_api_key' "$WINDOWS_COMPOSE_FILE" || {
+  echo "Erro: segredo do provider xKiro ausente do Compose Windows." >&2
+  fails=$((fails + 1))
+}
 grep -Fq 'vpn.ps1' "$README_FILE" || {
   echo "Erro: interface PowerShell não está documentada no README." >&2
   fails=$((fails + 1))

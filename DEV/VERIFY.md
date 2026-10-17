@@ -1,5 +1,16 @@
 # Verify
 
+## Latest Verification - 2026-10-17 (XKIRO_API_KEY no container)
+
+### Passaram
+
+- Estatico: `bash -n` (wrapper, suite e verify-docs) OK; `docker compose config` resolve o mount do segredo (`.secrets/xkiro_api_key` -> `/run/secrets/xkiro_api_key`, ro) no terminal e no supervisor.
+- Diagnostico: o host tem `XKIRO_API_KEY` no ambiente do usuario; o container nao a recebia. O gateway (api.xkiro.com) responde 401 sem a chave; a mensagem do Console nao existe no binario (vem do servidor).
+
+### Nao rodaram / observacoes
+
+- Runtime (TUI no container com `xkiro/meta/muse-spark-1.3-contributor:free`) pendente: o Docker Desktop nao esta subindo o engine (daemon 500 em `docker ps`; VM desligada).
+
 ## Latest Verification - 2026-10-16 IX (título da aba + vpn-ai)
 
 ### Passaram

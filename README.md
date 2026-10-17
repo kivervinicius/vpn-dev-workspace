@@ -354,6 +354,12 @@ Som/ALSA: o container não tem placa de som e o `cli.json` compartilhado liga
 (`config/alsa-null.conf`), evitando linhas `ALSA lib ... Unknown PCM default`
 que quebrariam a TUI do OpenCode.
 
+Provider xKiro: a `XKIRO_API_KEY` existe no ambiente do Windows, mas o
+container não a herda. Ela é montada de `.secrets/xkiro_api_key`
+(`XKIRO_API_KEY_FILE` no `.env`) e exportada pelo `vpn-opencode-wrapper`;
+sem isso, modelos free respondem `free tier can only be used from within
+OpenCode`.
+
 O histórico/conversas (`~/.local/share/opencode`) **não** é linkado porque o
 SQLite (WAL) não funciona sobre o File Sharing do Docker Desktop (sem locks
 POSIX). Em vez disso as conversas são **sincronizadas automaticamente**: o

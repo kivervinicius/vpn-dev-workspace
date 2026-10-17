@@ -2,6 +2,13 @@
 
 Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for older entries after compaction.
 
+## 2026-10-17 - XKIRO_API_KEY no container (erro do Console em modelos free)
+
+- Changed: a chave do provider xKiro passa a chegar ao container por arquivo de segredo: `.secrets/xkiro_api_key` (criado a partir da env do host), `XKIRO_API_KEY_FILE` no `.env`, mount `${XKIRO_API_KEY_FILE:-/dev/null}:/run/secrets/xkiro_api_key:ro` no terminal e no supervisor; `vpn-opencode-wrapper` exporta `XKIRO_API_KEY` antes de abrir o OpenCode (vale para TUI, `run` e `serve`) e o boot do supervisor faz o mesmo export.
+- Why: dentro do container, modelos free do xKiro (ex.: `xkiro/meta/muse-spark-1.3-contributor:free`) respondiam `Error from provider (Console): OpenCode's free tier can only be used from within OpenCode`; no host funcionava. Diferenca encontrada: o host tem `XKIRO_API_KEY` no ambiente do usuario e o container nao recebia a chave (o provider e um gateway OpenAI-compatible que repassa os free para o Console).
+- Verified: (pendente de runtime — Docker Desktop precisou ser reiniciado; suite/testes a rodar).
+- Next context: `XKIRO_API_KEY_FILE` default e `/dev/null` (nada e montado); o wrapper faz fail-open quando o arquivo nao existe.
+
 ## 2026-10-16 (VIII) - TUI sem ruido de ALSA no container
 
 - Changed: `config/alsa-null.conf` (novo) carrega a config do sistema e aponta o device `default` do ALSA para o plugin `null`; `compose.windows.yml` (terminal + supervisor) define `ALSA_CONFIG_PATH=/etc/alsa-null.conf` e monta o arquivo. Trava nova no `verify-docs` e teste 12 na suite Linux.

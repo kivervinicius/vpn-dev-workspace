@@ -214,7 +214,24 @@ test_alsa_null_conf() {
 }
 run_test "alsa-null.conf redireciona o device default para null" test_alsa_null_conf
 
-# 13. Classificação HTTP do vpn-opencode check. Precisa de socat para servir
+# 13. Wrapper carrega XKIRO_API_KEY do arquivo de segredo (o container nao herda
+# o ambiente do host; vale para TUI, run e serve).
+test_wrapper_xkiro_key() {
+  local sandbox fake_bin keyfile out
+  sandbox="$(mktemp -d)"
+  fake_bin="${sandbox}/opencode-real"
+  keyfile="${sandbox}/xkiro_key"
+  printf '#!/usr/bin/env bash\necho "KEY=${XKIRO_API_KEY:-}"\n' > "$fake_bin"
+  chmod +x "$fake_bin"
+  printf 'chave-de-teste\n' > "$keyfile"
+  out="$(env -u XKIRO_API_KEY "VPN_OPENCODE_REAL=${fake_bin}" "VPN_XKIRO_KEY_FILE=${keyfile}" \
+    bash "${SCRIPTS_DIR}/vpn-opencode-wrapper" foo 2>/dev/null)"
+  rm -rf "${sandbox}"
+  [[ "$out" == "KEY=chave-de-teste" ]]
+}
+run_test "wrapper carrega XKIRO_API_KEY do arquivo de segredo" test_wrapper_xkiro_key
+
+# 14. Classificação HTTP do vpn-opencode check. Precisa de socat para servir
 # respostas; sem ele o bloco é pulado em vez de reprovar a suíte.
 if command -v socat >/dev/null 2>&1; then
   # O check abre a conexão uma vez para o teste de TCP e outra para o HTTP,

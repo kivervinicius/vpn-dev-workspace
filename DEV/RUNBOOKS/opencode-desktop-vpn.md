@@ -143,6 +143,13 @@ compartilhado) imprimia `ALSA lib ... Unknown PCM default` no terminal. O
 `compose.windows.yml` aponta `ALSA_CONFIG_PATH` para `config/alsa-null.conf`
 (device default -> plugin `null`): o som vira no-op silencioso.
 
+> **Provider xKiro / modelos free ("Console"):** o host tem `XKIRO_API_KEY` no
+> ambiente; o container não herda isso. A chave é montada de
+> `.secrets/xkiro_api_key` (`XKIRO_API_KEY_FILE` no `.env`) e exportada pelo
+> `vpn-opencode-wrapper` antes de abrir o OpenCode. Sem ela, modelos free do
+> xKiro respondem `Error from provider (Console): OpenCode's free tier can only
+> be used from within OpenCode`.
+
 Ao atualizar o Desktop, atualize na MESMA alteração:
 
 1. `Dockerfile`: `OPENCODE_VERSION` e os `sha256` das duas arquiteturas

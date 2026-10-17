@@ -11,7 +11,14 @@ This file should stay small. Refresh it after substantive work or run `orquestra
 - Worklog archive: `HANDOFFS/WORKLOG_ARCHIVE.md`
 
 ## Latest Work
-- Current: título da aba replica o container + status de IA (2026-10-16 IX):
+- Current: XKIRO_API_KEY no container (2026-10-17): modelos free do xKiro
+  respondiam `Error from provider (Console): free tier can only be used from
+  within OpenCode` no container (no host funcionava). A chave do host agora
+  chega por `.secrets/xkiro_api_key` (`XKIRO_API_KEY_FILE` no `.env`), montada
+  em `/run/secrets/xkiro_api_key` e exportada pelo `vpn-opencode-wrapper` (TUI,
+  run e serve) e pelo boot do supervisor. Estatico OK; runtime pendente (Docker
+  Desktop nao sobe o engine no momento).
+- Previous: título da aba replica o container + status de IA (2026-10-16 IX):
   `scripts/vpn-shell` (TERM/COLORTERM/TERM_PROGRAM, marca `VPN ▸ …`, restore,
   allow-rename no tmux) + `TERM` no Compose (exec direto herda do host) +
   `scripts/vpn-title-hook.zsh` opt-in com `vpn-ai` (🤖/✅❌ grudento — opencode

@@ -36,6 +36,9 @@ services:
       - ./scripts/vpn-ssh-agent-relay:/usr/local/bin/vpn-ssh-agent-relay:ro
       - ./scripts/vpn-home-link:/usr/local/bin/vpn-home-link:ro
       - ./config/alsa-null.conf:/etc/alsa-null.conf:ro
+      # Chave do provider xKiro (gateway -> Console) para o OpenCode do
+      # container. O host tem XKIRO_API_KEY no ambiente; aqui vem por arquivo.
+      - ${XKIRO_API_KEY_FILE:-/dev/null}:/run/secrets/xkiro_api_key:ro
       # Paridade com o host: home Windows inteira em /mnt/host-home. O boot roda
       # vpn-home-link (symlinks configuraveis por WINDOWS_HOME_LINKS).
       # SQLite (.local/share/opencode) NAO e linkado (File Sharing sem locks
@@ -73,6 +76,7 @@ services:
       - ./scripts/vpn-ssh-agent-relay:/usr/local/bin/vpn-ssh-agent-relay:ro
       - ./scripts/vpn-home-link:/usr/local/bin/vpn-home-link:ro
       - ./config/alsa-null.conf:/etc/alsa-null.conf:ro
+      - ${XKIRO_API_KEY_FILE:-/dev/null}:/run/secrets/xkiro_api_key:ro
       # Paridade com o host: home Windows inteira em /mnt/host-home; o boot roda
       # vpn-home-link (symlinks configuraveis via WINDOWS_HOME_LINKS). SQLite
       # NAO e linkado (File Sharing sem locks POSIX); sessoes via snapshot no
@@ -81,7 +85,7 @@ services:
         source: ${HOST_HOME_DIR:?HOST_HOME_DIR is required}
         target: /mnt/host-home
     working_dir: /workspace
-    command: ["bash", "-lc", "/usr/local/bin/vpn-home-link; /usr/local/bin/vpn-ssh-agent-relay & exec bash /usr/local/bin/opencode-supervisor"]
+    command: ["bash", "-lc", "if [ -r /run/secrets/xkiro_api_key ]; then export XKIRO_API_KEY=\"$(tr -d '\\r\\n' < /run/secrets/xkiro_api_key)\"; fi; /usr/local/bin/vpn-home-link; /usr/local/bin/vpn-ssh-agent-relay & exec bash /usr/local/bin/opencode-supervisor"]
 
 volumes:
   vpn_windows_home:

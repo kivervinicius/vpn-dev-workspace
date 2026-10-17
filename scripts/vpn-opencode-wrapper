@@ -11,6 +11,15 @@ set -uo pipefail
 
 readonly REAL_OPENCODE="${VPN_OPENCODE_REAL:-/home/developer/.opencode/bin/opencode}"
 readonly SYNC_HELPER="${VPN_OPENCODE_SYNC:-/usr/local/bin/vpn-session-sync}"
+readonly XKIRO_KEY_FILE="${VPN_XKIRO_KEY_FILE:-/run/secrets/xkiro_api_key}"
+
+# O container nao herda o ambiente do host: carrega a chave do provider xKiro
+# (gateway -> Console) do segredo montado, quando presente. Vale para TUI,
+# `run` e `serve` (qualquer invocacao deste wrapper).
+if [[ -z "${XKIRO_API_KEY:-}" && -r "$XKIRO_KEY_FILE" ]]; then
+  XKIRO_API_KEY="$(tr -d '\r\n' < "$XKIRO_KEY_FILE")"
+  export XKIRO_API_KEY
+fi
 
 usage() {
   echo "Uso: opencode [--help]" >&2
