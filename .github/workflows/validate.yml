@@ -12,7 +12,7 @@ jobs:
   validate:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Install ShellCheck, socat and zsh
         # socat é usado pela suíte para servir respostas HTTP nos testes de
         # classificação do `vpn-opencode check`; zsh valida o hook de título
@@ -44,7 +44,7 @@ jobs:
   secret-scan:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Scan do historico por segredos (gitleaks pinado por digest)
@@ -58,7 +58,7 @@ jobs:
   validate-windows-cli:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Test PowerShell interface with simulated Docker
         shell: pwsh
         run: Invoke-Pester -Path tests/windows -CI
