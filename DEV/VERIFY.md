@@ -1,5 +1,18 @@
 # Verify
 
+## Latest Verification - 2026-10-21 (repo pós-share; suíte 44/44 no host e em container)
+
+### Passaram
+
+- `./scripts/verify-docs` ("Documentação e perfis consistentes."), `./scripts/verify-compose` (8 perfis), `bash -n scripts/*`, `sh -n scripts/vpn-entrypoint.sh`, `git diff --check`.
+- Suíte Linux 44/44 **no host com a stack no ar** (após tornar a suíte host-safe) e 44/44 em container descartável (`docker run --rm` da imagem `vpn-dev-workspace-terminal`).
+- Git: `master` == `origin/master` (0/0); nenhum segredo rastreado (`.secrets/*` em 600).
+
+### Não rodaram / observações
+
+- Antes do ajuste, os 9 falsos negativos no host tinham causas ambientais: `~/.local/bin/env` sombreia o coreutils `env` (35/39); portas fixas 10061-10065 ocupadas pela faixa publicada 10000-10100 (40-44); `container_busy` lê o `/proc` do host e via `opencode serve` vivo (36/37). Corrigido na suíte: `/usr/bin/env`, porta livre + `VPN_PORT_RANGE` restrita, stub de `docker` e `VPN_SESSION_SYNC_FORCE=1` (opt-out do busy).
+- ShellCheck local ausente (sem binário e sem imagem); coberto pela CI (`validate.yml`).
+
 ## Latest Verification - 2026-10-17 (ambiente Docker restaurado; stack religada)
 
 ### Passaram

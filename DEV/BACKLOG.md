@@ -20,6 +20,7 @@ explicitamente descartado.
 | 12 | Robustez 2026-10-16: wait da ponte SSH 5s→30s, teste Pester de `WORKSPACE_DIR`, mascaramento de credenciais no `vpn-top --json` + teste na suíte Linux | média | feito 2026-10-16 |
 | 13 | Paridade OpenCode host↔container no modo Windows (skills/config via mounts em `compose.windows.yml`; SQLite/sessoes isolados por limitacao do File Sharing) | média | feito 2026-10-16 |
 | 14 | Paridade completa da home Windows: `/mnt/host-home` + `vpn-home-link` (symlinks via `WINDOWS_HOME_LINKS`) + snapshot de sessoes do OpenCode no start/stop | média | feito 2026-10-16 |
+| 15 | Suíte Linux frágil no host (env puro, portas fixas 10061-10065, `/proc` do host): corrigido com `/usr/bin/env`, porta livre + `VPN_PORT_RANGE` restrita, stub de `docker` e `VPN_SESSION_SYNC_FORCE=1`; 44/44 no host e em container | média | feito 2026-10-21 |
 
 Descartados: nenhum. "ShellCheck na CI" saiu daqui — já existe em
 `.github/workflows/validate.yml:16-19` (era pendência fantasma).

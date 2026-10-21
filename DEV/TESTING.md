@@ -22,6 +22,11 @@
 - Compose/build/ShellCheck: rodam na CI (`validate.yml`) e no host com Docker;
   `verify-compose` valida interpolação dos 8 perfis com segredos `/dev/null`
   e o snippet do `vpn-hosts-gen` + dry-run do `vpn-hosts-apply`.
+- Suíte host-safe: roda com a stack no ar — `/usr/bin/env` (não o `env` do
+  PATH), bloco HTTP em porta livre (20000-20100, probe via `timeout socat`) com
+  `VPN_PORT_RANGE` restrita à porta e stub de `docker` (evita `docker compose
+  logs` do terminal real); `VPN_SESSION_SYNC_FORCE=1` é o opt-out do
+  `container_busy` do `vpn-session-sync` (só nos testes).
 - Fixtures sem Docker: `vpn-hosts-gen` com entradas válidas/inválidas
   (exit 2 + mensagem) e `VPN_HOSTS_OVERRIDE_FILE` temporário;
   `vpn-hosts-import --domain` contra fixture de hosts; `vpn-check` com

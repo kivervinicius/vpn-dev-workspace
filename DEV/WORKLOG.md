@@ -359,3 +359,18 @@ Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for 
 - Verified: sob pty, `vpn-ai true` → sequência `🤖…`, `✅…`, `✅…` (hook reaplica após o precmd do OMZ); `vpn-ai false` → `❌… (exit 1)` com exit code preservado; `verify-docs` OK (snippet sem +x, fora do loop --help).
 - Risks: requer `source` manual no `.zshrc`; hook roda após o precmd do OMZ (ordem de registro) — re-source duplo é idempotente.
 - Next context: uso real com sessão longa de IA no GNOME pendente de confirmação do usuário.
+
+## 2026-10-21 - Repo verificado + suíte Linux determinística no host
+
+- Changed: `tests/linux/test-scripts.sh` (usa `/usr/bin/env`; bloco HTTP escolhe porta livre em 20000-20100 com probe via `timeout socat` e restringe `VPN_PORT_RANGE` à porta; stub de `docker` evita ler logs reais do terminal); `scripts/vpn-session-sync` (`VPN_SESSION_SYNC_FORCE=1` como opt-out explícito do `container_busy`, usado só pelos testes); memória DEV (este WORKLOG, `VERIFY.md`, `HANDOFF.md`, `BACKLOG.md` #15, `CONTEXT.md`, `TESTING.md`).
+- Why: a suíte falhava no host (9 falsos negativos ambientais) — `~/.local/bin/env` sombreia o coreutils `env`; portas fixas 10061-10065 colidem com a faixa 10000-10100 publicada pela stack; e `vpn-session-sync` via `opencode serve` vivo no `/proc` do host.
+- Verified: suíte Linux **44/44 no host com a stack no ar** e **44/44 em container descartável** (`vpn-dev-workspace-terminal`); `verify-docs` OK; `verify-compose` OK (8 perfis); `bash -n`/`sh -n`/`git diff --check` OK; `master` == `origin/master` (0/0); nenhum segredo rastreado (`.secrets/*` em 600).
+- Next context: ShellCheck segue só na CI; o `docker_stub` cobre só o bloco HTTP (integração real do `check` com a stack continua em runtime).
+
+## 2026-10-19 - Pacote de compartilhamento (share zip)
+
+- Changed: nenhum arquivo do workspace; artefato externo `../vpn-dev-workspace-share-2026-10-19.zip` (68 entradas, 137 KiB, sha256 `14c935c4…de32167d8`), gerado de cópia staging.
+- Why: enviar o workspace sem `.git` nem locais gerados; credenciais portáveis com `secrets.zip` **regenerado do estado vivo** (o antigo caducou com `.env` de 2026-08-19).
+- Excluded: `.git/`, `.hosts.local.gen` (regenerável) e `DEV/{WORKLOG,HANDOFF,VERIFY,BACKLOG}.md` (memória de sessão); `DEV/README.md`/`DEV/INDEX.md` adaptados no pacote. `.env` viaja como está (decisão do maestro: INTRANET/firewall/home incluídos).
+- Verified: `.secrets/*` no zip byte-idênticos ao disco; `.env` do secrets.zip idêntico ao vivo; proibidos ausentes; entradas obrigatórias presentes; `git status` limpo.
+- Next context: enviar por canal cifrado; no destino: `unzip`, `chmod 600 .secrets/*` e `./scripts/vpn-switch <perfil>`. Credentials expostas em compartilhamento futuro = trocar senha NordVPN.
