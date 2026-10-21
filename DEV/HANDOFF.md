@@ -15,8 +15,10 @@ This file should stay small. Refresh it after substantive work or run `orquestra
   com a stack no ar e em container isolado. Ajustes: `/usr/bin/env`, porta
   livre + `VPN_PORT_RANGE` restrita e stub de `docker` no bloco HTTP, e
   `VPN_SESSION_SYNC_FORCE=1` (opt-out do busy). `verify-docs`/`verify-compose`/
-  sintaxe OK; `master` em sync; sem segredos rastreados. Detalhes em
-  `VERIFY.md`/BACKLOG #15.
+  sintaxe OK; `master` em sync; sem segredos rastreados. CI verde no run
+  `39611786149` após corrigir o SC2148 do `vpn-title-hook.zsh` no workflow
+  (`.zsh` fora do ShellCheck, `zsh -n` no lugar). Detalhes em
+  `VERIFY.md`/BACKLOG #15-16.
 - Previous: XKIRO_API_KEY validado no runtime (2026-10-17): a chave chega ao
   container por `.secrets/xkiro_api_key` e o `vpn-opencode-wrapper` a exporta;
   o modelo do print (`xkiro/meta/muse-spark-1.3-contributor:free`) foi

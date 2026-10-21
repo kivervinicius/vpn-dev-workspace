@@ -11,7 +11,7 @@
 ### Não rodaram / observações
 
 - Antes do ajuste, os 9 falsos negativos no host tinham causas ambientais: `~/.local/bin/env` sombreia o coreutils `env` (35/39); portas fixas 10061-10065 ocupadas pela faixa publicada 10000-10100 (40-44); `container_busy` lê o `/proc` do host e via `opencode serve` vivo (36/37). Corrigido na suíte: `/usr/bin/env`, porta livre + `VPN_PORT_RANGE` restrita, stub de `docker` e `VPN_SESSION_SYNC_FORCE=1` (opt-out do busy).
-- ShellCheck local ausente (sem binário e sem imagem); coberto pela CI (`validate.yml`).
+- ShellCheck local ausente (sem binário e sem imagem); coberto pela CI. O primeiro run do push reprovou por dívida pré-existente (`SC2148` no `scripts/vpn-title-hook.zsh`); após excluir `*.zsh` do ShellCheck/`bash -n` e validar com `zsh -n`, o run `39611786149` ficou verde (validate + secret-scan + Windows, incl. build).
 
 ## Latest Verification - 2026-10-17 (ambiente Docker restaurado; stack religada)
 
