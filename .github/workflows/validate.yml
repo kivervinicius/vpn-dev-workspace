@@ -13,12 +13,13 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
-      - name: Install ShellCheck and socat
+      - name: Install ShellCheck, socat and zsh
         # socat é usado pela suíte para servir respostas HTTP nos testes de
-        # classificação do `vpn-opencode check`.
-        run: sudo apt-get update && sudo apt-get install --yes shellcheck socat
+        # classificação do `vpn-opencode check`; zsh valida o hook de título
+        # (`.zsh` não é suportado pelo ShellCheck e não é bash).
+        run: sudo apt-get update && sudo apt-get install --yes shellcheck socat zsh
       - name: Validate shell scripts
-        run: find scripts -maxdepth 1 -type f ! -name '*.ps1' -print0 | xargs -0 shellcheck -S error && find scripts -maxdepth 1 -type f ! -name '*.ps1' -exec bash -n {} + && sh -n scripts/vpn-entrypoint.sh && git diff --check
+        run: find scripts -maxdepth 1 -type f ! -name '*.ps1' ! -name '*.zsh' -print0 | xargs -0 shellcheck -S error && find scripts -maxdepth 1 -type f ! -name '*.ps1' ! -name '*.zsh' -exec bash -n {} + && sh -n scripts/vpn-entrypoint.sh && find scripts -maxdepth 1 -type f -name '*.zsh' -exec zsh -n {} + && git diff --check
       - name: Run Linux scripts test suite
         run: ./tests/linux/test-scripts.sh
       - name: Test OpenCode recovery classifier
