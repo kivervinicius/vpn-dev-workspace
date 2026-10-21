@@ -133,7 +133,7 @@ test_home_link() {
   mkdir -p "${host_home}/.opencode/skills" "${host_home}/.config/opencode" "${cont_home}"
   echo cfg > "${host_home}/.config/opencode/opencode.json"
   echo git > "${host_home}/.gitconfig"
-  local env_prefix=(env "HOME=${cont_home}" "HOST_HOME_MOUNT=${host_home}" "WINDOWS_HOME_LINKS=.opencode/skills .config/opencode/opencode.json .gitconfig")
+  local env_prefix=(/usr/bin/env "HOME=${cont_home}" "HOST_HOME_MOUNT=${host_home}" "WINDOWS_HOME_LINKS=.opencode/skills .config/opencode/opencode.json .gitconfig")
   "${env_prefix[@]}" bash "${SCRIPTS_DIR}/vpn-home-link" >/dev/null 2>&1 || { rm -rf "${sandbox}"; return 1; }
   [[ "$(readlink "${cont_home}/.config/opencode/opencode.json")" == "${host_home}/.config/opencode/opencode.json" ]] || { rm -rf "${sandbox}"; return 1; }
   [[ -L "${cont_home}/.opencode/skills" ]] || { rm -rf "${sandbox}"; return 1; }
@@ -142,7 +142,7 @@ test_home_link() {
   # Alvo real existente no volume vira backup antes do link.
   rm -f "${cont_home}/.gitconfig"
   echo local > "${cont_home}/.gitconfig"
-  env "HOME=${cont_home}" "HOST_HOME_MOUNT=${host_home}" "WINDOWS_HOME_LINKS=.gitconfig" \
+  /usr/bin/env "HOME=${cont_home}" "HOST_HOME_MOUNT=${host_home}" "WINDOWS_HOME_LINKS=.gitconfig" \
     bash "${SCRIPTS_DIR}/vpn-home-link" >/dev/null 2>&1 || { rm -rf "${sandbox}"; return 1; }
   [[ -L "${cont_home}/.gitconfig" && -f "${cont_home}/.gitconfig.volume-backup" ]] || { rm -rf "${sandbox}"; return 1; }
   rm -rf "${sandbox}"
@@ -158,14 +158,14 @@ test_session_sync() {
   mkdir -p "${share}" "${staging}/opencode"
   printf 'db-host' > "${staging}/opencode/opencode.db"
   printf 'wal-host' > "${staging}/opencode/opencode.db-wal"
-  # pull: staging -> home do container
-  env "HOME=${sandbox}/home" "VPN_SESSION_SYNC_DIR=${staging}" \
+  # pull: staging -> home do container (FORCE: ignora opencode serve do host).
+  /usr/bin/env "HOME=${sandbox}/home" "VPN_SESSION_SYNC_DIR=${staging}" "VPN_SESSION_SYNC_FORCE=1" \
     bash "${SCRIPTS_DIR}/vpn-session-sync" pull >/dev/null 2>&1 || { rm -rf "${sandbox}"; return 1; }
   [[ "$(cat "${share}/opencode.db")" == "db-host" ]] || { rm -rf "${sandbox}"; return 1; }
   # push: home -> staging/out (somente arquivos existentes)
   printf 'db-container' > "${share}/opencode.db"
   rm -f "${share}/opencode.db-wal"
-  env "HOME=${sandbox}/home" "VPN_SESSION_SYNC_DIR=${staging}" \
+  /usr/bin/env "HOME=${sandbox}/home" "VPN_SESSION_SYNC_DIR=${staging}" "VPN_SESSION_SYNC_FORCE=1" \
     bash "${SCRIPTS_DIR}/vpn-session-sync" push >/dev/null 2>&1 || { rm -rf "${sandbox}"; return 1; }
   [[ "$(cat "${staging}/out/opencode.db")" == "db-container" ]] || { rm -rf "${sandbox}"; return 1; }
   [[ ! -f "${staging}/out/opencode.db-wal" ]] || { rm -rf "${sandbox}"; return 1; }
@@ -185,18 +185,18 @@ test_session_sync_auto() {
   printf 'db-host' > "${host_share}/opencode.db"
   printf 'db-antigo' > "${share}/opencode.db"
   touch -d '2020-01-01 00:00:00' "${share}/opencode.db"
-  env "HOME=${sandbox}/home" "VPN_SESSION_SYNC_DIR=${staging}" "VPN_HOST_SHARE_DIR=${host_share}" "VPN_SESSION_VALIDATE=off" \
+  /usr/bin/env "HOME=${sandbox}/home" "VPN_SESSION_SYNC_DIR=${staging}" "VPN_HOST_SHARE_DIR=${host_share}" "VPN_SESSION_VALIDATE=off" "VPN_SESSION_SYNC_FORCE=1" \
     bash "${SCRIPTS_DIR}/vpn-session-sync" autopull >/dev/null 2>&1 || { rm -rf "${sandbox}"; return 1; }
   [[ "$(cat "${share}/opencode.db")" == "db-host" ]] || { rm -rf "${sandbox}"; return 1; }
   [[ -f "${share}/opencode.db.bak" ]] || { rm -rf "${sandbox}"; return 1; }
   # Container mais novo -> autopush publica no staging.
   printf 'db-container' > "${share}/opencode.db"
-  env "HOME=${sandbox}/home" "VPN_SESSION_SYNC_DIR=${staging}" "VPN_HOST_SHARE_DIR=${host_share}" "VPN_SESSION_VALIDATE=off" \
+  /usr/bin/env "HOME=${sandbox}/home" "VPN_SESSION_SYNC_DIR=${staging}" "VPN_HOST_SHARE_DIR=${host_share}" "VPN_SESSION_VALIDATE=off" "VPN_SESSION_SYNC_FORCE=1" \
     bash "${SCRIPTS_DIR}/vpn-session-sync" autopush >/dev/null 2>&1 || { rm -rf "${sandbox}"; return 1; }
   [[ "$(cat "${staging}/out/opencode.db")" == "db-container" ]] || { rm -rf "${sandbox}"; return 1; }
   # Host mais antigo -> autopull NAO sobrescreve o container.
   touch -d '2020-01-01 00:00:00' "${host_share}/opencode.db"
-  env "HOME=${sandbox}/home" "VPN_SESSION_SYNC_DIR=${staging}" "VPN_HOST_SHARE_DIR=${host_share}" "VPN_SESSION_VALIDATE=off" \
+  /usr/bin/env "HOME=${sandbox}/home" "VPN_SESSION_SYNC_DIR=${staging}" "VPN_HOST_SHARE_DIR=${host_share}" "VPN_SESSION_VALIDATE=off" "VPN_SESSION_SYNC_FORCE=1" \
     bash "${SCRIPTS_DIR}/vpn-session-sync" autopull >/dev/null 2>&1 || { rm -rf "${sandbox}"; return 1; }
   [[ "$(cat "${share}/opencode.db")" == "db-container" ]] || { rm -rf "${sandbox}"; return 1; }
   rm -rf "${sandbox}"
@@ -224,7 +224,7 @@ test_wrapper_xkiro_key() {
   printf '#!/usr/bin/env bash\necho "KEY=${XKIRO_API_KEY:-}"\n' > "$fake_bin"
   chmod +x "$fake_bin"
   printf 'chave-de-teste\n' > "$keyfile"
-  out="$(env -u XKIRO_API_KEY "VPN_OPENCODE_REAL=${fake_bin}" "VPN_XKIRO_KEY_FILE=${keyfile}" \
+  out="$(/usr/bin/env -u XKIRO_API_KEY "VPN_OPENCODE_REAL=${fake_bin}" "VPN_XKIRO_KEY_FILE=${keyfile}" \
     bash "${SCRIPTS_DIR}/vpn-opencode-wrapper" foo 2>/dev/null)"
   rm -rf "${sandbox}"
   [[ "$out" == "KEY=chave-de-teste" ]]
@@ -234,27 +234,48 @@ run_test "wrapper carrega XKIRO_API_KEY do arquivo de segredo" test_wrapper_xkir
 # 14. Classificação HTTP do vpn-opencode check. Precisa de socat para servir
 # respostas; sem ele o bloco é pulado em vez de reprovar a suíte.
 if command -v socat >/dev/null 2>&1; then
+  # A stack no ar publica 10000-10100; portas fixas nessa faixa falhavam no
+  # host. Escolhe uma porta livre e restringe VPN_PORT_RANGE a ela no check.
+  # O probe usa timeout: socat que consegue bind fica escutando (exit 124);
+  # porta ocupada falha antes (exit != 124).
+  free_port() {
+    local p rc
+    for p in $(seq "${1:-20000}" "${2:-20100}"); do
+      timeout 0.4 socat /dev/null "TCP-LISTEN:${p},reuseaddr,bind=127.0.0.1" >/dev/null 2>&1
+      rc=$?
+      [[ "$rc" -eq 124 ]] && { printf '%s\n' "$p"; return 0; }
+    done
+    return 1
+  }
   # O check abre a conexão uma vez para o teste de TCP e outra para o HTTP,
   # então o servidor precisa aceitar várias conexões (fork).
   check_http_detail() {
-    local code="$1" body="$2" port="$3" expected="$4"
-    local resp got
+    local code="$1" body="$2" expected="$3"
+    local port resp got docker_stub
+    port="$(free_port 20000 20100)" || { echo "sem porta TCP livre em 20000-20100." >&2; return 1; }
+    # Stub de docker: com a stack no ar o check leria logs do terminal
+    # (quota-pattern-in-logs) e o resultado deixaria de ser determinístico.
+    docker_stub="$(mktemp -d)"
+    printf '#!/usr/bin/env bash\nexit 0\n' > "${docker_stub}/docker"
+    chmod +x "${docker_stub}/docker"
     resp="$(printf 'HTTP/1.1 %s X\r\nContent-Type: text/plain\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s' \
       "$code" "${#body}" "$body")"
     ( for _ in $(seq 1 40); do printf '%s\n' "$resp"; sleep 0.15; done ) \
       | timeout 10 socat - "TCP-LISTEN:${port},fork,reuseaddr" >/dev/null 2>&1 &
     sleep 0.5
-    got="$(bash "${SCRIPTS_DIR}/vpn-opencode" check --port "$port" --json 2>/dev/null \
+    got="$(PATH="${docker_stub}:${PATH}" VPN_PORT_RANGE="${port}-${port}" \
+      bash "${SCRIPTS_DIR}/vpn-opencode" check --port "$port" --json 2>/dev/null \
       | jq -r '.detail // "sem-json"')" || true
+    rm -rf "${docker_stub}"
     pkill -f "TCP-LISTEN:${port}" >/dev/null 2>&1 || true
     sleep 0.3
     [[ "$got" == "$expected" ]]
   }
-  run_test "check: HTTP 200 neutro -> ouvindo" check_http_detail 200 "OK" 10061 "ouvindo"
-  run_test "check: HTTP 402 -> credit-exhausted" check_http_detail 402 "CreditLimitExceeded" 10062 "credit-exhausted"
-  run_test "check: HTTP 429 Zen -> zen-usage-limit" check_http_detail 429 "FreeUsageLimitError" 10063 "zen-usage-limit"
-  run_test "check: HTTP 429 genérico -> rate-limit" check_http_detail 429 "too many requests" 10064 "rate-limit"
-  run_test "check: HTTP 200 com padrão de quota" check_http_detail 200 "quota exceeded" 10065 "quota-pattern-in-http"
+  run_test "check: HTTP 200 neutro -> ouvindo" check_http_detail 200 "OK" "ouvindo"
+  run_test "check: HTTP 402 -> credit-exhausted" check_http_detail 402 "CreditLimitExceeded" "credit-exhausted"
+  run_test "check: HTTP 429 Zen -> zen-usage-limit" check_http_detail 429 "FreeUsageLimitError" "zen-usage-limit"
+  run_test "check: HTTP 429 genérico -> rate-limit" check_http_detail 429 "too many requests" "rate-limit"
+  run_test "check: HTTP 200 com padrão de quota" check_http_detail 200 "quota exceeded" "quota-pattern-in-http"
 else
   echo "socat ausente: testes de classificação HTTP do check pulados."
 fi

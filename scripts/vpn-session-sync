@@ -183,6 +183,9 @@ server_pids() {
 }
 
 container_busy() {
+  # Opt-out explicito (usado pela suite de testes, que roda no host onde um
+  # `opencode serve` do host nao segura o banco do container).
+  [[ "${VPN_SESSION_SYNC_FORCE:-0}" == "1" ]] && return 1
   [[ -n "$(server_pids)" ]]
 }
 
