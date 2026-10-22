@@ -96,11 +96,14 @@ Lista padrão (`WINDOWS_HOME_LINKS`, sobrescrevível no `.env`):
 | Item (relativo à home) | Uso |
 |---|---|
 | `.opencode/skills` | skills do OpenCode |
-| `.config/opencode/opencode.json` | configuração global (providers/modelos) |
-| `.config/opencode/cli.json` | preferências do TUI |
-| `.config/opencode/package.json` | declaração de plugins (instalados via npm no container) |
+| `.config/opencode/` (exceto `node_modules`) | config completa: `opencode.json`, `cli.json`, `tui.json`, `package.json`, `agents/`, `commands/`, `plugins/`, `skills/`, `hooks/` |
+| `.local/share/opencode/auth.json` | logins/providers do OpenCode |
 | `.gitconfig`, `.npmrc` | identidade e registries |
 | `.orquestrador-maestro`, `.codex/skills`, `AGENTS.md` | contratos/ferramentas |
+
+`WINDOWS_OPENCODE_FULL_LINKS=true` (padrão) linka todas as entradas visíveis de
+`~/.config/opencode` do host; `node_modules` fica local ao container (npm
+instala no boot) e backups são ignorados.
 
 Sessões/conversas do OpenCode: **sincronização automática** — o wrapper
 `vpn-opencode-wrapper` (prioridade no PATH do container) importa o banco do

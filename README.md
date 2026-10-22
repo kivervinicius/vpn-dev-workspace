@@ -304,8 +304,10 @@ O helper `vpn-opencode` roda o OpenCode dentro do container (tráfego de LLM 100
 - Supervisor persistente (recomendado): `vpn-opencode supervise --mode serve` inicia o serviço `opencode-supervisor`. Ele roda no mesmo namespace da VPN, usa a mesma home/workspace e **não** recebe o socket Docker.
 - Recuperação automática: queda simples do processo com túnel saudável reinicia apenas o OpenCode; mensagens de desconexão/rede ou `Provider rate limit exceeded`/HTTP 429 param o OpenCode, rotacionam o servidor pelo Control Server autenticado do Gluetun e sondam o túnel. Se aquele servidor não ficar saudável, o supervisor tenta outro servidor até recuperar a conectividade ou atingir a proteção anti-loop; o OpenCode só volta a subir depois de um túnel confirmado.
 - Limite do plano OpenCode Go (`Go limit reached` / `Usage limit reached ... reset`) é `account_rate_limit`: o supervisor **não rotaciona a VPN** nesse caso, porque o limite pertence à conta e trocar IP não o reseta. O processo permanece vivo para o reset/fallback do próprio OpenCode.
+- Limite da franquia gratuita (`FreeUsageLimitError`, `Free limit reached`, `Free usage limit reached`, `Subscribe to OpenCode Go`) é `free_tier_limit`: com `OPENCODE_FREE_TIER_ROTATE=true` (padrão), rotaciona a VPN para renovar a franquia por IP. O watcher `opencode-limit-watch` roda no container `terminal`, observa o log do TUI (v1/v2), confere se o IP realmente mudou (até `OPENCODE_LIMIT_ROTATE_ATTEMPTS` servidores) e, se o limite persistir, executa `OPENCODE_LIMIT_FALLBACK_HOOK`; tem cooldown (`OPENCODE_LIMIT_ROTATE_COOLDOWN_SECONDS`) e limite por janela (`OPENCODE_LIMIT_ROTATE_MAX`/`OPENCODE_LIMIT_ROTATE_WINDOW_SECONDS`).
 - Proteção anti-loop: `OPENCODE_RECOVERY_MAX_ROTATIONS`, `OPENCODE_RECOVERY_WINDOW_SECONDS` e `OPENCODE_RECOVERY_COOLDOWN_SECONDS` limitam cada janela de recuperação; quando a janela bloqueia novas trocas, o motivo fica pendente e a tentativa é retomada posteriormente.
 - `vpn-opencode watch` permanece como compatibilidade: inicia o supervisor persistente e acompanha seus logs.
+- Watcher de limite no TUI: o container `terminal` sobe `opencode-limit-watch`, que observa `~/.local/share/opencode/log/opencode.log` (TUI v1/v2) e rotaciona a VPN quando o limite gratuito aparece. Log em `/tmp/opencode-limit-watch.log`; teste sem rotacionar: `opencode-limit-watch --dry-run --once "<texto>"`.
 - Antes de uma recuperação por VPN, o supervisor registra a sessão raiz mais recente com `opencode session list`. Depois que o túnel volta e o servidor reinicia, ele confirma que esse mesmo ID de sessão continua disponível na home persistente. Isso preserva o **mesmo contexto/sessão** para Desktop/Web/CLI reconectarem.
 - Uma resposta que estava em voo não é reenviada automaticamente: repetir o último prompt poderia duplicar comandos ou tools já executados. A recuperação restaura VPN + servidor + sessão persistida; a continuação exata da chamada interrompida depende do mecanismo de replay/continuação do próprio OpenCode.
 - Sonda no `vpn-auto-reconnect` (`OPENCODE_AUTOCHECK=true`) continua apenas observacional; a responsabilidade de recuperar o OpenCode fica centralizada no `opencode-supervisor`.
@@ -341,11 +343,15 @@ shared`). Sem `WORKSPACE_DIR`, o comportamento volta ao padrão: `/workspace` =
 raiz do repositório.
 
 A home Windows inteira é montada em `/mnt/host-home` dentro do container. No
-boot, o `vpn-home-link` cria symlinks da home Linux para essa montagem — por
-padrão: skills, configuração global (`opencode.json`) e preferências do TUI
-(`cli.json`) e plugins (`package.json`) do OpenCode, `.gitconfig`, `.npmrc`,
-`.orquestrador-maestro`, `.codex/skills` e `AGENTS.md`. A lista é
-configurável via `WINDOWS_HOME_LINKS` no `.env` (itens relativos à home).
+boot, o `vpn-home-link` cria symlinks da home Linux para essa montagem. Com
+`WINDOWS_OPENCODE_FULL_LINKS=true` (padrão), todo o `~/.config/opencode` do
+host é linkado (agents, commands, plugins, skills, `tui.json`, `cli.json`,
+`opencode.json`, ...), exceto `node_modules` — que é instalado no container
+para não misturar binários de SO. Também entram `auth.json` (providers do
+OpenCode), skills, `.gitconfig`, `.npmrc`, `.orquestrador-maestro`,
+`.codex/skills` e `AGENTS.md`. A lista pode ser ajustada via
+`WINDOWS_HOME_LINKS` no `.env` (itens relativos à home); para voltar à lista
+explícita, use `WINDOWS_OPENCODE_FULL_LINKS=false`.
 Plugins declarados no `package.json` do host são instalados no container
 (`node_modules` Windows nunca é usado).
 

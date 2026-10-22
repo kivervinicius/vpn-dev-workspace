@@ -96,7 +96,7 @@ QUOTA_PATTERNS="${OPENCODE_QUOTA_PATTERNS:-quota|billing|insufficient|exceeded|c
 
 # Limites do Zen/OpenCode. Mesmos defaults do opencode-supervisor, para que o
 # check e o supervisor concordem sobre o que é limite de plano/conta.
-FREE_TIER_PATTERNS="${OPENCODE_FREE_TIER_LIMIT_PATTERNS:-freeusagelimiterror|free_tier_limit|free limit reached|free usage exceeded.*subscribe to go|subscribe to go}"
+FREE_TIER_PATTERNS="${OPENCODE_FREE_TIER_LIMIT_PATTERNS:-freeusagelimiterror|free[ _-]?tier[ _-]?limit|free limit reached|free usage limit reached|free usage exceeded.*subscribe to go|subscribe to opencode go|used today.?s free messages|provider\\.free-limit}"
 ACCOUNT_LIMIT_PATTERNS="${OPENCODE_ACCOUNT_LIMIT_PATTERNS:-account_rate_limit|go limit reached|weekly usage limit reached|monthly usage limit reached|usage limit reached.*reset}"
 CREDIT_LIMIT_PATTERNS="${OPENCODE_CREDIT_LIMIT_PATTERNS:-creditlimitexceeded|insufficientfunds|credit_limit|budget_exceeded|account_budget_exceeded|limitexceeded|payment_required|out_of_credit|no_credit}"
 ZEN_PATTERNS="${OPENCODE_ZEN_PATTERNS:-${FREE_TIER_PATTERNS}|${ACCOUNT_LIMIT_PATTERNS}|${CREDIT_LIMIT_PATTERNS}}"

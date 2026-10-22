@@ -11,8 +11,11 @@ set -uo pipefail
 
 readonly HOST_HOME_MOUNT="${HOST_HOME_MOUNT:-/mnt/host-home}"
 # Lista padrao: configs portaveis + ferramentas do host. Sobrescrevivel por
-# WINDOWS_HOME_LINKS (itens separados por espaco, relativos a home).
-readonly LINKS="${WINDOWS_HOME_LINKS:-.opencode/skills .config/opencode/opencode.json .config/opencode/cli.json .config/opencode/package.json .gitconfig .npmrc .orquestrador-maestro .codex/skills AGENTS.md}"
+# WINDOWS_HOME_LINKS (itens separados por espaco, relativos a home). Alem dela,
+# WINDOWS_OPENCODE_FULL_LINKS=true (padrao) linka todas as entradas visiveis de
+# ~/.config/opencode (agents, commands, plugins, skills, tui.json, ...), exceto
+# node_modules e backups.
+readonly LINKS="${WINDOWS_HOME_LINKS:-.opencode/skills .config/opencode/opencode.json .config/opencode/cli.json .config/opencode/tui.json .config/opencode/package.json .local/share/opencode/auth.json .gitconfig .npmrc .orquestrador-maestro .codex/skills AGENTS.md}"
 
 usage() {
   echo "Uso: vpn-home-link [--help]" >&2
@@ -49,6 +52,28 @@ link_item() {
 for rel in $LINKS; do
   link_item "$rel" || echo "vpn-home-link: falha ao linkar ${rel}." >&2
 done
+
+# Paridade completa do diretório de configuração do OpenCode: linka cada
+# entrada visível do host (agents, commands, plugins, skills, hooks, tui.json,
+# smart-title.jsonc, ...), exceto node_modules (binários por SO/instalados no
+# container) e backups. Desligue com WINDOWS_OPENCODE_FULL_LINKS=false para
+# voltar à lista explícita de WINDOWS_HOME_LINKS.
+link_opencode_config() {
+  local dir="${HOST_HOME_MOUNT}/.config/opencode" entry name
+  [[ -d "$dir" ]] || return 0
+  for entry in "$dir"/*; do
+    [[ -e "$entry" ]] || continue
+    name="$(basename "$entry")"
+    case "$name" in
+      node_modules|backup-*|*.volume-backup) continue ;;
+    esac
+    link_item ".config/opencode/${name}" || echo "vpn-home-link: falha ao linkar .config/opencode/${name}." >&2
+  done
+}
+
+case "${WINDOWS_OPENCODE_FULL_LINKS:-true}" in
+  true|1|yes) link_opencode_config ;;
+esac
 
 # Compatibilidade com caminhos Windows citados nas instrucoes/configs do host
 # (ex.: o AGENTS.md referencia C:/Users/<user>/...). No Linux esse caminho e

@@ -16,13 +16,19 @@ VPN_READY_DELAY="${OPENCODE_VPN_READY_DELAY_SECONDS:-2}"
 LOG_FILE="${OPENCODE_SUPERVISOR_LOG_FILE:-/tmp/opencode-supervisor/opencode.log}"
 PID_FILE="${OPENCODE_SUPERVISOR_PID_FILE:-/tmp/opencode-supervisor/opencode.pid}"
 SESSION_STATE_FILE="${OPENCODE_SUPERVISOR_SESSION_FILE:-${HOME:-/home/developer}/.local/state/vpn-dev-workspace/opencode-resume-session}"
-FREE_TIER_LIMIT_PATTERNS="${OPENCODE_FREE_TIER_LIMIT_PATTERNS:-freeusagelimiterror|free_tier_limit|free limit reached|free usage exceeded.*subscribe to go|subscribe to go}"
+FREE_TIER_LIMIT_PATTERNS="${OPENCODE_FREE_TIER_LIMIT_PATTERNS:-freeusagelimiterror|free[ _-]?tier[ _-]?limit|free limit reached|free usage limit reached|free usage exceeded.*subscribe to go|subscribe to opencode go|used today.?s free messages|provider\\.free-limit}"
 ACCOUNT_LIMIT_PATTERNS="${OPENCODE_ACCOUNT_LIMIT_PATTERNS:-account_rate_limit|go limit reached|weekly usage limit reached|monthly usage limit reached|usage limit reached.*reset}"
 CREDIT_LIMIT_PATTERNS="${OPENCODE_CREDIT_LIMIT_PATTERNS:-creditlimitexceeded|insufficientfunds|credit_limit|budget_exceeded|account_budget_exceeded|limitexceeded|payment_required|out_of_credit|no_credit}"
 RATE_LIMIT_PATTERNS="${OPENCODE_RATE_LIMIT_PATTERNS:-${OPENCODE_LIMIT_PATTERNS:-provider rate limit exceeded|too many requests|too_many_requests|http[^0-9]*429|status[^0-9]*429|rate[ -]?limit exceeded}}"
 DISCONNECT_PATTERNS="${OPENCODE_DISCONNECT_PATTERNS:-network connection lost|connection lost|connection reset|econnreset|etimedout|network error|network request failed|fetch failed|socket hang up|provider.*disconnected|upstream.*disconnected|stream.*disconnected}"
 PASSWORD_FILE="${OPENCODE_GUI_PASSWORD_FILE:-/run/secrets/opencode_gui_password}"
 LIMIT_HOOK="${OPENCODE_LIMIT_HOOK:-}"
+FREE_TIER_ROTATE_RAW="${OPENCODE_FREE_TIER_ROTATE:-true}"
+
+case "${FREE_TIER_ROTATE_RAW,,}" in
+  true|1|yes) FREE_TIER_ROTATE=true ;;
+  *) FREE_TIER_ROTATE=false ;;
+esac
 
 child_pid=""
 log_offset=0
@@ -40,7 +46,7 @@ Executa e supervisiona OpenCode dentro da VPN.
 - queda do processo com VPN saudável: reinicia somente OpenCode;
 - desconexão/erro de rede: rotaciona VPN, aguarda saúde e reinicia OpenCode;
 - provider rate limit/429: rotaciona VPN, aguarda saúde e reinicia OpenCode;
-- free tier limit/banner "subscribe to Go": mantém o app vivo; VPN não altera a franquia da conta;
+- free tier limit/banner "subscribe to Go": rotaciona a VPN quando OPENCODE_FREE_TIER_ROTATE=true (padrão), já que a troca de IP renova a franquia;
 - Go account limit: mantém o app vivo; VPN não altera o limite da conta;
 - limita rotações por janela/cooldown para evitar loops.
 
@@ -57,6 +63,7 @@ Configuração principal:
   OPENCODE_VPN_READY_DELAY_SECONDS=2
   OPENCODE_SUPERVISOR_SESSION_FILE=<path opcional; padrão na home persistente>
   OPENCODE_FREE_TIER_LIMIT_PATTERNS=<regex>
+  OPENCODE_FREE_TIER_ROTATE=true|false
   OPENCODE_ACCOUNT_LIMIT_PATTERNS=<regex>
   OPENCODE_CREDIT_LIMIT_PATTERNS=<regex>
   OPENCODE_RATE_LIMIT_PATTERNS=<regex>
@@ -464,8 +471,13 @@ while true; do
   event="$(classify_text "$new_logs")"
   case "$event" in
     free_tier_limit)
-      echo "OpenCode atingiu o limite da franquia gratuita (banner subscribe to Go); rotação de VPN não altera free_tier_limit. Mantendo o processo vivo para troca de conta/plano/provider ou reset da própria conta.$(retry_hint "$new_logs")" >&2
       run_limit_hook "$event" "$new_logs"
+      if $FREE_TIER_ROTATE; then
+        echo "OpenCode atingiu o limite da franquia gratuita; rotacionando a VPN (OPENCODE_FREE_TIER_ROTATE=true).$(retry_hint "$new_logs")" >&2
+        recover_with_vpn "opencode-free-tier-limit" || true
+      else
+        echo "OpenCode atingiu o limite da franquia gratuita (banner subscribe to Go); rotação de VPN desligada (OPENCODE_FREE_TIER_ROTATE=false). Mantendo o processo vivo para troca de conta/plano/provider ou reset da própria conta.$(retry_hint "$new_logs")" >&2
+      fi
       continue
       ;;
     account_limit)

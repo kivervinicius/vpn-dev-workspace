@@ -1,0 +1,311 @@
+#!/usr/bin/env bash
+# opencode-limit-watch: observa o log do OpenCode (TUI v1 e v2) e rotaciona o
+# servidor VPN quando a franquia gratuita é atingida. Roda dentro do container
+# `terminal` (mesma home do OpenCode e mesmos helpers da VPN no PATH).
+#
+# Não depende do socket Docker: usa vpn-server-rotate/vpn-reconnect, que falam
+# com o Control Server do Gluetun em 127.0.0.1:8000 (namespace da VPN).
+set -Eeuo pipefail
+
+readonly SCRIPT_NAME="opencode-limit-watch"
+readonly LOG_FILE="${OPENCODE_LIMIT_LOG_FILE:-${HOME:-/home/developer}/.local/share/opencode/log/opencode.log}"
+readonly WATCH_LOG="${OPENCODE_LIMIT_WATCH_LOG_FILE:-/tmp/opencode-limit-watch.log}"
+readonly LOCK_FILE="${OPENCODE_LIMIT_WATCH_LOCK_FILE:-/tmp/opencode-limit-watch.lock}"
+readonly STATE_FILE="${OPENCODE_LIMIT_WATCH_STATE_FILE:-/tmp/opencode-limit-watch.state}"
+# Mesmos padrões do opencode-supervisor/vpn-opencode, com as mensagens do v2
+# ("Free usage limit reached. Subscribe to OpenCode Go") e o banner do TUI.
+readonly FREE_LIMIT_PATTERNS="${OPENCODE_FREE_TIER_LIMIT_PATTERNS:-freeusagelimiterror|free[ _-]?tier[ _-]?limit|free limit reached|free usage limit reached|free usage exceeded.*subscribe to go|subscribe to opencode go|used today.?s free messages|provider\\.free-limit}"
+readonly COOLDOWN="${OPENCODE_LIMIT_ROTATE_COOLDOWN_SECONDS:-300}"
+readonly WINDOW_SECONDS="${OPENCODE_LIMIT_ROTATE_WINDOW_SECONDS:-3600}"
+readonly MAX_ROTATIONS="${OPENCODE_LIMIT_ROTATE_MAX:-6}"
+readonly ATTEMPTS="${OPENCODE_LIMIT_ROTATE_ATTEMPTS:-3}"
+readonly FALLBACK_WINDOW="${OPENCODE_LIMIT_FALLBACK_WINDOW_SECONDS:-300}"
+readonly FALLBACK_HOOK="${OPENCODE_LIMIT_FALLBACK_HOOK:-}"
+
+DRY_RUN=false
+case "${OPENCODE_LIMIT_WATCH_DRY_RUN:-false}" in
+  true|1|yes) DRY_RUN=true ;;
+esac
+
+log() {
+  local line
+  line="[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"
+  printf '%s\n' "$line" >&2
+  mkdir -p "$(dirname "$WATCH_LOG")" 2>/dev/null || true
+  printf '%s\n' "$line" >>"$WATCH_LOG" 2>/dev/null || true
+}
+
+usage() {
+  cat >&2 <<'EOF'
+Uso: opencode-limit-watch [--help] [--once <texto>] [--dry-run]
+
+Observa o log do OpenCode e rotaciona o servidor VPN quando a franquia
+gratuita é atingida.
+
+  --once <texto>  classifica um texto e (se for limite) aplica a ação, sem daemon
+  --dry-run       mostra o que faria, sem rotacionar a VPN
+
+Configuração:
+  OPENCODE_LIMIT_LOG_FILE=<path do opencode.log>
+  OPENCODE_LIMIT_WATCH_LOG_FILE=/tmp/opencode-limit-watch.log
+  OPENCODE_LIMIT_ROTATE_COOLDOWN_SECONDS=300
+  OPENCODE_LIMIT_ROTATE_WINDOW_SECONDS=3600
+  OPENCODE_LIMIT_ROTATE_MAX=6
+  OPENCODE_LIMIT_ROTATE_ATTEMPTS=3
+  OPENCODE_LIMIT_FALLBACK_WINDOW_SECONDS=300
+  OPENCODE_LIMIT_FALLBACK_HOOK=<executável chamado quando o limite persiste após a rotação>
+  OPENCODE_FREE_TIER_LIMIT_PATTERNS=<regex>
+  OPENCODE_LIMIT_WATCH_DRY_RUN=true|false
+EOF
+}
+
+need_positive() {
+  local name="$1" value="$2"
+  [[ "$value" =~ ^[1-9][0-9]*$ ]] || {
+    echo "Erro: ${name} deve ser inteiro positivo (recebido: ${value})." >&2
+    exit 2
+  }
+}
+
+classify() {
+  local text="$1"
+  [[ -n "$text" ]] || { printf 'none\n'; return 0; }
+  if printf '%s\n' "$text" | grep -Eiq "($FREE_LIMIT_PATTERNS)"; then
+    printf 'free_tier_limit\n'
+  else
+    printf 'none\n'
+  fi
+}
+
+resolve_helper() {
+  if command -v "$1" >/dev/null 2>&1; then
+    command -v "$1"
+  elif [[ -x "/usr/local/bin/$1" ]]; then
+    printf '/usr/local/bin/%s\n' "$1"
+  else
+    return 1
+  fi
+}
+
+public_ip() {
+  local helper out
+  helper="$(resolve_helper vpn-status)" || return 1
+  out="$("$helper" 2>/dev/null | sed -n 's/^IP público:[[:space:]]*\([^[:space:]]*\).*/\1/p' | head -n1)"
+  [[ -n "$out" && "$out" != "-" ]] || return 1
+  printf '%s\n' "$out"
+}
+
+read_state() {
+  last_ts=0
+  rotations=0
+  window_start="$(date +%s)"
+  last_rotate_ts=0
+  if [[ -r "$STATE_FILE" ]]; then
+    read -r last_ts rotations window_start last_rotate_ts <"$STATE_FILE" || true
+    [[ "$last_ts" =~ ^[0-9]+$ ]] || last_ts=0
+    [[ "$rotations" =~ ^[0-9]+$ ]] || rotations=0
+    [[ "$window_start" =~ ^[0-9]+$ ]] || window_start="$(date +%s)"
+    [[ "$last_rotate_ts" =~ ^[0-9]+$ ]] || last_rotate_ts=0
+  fi
+}
+
+write_state() {
+  printf '%s %s %s %s\n' "$last_ts" "$rotations" "$window_start" "$last_rotate_ts" >"$STATE_FILE"
+}
+
+# Proteção anti-loop compartilhada entre eventos/instâncias do TUI.
+rotation_allowed() {
+  local now
+  now="$(date +%s)"
+  read_state
+  if (( now - window_start >= WINDOW_SECONDS )); then
+    window_start="$now"
+    rotations=0
+  fi
+  if (( rotations >= MAX_ROTATIONS )); then
+    log "anti-loop: ${rotations}/${MAX_ROTATIONS} rotações na janela de ${WINDOW_SECONDS}s; evento ignorado."
+    return 1
+  fi
+  if (( last_ts > 0 && now - last_ts < COOLDOWN )); then
+    log "cooldown ativo ($((COOLDOWN - (now - last_ts)))s restantes); evento ignorado."
+    return 1
+  fi
+  last_ts="$now"
+  rotations=$((rotations + 1))
+  write_state
+  return 0
+}
+
+rotate_once() {
+  local rotate reconnect count=0 hostnames
+  rotate="$(resolve_helper vpn-server-rotate)" || {
+    log "vpn-server-rotate ausente no PATH."
+    return 1
+  }
+  reconnect="$(resolve_helper vpn-reconnect)" || true
+
+  hostnames="${VPN_SERVER_HOSTNAMES:-}"
+  if [[ -n "$hostnames" ]]; then
+    IFS=',' read -r -a _hosts <<<"$hostnames"
+    for _host in "${_hosts[@]}"; do
+      _host="${_host#"${_host%%[![:space:]]*}"}"
+      _host="${_host%"${_host##*[![:space:]]}"}"
+      [[ -n "$_host" ]] && count=$((count + 1))
+    done
+  fi
+
+  if (( count == 1 )); then
+    "$rotate" --random && return 0
+  else
+    "$rotate" && return 0
+  fi
+
+  if [[ -n "$reconnect" ]]; then
+    log "rotação falhou; tentando reconectar o túnel atual."
+    "$reconnect" && return 0
+  fi
+  return 1
+}
+
+# Garante um IP novo: tenta até ATTEMPTS servidores diferentes e confere o IP.
+rotate_vpn() {
+  local before after attempt
+  before="$(public_ip || true)"
+  for ((attempt = 1; attempt <= ATTEMPTS; attempt++)); do
+    log "rotação ${attempt}/${ATTEMPTS} (IP atual: ${before:-desconhecido})..."
+    if rotate_once; then
+      after="$(public_ip || true)"
+      if [[ -z "$before" || -z "$after" || "$after" != "$before" ]]; then
+        log "rotação concluída (IP: ${before:-?} -> ${after:-?})."
+        return 0
+      fi
+      log "IP não mudou (${before:-?} -> ${after:-?}); tentando outro servidor."
+    else
+      log "tentativa ${attempt}/${ATTEMPTS} falhou."
+    fi
+    (( attempt < ATTEMPTS )) && sleep 2
+  done
+  return 1
+}
+
+run_fallback_hook() {
+  if [[ -z "$FALLBACK_HOOK" ]]; then
+    log "limite persistiu/rotação falhou e OPENCODE_LIMIT_FALLBACK_HOOK não está configurado; troque conta/modelo manualmente."
+    return 0
+  fi
+  if [[ ! -x "$FALLBACK_HOOK" ]]; then
+    log "OPENCODE_LIMIT_FALLBACK_HOOK não é executável: ${FALLBACK_HOOK}."
+    return 0
+  fi
+  log "executando fallback: ${FALLBACK_HOOK} free_tier_limit"
+  "$FALLBACK_HOOK" "free_tier_limit" "" >>"$WATCH_LOG" 2>&1 &
+}
+
+verify_tunnel() {
+  local check
+  check="$(resolve_helper vpn-check)" || return 0
+  if "$check" --only tunnel -q >/dev/null 2>&1; then
+    log "túnel saudável após a rotação."
+  else
+    log "aviso: túnel ainda não saudável após a rotação; o OpenCode segue tentando."
+  fi
+  return 0
+}
+
+handle_event() {
+  local text="$1" now
+  log "limite de franquia detectado: ${text:0:240}"
+  if $DRY_RUN; then
+    log "dry-run: rotação não executada."
+    return 0
+  fi
+
+  now="$(date +%s)"
+  read_state
+  if (( last_rotate_ts > 0 && now - last_rotate_ts <= FALLBACK_WINDOW )); then
+    log "limite persistiu $((now - last_rotate_ts))s após a rotação; acionando fallback."
+    run_fallback_hook
+    return 0
+  fi
+
+  rotation_allowed || return 0
+  if rotate_vpn; then
+    last_rotate_ts="$(date +%s)"
+    write_state
+    verify_tunnel
+  else
+    log "falha ao rotacionar/reconectar após ${ATTEMPTS} tentativa(s)."
+    run_fallback_hook
+  fi
+  return 0
+}
+
+once() {
+  local text="$1" event
+  event="$(classify "$text")"
+  printf '%s\n' "$event"
+  [[ "$event" == "free_tier_limit" ]] || return 0
+  handle_event "$text"
+  return 0
+}
+
+daemon() {
+  mkdir -p "$(dirname "$WATCH_LOG")"
+
+  exec 9>"$LOCK_FILE"
+  if ! flock -n 9; then
+    log "outra instância já está observando o log; encerrando esta."
+    exit 0
+  fi
+
+  trap 'log "encerrando."; exit 0' TERM INT
+
+  local offset=0 size
+  if [[ -f "$LOG_FILE" ]]; then
+    size="$(wc -c <"$LOG_FILE" 2>/dev/null | tr -d '[:space:]')"
+    [[ "$size" =~ ^[0-9]+$ ]] && offset="$size"
+  fi
+
+  log "iniciado (log=${LOG_FILE}, cooldown=${COOLDOWN}s, max=${MAX_ROTATIONS}/${WINDOW_SECONDS}s, attempts=${ATTEMPTS}, fallback=${FALLBACK_HOOK:-<nenhum>}, dry-run=${DRY_RUN}, offset=${offset})."
+
+  while true; do
+    if [[ -f "$LOG_FILE" ]]; then
+      size="$(wc -c <"$LOG_FILE" 2>/dev/null | tr -d '[:space:]')"
+      if [[ "$size" =~ ^[0-9]+$ ]]; then
+        if (( size < offset )); then
+          log "log truncado/rotacionado; reiniciando leitura do início."
+          offset=0
+        fi
+        if (( size > offset )); then
+          while IFS= read -r line; do
+            [[ "$(classify "$line")" == "free_tier_limit" ]] || continue
+            handle_event "$line"
+          done < <(tail -c "+$((offset + 1))" -- "$LOG_FILE" 2>/dev/null)
+          offset="$size"
+        fi
+      fi
+    fi
+    sleep 2
+  done
+}
+
+need_positive OPENCODE_LIMIT_ROTATE_COOLDOWN_SECONDS "$COOLDOWN"
+need_positive OPENCODE_LIMIT_ROTATE_WINDOW_SECONDS "$WINDOW_SECONDS"
+need_positive OPENCODE_LIMIT_ROTATE_MAX "$MAX_ROTATIONS"
+need_positive OPENCODE_LIMIT_ROTATE_ATTEMPTS "$ATTEMPTS"
+need_positive OPENCODE_LIMIT_FALLBACK_WINDOW_SECONDS "$FALLBACK_WINDOW"
+
+while (($# > 0)); do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --dry-run) DRY_RUN=true; shift ;;
+    --once)
+      [[ -n "${2:-}" ]] || { echo "Erro: --once exige um texto." >&2; exit 2; }
+      once "$2"
+      exit 0
+      ;;
+    *) echo "Erro: argumento desconhecido: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+daemon

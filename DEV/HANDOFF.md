@@ -11,7 +11,15 @@ This file should stay small. Refresh it after substantive work or run `orquestra
 - Worklog archive: `HANDOFFS/WORKLOG_ARCHIVE.md`
 
 ## Latest Work
-- Current: Repo verificado + suíte Linux host-safe (2026-10-21): 44/44 no host
+- Current: Rotação automática no limite gratuito do OpenCode (2026-10-22): novo
+  `scripts/opencode-limit-watch` (container `terminal`, TUI v1/v2, cooldown/lock)
+  + padrões ampliados no `opencode-supervisor`/`vpn-opencode` e
+  `OPENCODE_FREE_TIER_ROTATE` (default true); 51/51 na suíte, `verify-docs` OK;
+  validado em runtime (14:40 UTC: limite → rotação → franquia renovou);
+  `vpn-home-link` agora linka todo o `~/.config/opencode` no Windows (exceto
+  `node_modules`) + `auth.json`; falta recriar o `terminal` para o watcher subir
+  via Compose. Detalhes em `WORKLOG.md`/`VERIFY.md`.
+- Previous: Repo verificado + suíte Linux host-safe (2026-10-21): 44/44 no host
   com a stack no ar e em container isolado. Ajustes: `/usr/bin/env`, porta
   livre + `VPN_PORT_RANGE` restrita e stub de `docker` no bloco HTTP, e
   `VPN_SESSION_SYNC_FORCE=1` (opt-out do busy). `verify-docs`/`verify-compose`/

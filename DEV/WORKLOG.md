@@ -2,6 +2,13 @@
 
 Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for older entries after compaction.
 
+## 2026-10-22 - Rotação automática no limite da franquia gratuita (TUI v1/v2)
+
+- Changed: novo `scripts/opencode-limit-watch` (`tail -F` no `opencode.log`, padrões v1/v2, cooldown/limite por janela, lock) montado no container `terminal` e iniciado junto do `tail -f /dev/null`; padrões de `free_tier_limit` ampliados no `opencode-supervisor` e `vpn-opencode`; `OPENCODE_FREE_TIER_ROTATE` (default true) religa a rotação no supervisor; envs no Compose (Linux e Windows) e `.env.example`; `vpn-home-link` ganhou `WINDOWS_OPENCODE_FULL_LINKS` (default true) para linkar todo o `~/.config/opencode` do host (exceto `node_modules`) + `auth.json`; testes e docs.
+- Why: o evento `free_tier_limit` ficou sem rotação desde `74874da` (24/09) e a mensagem do v2 (`Free usage limit reached. Subscribe to OpenCode Go`) não casava com nenhum padrão; o único watcher (`opencode-supervisor`) não observa a TUI.
+- Verified: 51/51 na suíte Linux (novos casos v1/v2/banner e paridade do `vpn-home-link` com `tui.json`/`agents`/`auth.json`, sem `node_modules`), `bash -n`, `verify-docs`; `--once --dry-run` classifica e não rotaciona. `verify-compose` não roda dentro do container (sem `docker`). Runtime em 2026-10-22 14:40:57 UTC: limite real detectado no log do TUI, rotação concluída às 14:41:13 (túnel saudável) e nenhum novo erro de limite depois — franquia renovou e a sessão voltou a responder.
+- Next context: recriar o container `terminal` para o watcher subir; validar em runtime com o banner real (IP novo em `vpn-status` e prompt funcionando).
+
 ## 2026-10-17 - Ambiente Docker restaurado; stack religada (custom-openvpn)
 
 - Changed: nenhuma alteracao no codigo do projeto. Restauracao de ambiente da maquina: store do Docker Desktop estava corrompido (containerd bbolt panic) e foi resetado; engine religado pelo CLI oficial (`docker desktop start`), dados redirecionados para `D:\Docker\vm-data` (junction em `%LOCALAPPDATA%\Docker\vm-data`), memoria do VM reduzida para 3GB; stack religada com `.\scripts\vpn.ps1 start custom-openvpn`.

@@ -1,5 +1,20 @@
 # Verify
 
+## Latest Verification - 2026-10-22 (rotação no limite gratuito do OpenCode)
+
+### Passaram
+
+- Suíte Linux 51/51 (inclui `opencode-limit-watch` no `--help` e classificação v1/v2/banner; `vpn-home-link` linka `tui.json`, `agents/` e `auth.json` e mantém `node_modules` local).
+- `bash -n scripts/opencode-limit-watch scripts/opencode-supervisor scripts/vpn-opencode tests/linux/test-scripts.sh`.
+- `scripts/verify-docs` ("Documentação e perfis consistentes.").
+- `opencode-limit-watch --dry-run --once "AI.Error: Free usage limit reached. Subscribe to OpenCode Go..."` => `free_tier_limit` sem rotacionar.
+- Runtime em 2026-10-22 14:40 UTC: o watcher detectou o limite real no log do TUI, rotacionou a VPN (IP `189.1.170.176`, túnel saudável em ~14s) e a sessão voltou a responder; nenhum novo erro de limite depois.
+
+### Não rodaram / observações
+
+- `scripts/verify-compose` não roda dentro do container `terminal` (sem `docker`/socket); rodar no host/CI.
+- Runtime real depende de recriar o container `terminal` e aguardar o banner do limite.
+
 ## Latest Verification - 2026-10-21 (repo pós-share; suíte 44/44 no host e em container)
 
 ### Passaram

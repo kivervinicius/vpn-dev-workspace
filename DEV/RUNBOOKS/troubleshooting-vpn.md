@@ -103,7 +103,7 @@ Quando o OpenCode interrompe chamadas aos modelos, consulte o status com o class
 ```
 
 - **`status: ok`**: Conexão e API do OpenCode operacionais.
-- **`status: quota`** (`free_tier_limit` ou `account_limit`): Limite de franquia da conta atingido. A rotação de VPN **não** é disparada porque trocar o IP não reseta o limite da conta. Aguarde o ciclo de reset ou atualize a conta.
+- **`status: quota`** (`free_tier_limit`): Limite de franquia gratuita atingido. Com `OPENCODE_FREE_TIER_ROTATE=true` (padrão), o watcher `opencode-limit-watch` (container `terminal`) e o `opencode-supervisor` rotacionam a VPN para renovar a franquia por IP. `account_limit`/`credit_limit` não rotacionam. Aguarde o ciclo de reset ou atualize a conta.
 - **`status: down`** (`disconnect` ou `rate_limit` HTTP 429): Falha de rota ou limite por IP. O `opencode-supervisor` rotaciona automaticamente a VPN pelo Gluetun e aguarda novo IP público antes de reiniciar o processo.
 
 ---

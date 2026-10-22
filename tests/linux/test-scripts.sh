@@ -47,7 +47,7 @@ expect_code() {
 echo "=== Iniciando Suíte de Testes Linux ==="
 
 # 1. Checagem de --help em todos os scripts
-for s in vpn-switch vpn-check vpn-status vpn-top vpn-server-rotate vpn-auto-reconnect vpn-opencode vpn-hosts-import vpn-hosts-apply vpn-hosts-gen opencode-supervisor vpn-doctor vpn-setup vpn-shell verify-compose verify-docs; do
+for s in vpn-switch vpn-check vpn-status vpn-top vpn-server-rotate vpn-auto-reconnect vpn-opencode vpn-hosts-import vpn-hosts-apply vpn-hosts-gen opencode-supervisor opencode-limit-watch vpn-doctor vpn-setup vpn-shell verify-compose verify-docs; do
   if [[ -f "${SCRIPTS_DIR}/${s}" ]]; then
     run_test "Script ${s} responde a --help com exit 0" bash "${SCRIPTS_DIR}/${s}" --help
   fi
@@ -77,11 +77,25 @@ run_test "Supervisor classifica 429 como rate_limit" test_classify "429 Too Many
 run_test "Supervisor classifica Provider rate limit como rate_limit" test_classify "Provider rate limit exceeded" "rate_limit"
 run_test "Supervisor classifica FreeUsageLimitError como free_tier_limit" test_classify "FreeUsageLimitError: Free usage exceeded, subscribe to Go" "free_tier_limit"
 run_test "Supervisor classifica Free limit reached como free_tier_limit" test_classify "Free limit reached" "free_tier_limit"
+run_test "Supervisor classifica mensagem v2 como free_tier_limit" test_classify "AI.Error: Free usage limit reached. Subscribe to OpenCode Go to keep going" "free_tier_limit"
+run_test "Supervisor classifica banner do TUI como free_tier_limit" test_classify "You've used today's free messages. They reset at 12:00 AM" "free_tier_limit"
 run_test "Supervisor classifica Go limit reached como account_limit" test_classify "Go limit reached: weekly limit reset in 4 days" "account_limit"
 run_test "Supervisor classifica CreditLimitExceeded como credit_limit" test_classify "CreditLimitExceeded: credit limit exceeded" "credit_limit"
 run_test "Supervisor classifica InsufficientFunds como credit_limit" test_classify "InsufficientFunds: payment required" "credit_limit"
 run_test "Supervisor classifica connection lost como disconnect" test_classify "network connection lost during streaming" "disconnect"
 run_test "Supervisor classifica normal text como none" test_classify "agent completed successfully" "none"
+
+# 6.1 Testes do watcher de limite (rotação da VPN no TUI)
+test_limit_watch_classify() {
+  local input="$1" expected="$2" out
+  out="$(OPENCODE_LIMIT_WATCH_LOG_FILE=/tmp/test-opencode-limit-watch.log \
+    bash "${SCRIPTS_DIR}/opencode-limit-watch" --dry-run --once "$input" 2>/dev/null | head -n1)"
+  test "$out" = "$expected"
+}
+run_test "limit-watch classifica mensagem v2" test_limit_watch_classify "AI.Error: Free usage limit reached. Subscribe to OpenCode Go to keep going" "free_tier_limit"
+run_test "limit-watch classifica mensagem v1" test_limit_watch_classify "FreeUsageLimitError: Free usage exceeded, subscribe to Go" "free_tier_limit"
+run_test "limit-watch classifica banner do TUI" test_limit_watch_classify "You've used today's free messages. They reset at 12:00 AM" "free_tier_limit"
+run_test "limit-watch ignora texto normal" test_limit_watch_classify "agent completed successfully" "none"
 
 # 7. Testes do vpn-doctor
 run_test "vpn-doctor emite JSON válido com jq" bash -c "${SCRIPTS_DIR}/vpn-doctor --json | jq empty"
@@ -132,11 +146,24 @@ test_home_link() {
   cont_home="${sandbox}/container-home"
   mkdir -p "${host_home}/.opencode/skills" "${host_home}/.config/opencode" "${cont_home}"
   echo cfg > "${host_home}/.config/opencode/opencode.json"
+  echo tui > "${host_home}/.config/opencode/tui.json"
+  mkdir -p "${host_home}/.config/opencode/agents" "${host_home}/.config/opencode/node_modules" "${host_home}/.local/share/opencode"
+  echo agent > "${host_home}/.config/opencode/agents/reviewer.md"
+  echo nm > "${host_home}/.config/opencode/node_modules/pkg.js"
+  echo auth > "${host_home}/.local/share/opencode/auth.json"
   echo git > "${host_home}/.gitconfig"
   local env_prefix=(/usr/bin/env "HOME=${cont_home}" "HOST_HOME_MOUNT=${host_home}" "WINDOWS_HOME_LINKS=.opencode/skills .config/opencode/opencode.json .gitconfig")
   "${env_prefix[@]}" bash "${SCRIPTS_DIR}/vpn-home-link" >/dev/null 2>&1 || { rm -rf "${sandbox}"; return 1; }
   [[ "$(readlink "${cont_home}/.config/opencode/opencode.json")" == "${host_home}/.config/opencode/opencode.json" ]] || { rm -rf "${sandbox}"; return 1; }
   [[ -L "${cont_home}/.opencode/skills" ]] || { rm -rf "${sandbox}"; return 1; }
+  # Paridade completa do config do OpenCode (default): tui.json/agents/auth.json
+  # linkados; node_modules permanece local ao container.
+  /usr/bin/env -u WINDOWS_HOME_LINKS "HOME=${cont_home}" "HOST_HOME_MOUNT=${host_home}" \
+    bash "${SCRIPTS_DIR}/vpn-home-link" >/dev/null 2>&1 || { rm -rf "${sandbox}"; return 1; }
+  [[ -L "${cont_home}/.config/opencode/tui.json" ]] || { rm -rf "${sandbox}"; return 1; }
+  [[ -L "${cont_home}/.config/opencode/agents" ]] || { rm -rf "${sandbox}"; return 1; }
+  [[ -L "${cont_home}/.local/share/opencode/auth.json" ]] || { rm -rf "${sandbox}"; return 1; }
+  [[ ! -e "${cont_home}/.config/opencode/node_modules" ]] || { rm -rf "${sandbox}"; return 1; }
   # Idempotencia: segundo run nao falha nem gera backup duplicado.
   "${env_prefix[@]}" bash "${SCRIPTS_DIR}/vpn-home-link" >/dev/null 2>&1 || { rm -rf "${sandbox}"; return 1; }
   # Alvo real existente no volume vira backup antes do link.

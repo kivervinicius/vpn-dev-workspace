@@ -34,6 +34,7 @@ services:
       - ./scripts/vpn-top:/usr/local/bin/vpn-top:ro
       - ./scripts/vpn-server-rotate:/usr/local/bin/vpn-server-rotate:ro
       - ./scripts/vpn-opencode:/usr/local/bin/vpn-opencode:ro
+      - ./scripts/opencode-limit-watch:/usr/local/bin/opencode-limit-watch:ro
       - ./scripts/vpn-hosts-import:/usr/local/bin/vpn-hosts-import:ro
       - ./scripts/vpn-hosts-apply:/usr/local/bin/vpn-hosts-apply:ro
       - ./scripts/vpn-ssh-agent-relay:/usr/local/bin/vpn-ssh-agent-relay:ro

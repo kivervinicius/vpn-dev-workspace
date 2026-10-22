@@ -96,7 +96,10 @@ services:
     network_mode: "service:vpn"
     # init colhe zumbis de shells/processos filhos (tail/zsh/opencode exec).
     init: true
-    command: tail -f /dev/null
+    # Mantém o container vivo e observa o log do OpenCode (TUI v1/v2) para
+    # rotacionar a VPN quando a franquia gratuita é atingida. Reinicia o
+    # watcher se ele cair; não usa o socket Docker.
+    command: ["bash", "-lc", "while true; do /usr/local/bin/opencode-limit-watch; sleep 5; done & exec tail -f /dev/null"]
     cap_drop:
       - ALL
     security_opt:
@@ -138,6 +141,14 @@ services:
       OPENCODE_ACCOUNT_LIMIT_PATTERNS: ${OPENCODE_ACCOUNT_LIMIT_PATTERNS:-}
       OPENCODE_CREDIT_LIMIT_PATTERNS: ${OPENCODE_CREDIT_LIMIT_PATTERNS:-}
       OPENCODE_CHECK_LOG_LINES: ${OPENCODE_CHECK_LOG_LINES:-200}
+      # Rotação automática quando a franquia gratuita do OpenCode é atingida.
+      OPENCODE_FREE_TIER_ROTATE: ${OPENCODE_FREE_TIER_ROTATE:-true}
+      OPENCODE_LIMIT_ROTATE_COOLDOWN_SECONDS: ${OPENCODE_LIMIT_ROTATE_COOLDOWN_SECONDS:-300}
+      OPENCODE_LIMIT_ROTATE_WINDOW_SECONDS: ${OPENCODE_LIMIT_ROTATE_WINDOW_SECONDS:-3600}
+      OPENCODE_LIMIT_ROTATE_MAX: ${OPENCODE_LIMIT_ROTATE_MAX:-6}
+      OPENCODE_LIMIT_ROTATE_ATTEMPTS: ${OPENCODE_LIMIT_ROTATE_ATTEMPTS:-3}
+      OPENCODE_LIMIT_FALLBACK_WINDOW_SECONDS: ${OPENCODE_LIMIT_FALLBACK_WINDOW_SECONDS:-300}
+      OPENCODE_LIMIT_FALLBACK_HOOK: ${OPENCODE_LIMIT_FALLBACK_HOOK:-}
       # Sessão SSH do host, quando existir (senão /dev/null, inofensivo).
       SSH_AUTH_SOCK: /run/vpn-ssh-agent.sock
     volumes:
@@ -154,6 +165,7 @@ services:
       - ./scripts/vpn-top:/usr/local/bin/vpn-top:ro
       - ./scripts/vpn-server-rotate:/usr/local/bin/vpn-server-rotate:ro
       - ./scripts/vpn-opencode:/usr/local/bin/vpn-opencode:ro
+      - ./scripts/opencode-limit-watch:/usr/local/bin/opencode-limit-watch:ro
       # Senha do painel web do OpenCode (basic auth), quando existir arquivo.
       # Sem arquivo o painel abre sem senha: só use com HOST_BIND_ADDRESS=127.0.0.1.
       - ${OPENCODE_GUI_PASSWORD_FILE:-/dev/null}:/run/secrets/opencode_gui_password:ro
@@ -280,6 +292,7 @@ services:
       OPENCODE_VPN_READY_DELAY_SECONDS: ${OPENCODE_VPN_READY_DELAY_SECONDS:-2}
       OPENCODE_SUPERVISOR_SESSION_FILE: ${OPENCODE_SUPERVISOR_SESSION_FILE:-}
       OPENCODE_FREE_TIER_LIMIT_PATTERNS: ${OPENCODE_FREE_TIER_LIMIT_PATTERNS:-}
+      OPENCODE_FREE_TIER_ROTATE: ${OPENCODE_FREE_TIER_ROTATE:-true}
       OPENCODE_ACCOUNT_LIMIT_PATTERNS: ${OPENCODE_ACCOUNT_LIMIT_PATTERNS:-}
       OPENCODE_CREDIT_LIMIT_PATTERNS: ${OPENCODE_CREDIT_LIMIT_PATTERNS:-}
       OPENCODE_ZEN_PATTERNS: ${OPENCODE_ZEN_PATTERNS:-}
