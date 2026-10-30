@@ -13,7 +13,7 @@ flowchart TD
     end
 
     subgraph Compose["Docker Compose Network Namespace (Túnel VPN)"]
-        VPN["Serviço 'vpn' (Gluetun)\n- NET_ADMIN\n- DNS Local 127.0.0.1:53\n- Control Server API :8000\n- Kill Switch Ativo\n- Portas 10000-10100"]
+        VPN["Serviço 'vpn' (Gluetun)\n- NET_ADMIN\n- DNS Local 127.0.0.1:53\n- Control Server API :8000\n- Kill Switch Ativo\n- Portas 10000-10010"]
         Terminal["Serviço 'terminal'\n- network_mode: service:vpn\n- Monta home e workspace\n- Zsh interativo"]
         AutoRec["Serviço 'vpn-auto-reconnect'\n- network_mode: service:vpn\n- Healthcheck periódico & self-healing"]
         Supervisor["Serviço 'opencode-supervisor' (opt-in)\n- network_mode: service:vpn\n- Processo opencode serve/web"]

@@ -142,19 +142,19 @@ O `vpn-doctor` valida ferramentas do host, integridade de segredos (modo 0600), 
 
 ### 3.1 Portas de desenvolvimento
 
-O serviço `vpn` publica a faixa TCP configurada por `VPN_PORT_RANGE` (padrão `10000-10100`). Projete aplicações expostas para escutar uma porta dentro dessa faixa.
+O serviço `vpn` publica a faixa TCP configurada por `VPN_PORT_RANGE` (padrão `10000-10010`, 11 portas; `10001` = painel OpenCode e `10002` = proxy HTTP). Projete aplicações expostas para escutar uma porta dentro dessa faixa; amplie a faixa só quando precisar — cada porta extra é superfície de rede publicada.
 
 - Por padrão, `HOST_BIND_ADDRESS=127.0.0.1`, acessível somente na máquina host.
-- Para acesso pela LAN, informe o IP específico da interface local, por exemplo `HOST_BIND_ADDRESS=192.168.1.20`.
+- Para acesso pela LAN, informe o IP específico da interface local, por exemplo `HOST_BIND_ADDRESS=192.168.1.20`; nesse caso o `vpn-switch` exige `OPENCODE_GUI_PASSWORD_FILE` com um arquivo de senha não vazio (o painel web do OpenCode fica exposto na faixa e não pode abrir sem senha em LAN).
 - Não use `0.0.0.0` ou `::`: eles expõem a faixa em todas as interfaces, inclusive onde um firewall pode não protegê-la.
 - Antes de parar o ambiente, `vpn-switch` verifica conflitos TCP da faixa. A verificação reduz conflitos, mas o Docker ainda é a autoridade final para o bind de portas.
 
 ### 3.2 Proxy HTTP pela VPN (opt-in)
 
-Com `VPN_HTTP_PROXY=on` no `.env` (e `vpn-switch` para aplicar), o Gluetun expõe um proxy HTTP na porta `VPN_HTTP_PROXY_PORT` (padrão `10080`, dentro da faixa publicada):
+Com `VPN_HTTP_PROXY=on` no `.env` (e `vpn-switch` para aplicar), o Gluetun expõe um proxy HTTP na porta `VPN_HTTP_PROXY_PORT` (padrão `10002`, dentro da faixa publicada):
 
 ```bash
-export http_proxy=http://127.0.0.1:10080 https_proxy=http://127.0.0.1:10080
+export http_proxy=http://127.0.0.1:10002 https_proxy=http://127.0.0.1:10002
 ```
 
 - O `vpn-switch` valida que a porta está dentro de `VPN_PORT_RANGE`.

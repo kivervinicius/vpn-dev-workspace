@@ -66,7 +66,7 @@ services:
       # Proxy HTTP pela VPN (opt-in): porta dentro de VPN_PORT_RANGE, sem
       # entrada nova em `ports`. Ver .env.example (VPN_HTTP_PROXY*).
       HTTPPROXY: ${VPN_HTTP_PROXY:-off}
-      HTTPPROXY_LISTENING_ADDRESS: :${VPN_HTTP_PROXY_PORT:-10080}
+      HTTPPROXY_LISTENING_ADDRESS: :${VPN_HTTP_PROXY_PORT:-10002}
       HTTPPROXY_STEALTH: ${VPN_HTTP_PROXY_STEALTH:-on}
       HTTPPROXY_USER: ${VPN_HTTP_PROXY_USER:-}
       # Preferir FILE (caminho) a valor direto: senha em env vaza em docker inspect.
@@ -74,8 +74,9 @@ services:
       HTTPPROXY_PASSWORD: ${VPN_HTTP_PROXY_PASSWORD:-}
       HTTPPROXY_PASSWORD_FILE: ${VPN_HTTP_PROXY_PASSWORD_FILE:-}
     ports:
-      # A faixa é publicada apenas no endereço configurado do host.
-      - "${HOST_BIND_ADDRESS:-127.0.0.1}:${VPN_PORT_RANGE:-10000-10100}:${VPN_PORT_RANGE:-10000-10100}"
+      # A faixa é publicada apenas no endereço configurado do host. O default
+      # é estreito (11 portas); amplie só se precisar (ver .env.example).
+      - "${HOST_BIND_ADDRESS:-127.0.0.1}:${VPN_PORT_RANGE:-10000-10010}:${VPN_PORT_RANGE:-10000-10010}"
     secrets:
       - gluetun_api_key
     volumes:

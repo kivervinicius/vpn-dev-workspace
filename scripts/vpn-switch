@@ -83,7 +83,7 @@ validate_port_range() {
     start_port="$port_range"
     end_port="$port_range"
   else
-    echo "Erro: VPN_PORT_RANGE deve ser uma porta ou faixa, por exemplo 10000-10100." >&2
+    echo "Erro: VPN_PORT_RANGE deve ser uma porta ou faixa, por exemplo 10000-10010." >&2
     exit 2
   fi
 
@@ -136,13 +136,29 @@ case "$host_bind_address" in
     exit 2
     ;;
 esac
+# Painel web do OpenCode fica na faixa publicada: com bind em LAN, sem senha
+# ele abriria aberto para a rede local. Exige OPENCODE_GUI_PASSWORD_FILE com
+# arquivo não vazio (compose o monta em /run/secrets/opencode_gui_password).
+case "$host_bind_address" in
+  127.0.0.1|localhost|::1) ;;
+  *)
+    gui_password_file="$(read_compose_value OPENCODE_GUI_PASSWORD_FILE "")"
+    if [[ -n "$gui_password_file" && "$gui_password_file" != /* ]]; then
+      gui_password_file="${ROOT_DIR}/${gui_password_file}"
+    fi
+    if [[ ! -s "$gui_password_file" ]]; then
+      echo "Erro: HOST_BIND_ADDRESS=${host_bind_address} expõe o painel OpenCode na LAN; defina OPENCODE_GUI_PASSWORD_FILE com um arquivo de senha não vazio (ex: .secrets/opencode_gui_password, modo 0600)." >&2
+      exit 2
+    fi
+    ;;
+esac
 # HOST_HOME_MODE só aceita rw (default) ou ro (trava a home).
 host_home_mode="$(read_compose_value HOST_HOME_MODE rw)"
 [[ "$host_home_mode" == "rw" || "$host_home_mode" == "ro" ]] || {
   echo "Erro: HOST_HOME_MODE deve ser rw|ro (recebido: ${host_home_mode})." >&2
   exit 2
 }
-port_range="$(read_compose_value VPN_PORT_RANGE 10000-10100)"
+port_range="$(read_compose_value VPN_PORT_RANGE 10000-10010)"
 validate_port_range "$port_range"
 
 # Diagnóstico preventivo de protocolo e porta no perfil NordVPN OpenVPN
@@ -171,7 +187,7 @@ fi
 # Proxy HTTP opt-in: a porta precisa estar na faixa publicada pelo Gluetun.
 http_proxy="$(read_compose_value VPN_HTTP_PROXY off)"
 if [[ "${http_proxy,,}" == "on" ]]; then
-  http_port="$(read_compose_value VPN_HTTP_PROXY_PORT 10080)"
+  http_port="$(read_compose_value VPN_HTTP_PROXY_PORT 10002)"
   [[ "$http_port" =~ ^[1-9][0-9]{0,4}$ && "$http_port" -le 65535 ]] || {
     echo "Erro: VPN_HTTP_PROXY_PORT inválida: $http_port." >&2
     exit 2

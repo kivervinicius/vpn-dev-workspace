@@ -96,6 +96,68 @@ Describe 'vpn.ps1 Windows interface' {
         }
     }
 
+    It 'rejeita bind LAN do painel sem OPENCODE_GUI_PASSWORD_FILE' {
+        $secret = Join-Path $script:TempRoot 'secret-ok'
+        if (-not (Test-Path -LiteralPath $secret)) { 'conteudo-de-teste' | Set-Content -LiteralPath $secret -Encoding ASCII }
+        $env:GLUETUN_API_KEY_FILE = $secret
+        $env:NORDVPN_USER_FILE = $secret
+        $env:NORDVPN_PASSWORD_FILE = $secret
+        $oldBind = $env:HOST_BIND_ADDRESS
+        $oldPw = $env:OPENCODE_GUI_PASSWORD_FILE
+        $oldRange = $env:VPN_PORT_RANGE
+        $oldProxy = $env:VPN_HTTP_PROXY
+        $env:HOST_BIND_ADDRESS = '192.168.50.10'
+        # Caminho inexistente (nao vazio): Get-ConfigValue no Windows nao
+        # distingue env vazio de ausente, mas caminho ruim cai no mesmo erro.
+        $env:OPENCODE_GUI_PASSWORD_FILE = Join-Path $script:TempRoot 'senha-inexistente'
+        $env:VPN_PORT_RANGE = '39999'
+        $env:VPN_HTTP_PROXY = 'off'
+        try {
+            $result = Invoke-VpnTest @('start', 'nordvpn-openvpn')
+            $result.Code | Should -Be 2
+            $result.Output | Should -Match 'OPENCODE_GUI_PASSWORD_FILE'
+        } finally {
+            if ($null -eq $oldBind) { Remove-Item Env:HOST_BIND_ADDRESS -ErrorAction SilentlyContinue } else { $env:HOST_BIND_ADDRESS = $oldBind }
+            if ($null -eq $oldPw) { Remove-Item Env:OPENCODE_GUI_PASSWORD_FILE -ErrorAction SilentlyContinue } else { $env:OPENCODE_GUI_PASSWORD_FILE = $oldPw }
+            if ($null -eq $oldRange) { Remove-Item Env:VPN_PORT_RANGE -ErrorAction SilentlyContinue } else { $env:VPN_PORT_RANGE = $oldRange }
+            if ($null -eq $oldProxy) { Remove-Item Env:VPN_HTTP_PROXY -ErrorAction SilentlyContinue } else { $env:VPN_HTTP_PROXY = $oldProxy }
+        }
+    }
+
+    It 'segue alem da checagem de senha do painel com OPENCODE_GUI_PASSWORD_FILE valido' {
+        $secret = Join-Path $script:TempRoot 'secret-ok'
+        if (-not (Test-Path -LiteralPath $secret)) { 'conteudo-de-teste' | Set-Content -LiteralPath $secret -Encoding ASCII }
+        $pwFile = Join-Path $script:TempRoot 'gui-password'
+        'senha-de-teste' | Set-Content -LiteralPath $pwFile -Encoding ASCII
+        $env:GLUETUN_API_KEY_FILE = $secret
+        $env:NORDVPN_USER_FILE = $secret
+        $env:NORDVPN_PASSWORD_FILE = $secret
+        $oldBind = $env:HOST_BIND_ADDRESS
+        $oldPw = $env:OPENCODE_GUI_PASSWORD_FILE
+        $oldRange = $env:VPN_PORT_RANGE
+        $oldProxy = $env:VPN_HTTP_PROXY
+        $oldWorkspace = $env:WORKSPACE_DIR
+        $env:HOST_BIND_ADDRESS = '192.168.50.10'
+        $env:OPENCODE_GUI_PASSWORD_FILE = $pwFile
+        $env:VPN_PORT_RANGE = '39999'
+        $env:VPN_HTTP_PROXY = 'off'
+        # WORKSPACE_DIR inexistente ancora o resultado: chega na mesma trava
+        # do teste acima, provando que a checagem de senha do painel passou.
+        $env:WORKSPACE_DIR = Join-Path $script:TempRoot 'workspace-inexistente'
+        try {
+            $result = Invoke-VpnTest @('start', 'nordvpn-openvpn')
+            $result.Code | Should -Be 2
+            $result.Output | Should -Match 'WORKSPACE_DIR nao encontrado'
+            $result.Output | Should -Not -Match 'OPENCODE_GUI_PASSWORD_FILE'
+        } finally {
+            if ($null -eq $oldWorkspace) { Remove-Item Env:WORKSPACE_DIR -ErrorAction SilentlyContinue } else { $env:WORKSPACE_DIR = $oldWorkspace }
+            if ($null -eq $oldBind) { Remove-Item Env:HOST_BIND_ADDRESS -ErrorAction SilentlyContinue } else { $env:HOST_BIND_ADDRESS = $oldBind }
+            if ($null -eq $oldPw) { Remove-Item Env:OPENCODE_GUI_PASSWORD_FILE -ErrorAction SilentlyContinue } else { $env:OPENCODE_GUI_PASSWORD_FILE = $oldPw }
+            if ($null -eq $oldRange) { Remove-Item Env:VPN_PORT_RANGE -ErrorAction SilentlyContinue } else { $env:VPN_PORT_RANGE = $oldRange }
+            if ($null -eq $oldProxy) { Remove-Item Env:VPN_HTTP_PROXY -ErrorAction SilentlyContinue } else { $env:VPN_HTTP_PROXY = $oldProxy }
+        }
+    }
+
     It 'encaminha comandos simulados ao Compose Windows' {
         Remove-Item -LiteralPath $script:MockLog -Force -ErrorAction SilentlyContinue
         $result = Invoke-VpnTest @('status', '--json')

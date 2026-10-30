@@ -71,20 +71,20 @@ Se você deseja navegar por sites internos ou testar APIs através da VPN sem ab
 ### Configuração no `.env`
 ```ini
 VPN_HTTP_PROXY=on
-VPN_HTTP_PROXY_PORT=10080
+VPN_HTTP_PROXY_PORT=10002
 VPN_HTTP_PROXY_STEALTH=on
 ```
 
 ### Uso no Host
 No seu terminal do host, configure as variáveis de ambiente:
 ```bash
-export http_proxy=http://127.0.0.1:10080
-export https_proxy=http://127.0.0.1:10080
+export http_proxy=http://127.0.0.1:10002
+export https_proxy=http://127.0.0.1:10002
 
 # Teste: seu IP refletirá a saída da VPN
 curl https://ipinfo.io/json
 ```
-No navegador (Firefox/Chrome), configure o proxy manual HTTP/HTTPS apontando para `127.0.0.1:10080`.
+No navegador (Firefox/Chrome), configure o proxy manual HTTP/HTTPS apontando para `127.0.0.1:10002`.
 
 ---
 
@@ -140,4 +140,4 @@ chmod 600 .secrets/httpproxy_password
 ./scripts/vpn-switch nordvpn-openvpn
 ```
 
-O mesmo vale para o painel OpenCode: `OPENCODE_GUI_PASSWORD_FILE=.secrets/opencode_gui_password` (montado em `/run/secrets/`; o supervisor prefere o arquivo ao env).
+O mesmo vale para o painel OpenCode: `OPENCODE_GUI_PASSWORD_FILE=.secrets/opencode_gui_password` (montado em `/run/secrets/`; o supervisor prefere o arquivo ao env). Com `HOST_BIND_ADDRESS` em LAN o arquivo é obrigatório — `vpn-switch`/`vpn.ps1` recusam subir sem ele, porque o painel ficaria aberto para a rede local.

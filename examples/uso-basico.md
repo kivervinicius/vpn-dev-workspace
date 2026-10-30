@@ -86,7 +86,7 @@ O caminho do OpenCode deve pertencer à home montada do host, e sua versão deve
 
 ## 4. Expor uma aplicação de desenvolvimento
 
-Configure a aplicação para usar uma porta da faixa `VPN_PORT_RANGE`, que por padrão é `10000-10100`. Com a configuração padrão, por exemplo, a aplicação em `10000` estará disponível apenas em `http://127.0.0.1:10000` no host.
+Configure a aplicação para usar uma porta da faixa `VPN_PORT_RANGE`, que por padrão é `10000-10010`. Com a configuração padrão, por exemplo, a aplicação em `10000` estará disponível apenas em `http://127.0.0.1:10000` no host.
 
 Para permitir acesso de outros dispositivos da LAN, defina `HOST_BIND_ADDRESS` com o IP local específico da máquina e reinicie o perfil. Não use `0.0.0.0`.
 

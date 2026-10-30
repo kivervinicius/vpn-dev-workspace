@@ -82,7 +82,7 @@ Outro processo na máquina host (ex.: outra instância do OpenCode, servidor loc
    ```bash
    ss -tulpn | grep 10001
    ```
-2. Altere a porta no `.env` para outro valor dentro da faixa `VPN_PORT_RANGE` (padrão `10000-10100`):
+2. Altere a porta no `.env` para outro valor dentro da faixa `VPN_PORT_RANGE` (padrão `10000-10010`):
    ```ini
    OPENCODE_GUI_PORT=10020
    ```

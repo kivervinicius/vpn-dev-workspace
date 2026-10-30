@@ -25,7 +25,7 @@
 
 ## Constraints And Risks
 
-- O Gluetun é a única superfície de rede publicada. A faixa TCP padrão é `10000-10100` e o bind padrão é local.
+- O Gluetun é a única superfície de rede publicada. A faixa TCP padrão é `10000-10010` (estreita; `10001` painel, `10002` proxy) e o bind padrão é local; bind em LAN exige `OPENCODE_GUI_PASSWORD_FILE`.
 - A recuperação automática usa a API autenticada do Gluetun e não recebe o socket Docker.
 - Todos os serviços possuem o perfil Compose interno `vpn`, selecionado pelo `vpn-switch`; isso impede a inicialização do Gluetun sem os segredos do provedor.
 - A home integral do host é montada no terminal, em leitura e escrita, para que ele seja uma extensão direta do ambiente local; não selecione uma home de outro usuário.

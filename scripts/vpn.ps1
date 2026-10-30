@@ -197,7 +197,18 @@ function Get-CurrentProjectPublishedPorts {
 function Validate-PortRange {
     $bindAddress = Get-ConfigValue 'HOST_BIND_ADDRESS' '127.0.0.1'
     if ($bindAddress -in @('0.0.0.0', '::', '*', '0', '0:0:0:0:0:0:0:0', '::0')) { Fail 'use um IP específico em HOST_BIND_ADDRESS; 0.0.0.0/:: expõe as portas publicamente.' 2 }
-    $range = Get-ConfigValue 'VPN_PORT_RANGE' '10000-10100'
+    if ($bindAddress -notin @('127.0.0.1', 'localhost', '::1')) {
+        # Painel web do OpenCode fica na faixa publicada: com bind em LAN,
+        # sem senha ele abriria aberto para a rede local (paridade com o
+        # vpn-switch no Linux).
+        $guiPassword = Get-ConfigValue 'OPENCODE_GUI_PASSWORD_FILE'
+        $resolvedGuiPassword = $null
+        if ($guiPassword) { $resolvedGuiPassword = Resolve-ProjectPath $guiPassword }
+        if (-not $resolvedGuiPassword -or -not (Test-Path -LiteralPath $resolvedGuiPassword -PathType Leaf) -or (Get-Item -LiteralPath $resolvedGuiPassword).Length -eq 0) {
+            Fail 'HOST_BIND_ADDRESS na LAN expõe o painel OpenCode; defina OPENCODE_GUI_PASSWORD_FILE com um arquivo de senha não vazio (ex: .secrets\opencode_gui_password, modo 0600).' 2
+        }
+    }
+    $range = Get-ConfigValue 'VPN_PORT_RANGE' '10000-10010'
     $bounds = Get-PortBounds $range
     $busy = @()
     $currentProjectPorts = @(Get-CurrentProjectPublishedPorts)
@@ -211,7 +222,7 @@ function Validate-PortRange {
 
     $proxy = Get-ConfigValue 'VPN_HTTP_PROXY' 'off'
     if ($proxy.ToLowerInvariant() -eq 'on') {
-        $proxyPortText = Get-ConfigValue 'VPN_HTTP_PROXY_PORT' '10080'
+        $proxyPortText = Get-ConfigValue 'VPN_HTTP_PROXY_PORT' '10002'
         if ($proxyPortText -notmatch '^[1-9][0-9]{0,4}$' -or [int]$proxyPortText -gt 65535) { Fail "VPN_HTTP_PROXY_PORT inválida: $proxyPortText" 2 }
         $proxyPort = [int]$proxyPortText
         if ($proxyPort -lt $bounds[0] -or $proxyPort -gt $bounds[1]) { Fail "VPN_HTTP_PROXY_PORT ($proxyPort) fora de VPN_PORT_RANGE ($range)." 2 }

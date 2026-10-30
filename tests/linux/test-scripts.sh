@@ -562,7 +562,7 @@ run_test "wrapper carrega XKIRO_API_KEY do arquivo de segredo" test_wrapper_xkir
 # 14. Classificação HTTP do vpn-opencode check. Precisa de socat para servir
 # respostas; sem ele o bloco é pulado em vez de reprovar a suíte.
 if command -v socat >/dev/null 2>&1; then
-  # A stack no ar publica 10000-10100; portas fixas nessa faixa falhavam no
+  # A stack no ar publica 10000-10010; portas fixas nessa faixa falhavam no
   # host. Escolhe uma porta livre e restringe VPN_PORT_RANGE a ela no check.
   # O probe usa timeout: socat que consegue bind fica escutando (exit 124);
   # porta ocupada falha antes (exit != 124).
@@ -607,6 +607,51 @@ if command -v socat >/dev/null 2>&1; then
 else
   echo "socat ausente: testes de classificação HTTP do check pulados."
 fi
+
+# 15. Bind em LAN exige senha do painel (OPENCODE_GUI_PASSWORD_FILE), com
+# paridade no vpn.ps1. Stubs de docker/ss mantêm o teste hermético (não
+# depende do Docker, do ss do host nem de um .env preenchido).
+test_switch_lan_bind_requires_gui_password() {
+  local stub out rc
+  stub="$(mktemp -d)"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "${stub}/docker"
+  chmod +x "${stub}/docker"
+  rc=0
+  out="$(PATH="${stub}:${PATH}" HOST_BIND_ADDRESS=192.168.50.10 OPENCODE_GUI_PASSWORD_FILE= \
+    VPN_HOSTS_SNIPPET_FILE="${stub}/hosts.gen" LOCAL_HOSTS= VPN_SERVER_HOSTNAMES= INTERNAL_DNS= \
+    bash "${SCRIPTS_DIR}/vpn-switch" nordvpn-openvpn 2>&1)" || rc=$?
+  rm -rf "${stub}"
+  [[ "$rc" -eq 2 ]] || { printf '%s\n' "$out" >&2; return 1; }
+  grep -q 'OPENCODE_GUI_PASSWORD_FILE' <<<"$out" || { printf '%s\n' "$out" >&2; return 1; }
+}
+run_test "vpn-switch: bind LAN sem senha do painel falha antes do up" test_switch_lan_bind_requires_gui_password
+
+test_switch_lan_bind_with_gui_password_passes() {
+  local stub pwfile out rc
+  stub="$(mktemp -d)"
+  pwfile="${stub}/gui_password"
+  printf 'senha-de-teste\n' > "$pwfile"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "${stub}/ss"
+  cat > "${stub}/docker" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"ps -q vpn"*) echo stub-container; exit 0 ;;
+  inspect*) echo healthy; exit 0 ;;
+esac
+exit 0
+STUB
+  chmod +x "${stub}/ss" "${stub}/docker"
+  rc=0
+  out="$(PATH="${stub}:${PATH}" HOST_BIND_ADDRESS=192.168.50.10 OPENCODE_GUI_PASSWORD_FILE="$pwfile" \
+    VPN_PORT_RANGE=21000 FIREWALL_SUBNETS=192.168.50.0/24 HOST_HOME_MODE=rw \
+    VPN_HOSTS_SNIPPET_FILE="${stub}/hosts.gen" LOCAL_HOSTS= VPN_SERVER_HOSTNAMES= INTERNAL_DNS= \
+    VPN_HTTP_PROXY=off \
+    bash "${SCRIPTS_DIR}/vpn-switch" nordvpn-openvpn 2>&1)" || rc=$?
+  rm -rf "${stub}"
+  [[ "$rc" -eq 0 ]] || { printf '%s\n' "$out" >&2; return 1; }
+  grep -q 'conectado' <<<"$out" || { printf '%s\n' "$out" >&2; return 1; }
+}
+run_test "vpn-switch: bind LAN com senha do painel valida e completa o up (stub)" test_switch_lan_bind_with_gui_password_passes
 
 echo "======================================"
 printf "Resultado: %d testes executados, %d passaram, %d falharam.\n" "$total" "$passed" "$failed"
