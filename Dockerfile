@@ -1,4 +1,6 @@
-FROM ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7
+# Ubuntu LTS (digest do índice multi-arch; bump deliberado — versões interim
+# como 25.10 ficam EOL em ~9 meses e o Dependabot é ignorado para ubuntu).
+FROM ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
 
 ARG TARGETARCH
 ARG NODE_VERSION=22.23.2
@@ -57,11 +59,27 @@ RUN case "${TARGETARCH}" in \
 
 # O UID/GID corresponde ao usuário do host (padrão 1000) e evita escrita como
 # root nos diretórios explicitamente montados. Ajuste via build-args quando a
-# home do host usa um UID/GID diferente.
+# home do host usa um UID/GID diferente. As imagens oficiais Ubuntu >= 23.04
+# já trazem o usuário `ubuntu` (UID/GID 1000): quando ele ocupa o par do host,
+# renomeia o par existente em vez de colidir (groupadd/useradd falhariam).
 ARG HOST_UID=1000
 ARG HOST_GID=1000
-RUN groupadd --gid "${HOST_GID}" developer \
-    && useradd --uid "${HOST_UID}" --gid "${HOST_GID}" --create-home --shell /usr/bin/zsh developer
+RUN set -eux; \
+    if existing_group="$(getent group "${HOST_GID}" | cut -d: -f1)" && [ -n "${existing_group}" ]; then \
+      [ "${existing_group}" = developer ] || groupmod -n developer "${existing_group}"; \
+    else \
+      groupadd --gid "${HOST_GID}" developer; \
+    fi; \
+    if existing_user="$(getent passwd "${HOST_UID}" | cut -d: -f1)" && [ -n "${existing_user}" ]; then \
+      [ "${existing_user}" = developer ] || usermod -l developer "${existing_user}"; \
+      usermod -g "${HOST_GID}" -d /home/developer -s /usr/bin/zsh developer; \
+      mkdir -p /home/developer; \
+      chown "${HOST_UID}:${HOST_GID}" /home/developer; \
+    else \
+      useradd --uid "${HOST_UID}" --gid "${HOST_GID}" --create-home --shell /usr/bin/zsh developer; \
+    fi; \
+    getent passwd "${HOST_UID}" | cut -d: -f1 | grep -qx developer; \
+    getent group "${HOST_GID}" | cut -d: -f1 | grep -qx developer
 RUN install -d -m 0700 -o "${HOST_UID}" -g "${HOST_GID}" /var/lib/vpn-control
 
 USER developer

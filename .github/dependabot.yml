@@ -1,6 +1,6 @@
 # Manutencao automatica dos pins (item #9 do backlog).
 # Cobre: Actions do workflow (checkout etc.) e a imagem base do Dockerfile
-# (ubuntu jammy por digest). NAO cobre os ARGs NODE_VERSION/OPENCODE_VERSION
+# (Ubuntu LTS por digest). NAO cobre os ARGs NODE_VERSION/OPENCODE_VERSION
 # e os checksums: esses bumps sao manuais, conforme o runbook
 # DEV/RUNBOOKS/opencode-desktop-vpn.md.
 version: 2
@@ -22,3 +22,10 @@ updates:
     commit-message:
       prefix: "chore"
       include: scope
+    # Base image bumps sao manuais e sempre LTS (24.04 -> 26.04...). O
+    # Dependabot propoe releases interim (ex.: 25.10) que ficam EOL em ~9
+    # meses e quebravam o build (imagens >= 23.04 trazem o usuario ubuntu
+    # com UID 1000). Ver Dockerfile (renomeia o par existente) e o historico
+    # dos PRs #5/#6.
+    ignore:
+      - dependency-name: "ubuntu"

@@ -12,7 +12,7 @@ jobs:
   validate:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Install ShellCheck, socat and zsh
         # socat é usado pela suíte para servir respostas HTTP nos testes de
         # classificação do `vpn-opencode check`; zsh valida o hook de título
@@ -46,7 +46,7 @@ jobs:
   secret-scan:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Scan do historico por segredos (gitleaks pinado por digest)
@@ -57,10 +57,26 @@ jobs:
             ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
             detect --source=/repo --no-banner --redact --verbose
 
+  supply-chain:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Scan de configuracao e segredos (trivy pinado por SHA)
+        # Misconfig (Dockerfile/Compose) + segredos no repositorio; somente
+        # CRITICAL falha o job. SHA = commit da tag v0.36.0 (dependabot
+        # atualiza via ecosystem github-actions).
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scanners: misconfig,secret
+          severity: CRITICAL
+          exit-code: "1"
+          format: table
+
   validate-windows-cli:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Test PowerShell interface with simulated Docker
         shell: pwsh
         run: Invoke-Pester -Path tests/windows -CI
