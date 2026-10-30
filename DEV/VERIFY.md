@@ -463,8 +463,14 @@ The older records below are historical. A VPN switch changes egress IP but canno
 
 ## Latest Verification
 
-- Date: 2026-09-17
-- Scope: revisão completa lote D (bugfixes A, CLI B, infra C). Estático + fixtures; runtime pendente no host/CI.
+- Date: 2026-10-30
+- Scope: backlog #2/#3/#9 + CI vermelha do Dependabot. Dockerfile em Ubuntu 24.04 LTS com tratamento do usuário `ubuntu` (UID 1000); faixa `10000-10010` com senha do painel obrigatória em LAN; trivy na CI; `checkout@v7`.
+
+### Commands (2026-10-30, sem Docker no ambiente)
+
+- CI (pushes `8585f3a` run `41109075522` e `5cf8ecb` run `41118083098`, todos os jobs verdes): ShellCheck, `bash -n`/`zsh -n`, suíte Linux, classificador do supervisor, `node --test`, `verify-docs`, `verify-compose`, `docker build` (imagem 24.04 com rename UID/GID), Pester Windows (incl. 2 testes novos de LAN bind), gitleaks e o job novo `supply-chain` (trivy fs: misconfig+secret, CRITICAL).
+- Local: `./scripts/verify-docs`; suíte Linux **45/45** (novo: bind LAN sem senha falha antes do up; bind LAN com senha completa o up com stubs de `docker`/`ss`); `bash -n` nos scripts alterados.
+- Ainda pendente (exige host/Docker/Windows): BACKLOG #1 (conexão real do Desktop App), `read_only+tmpfs` (#5), runtime Windows/WSL2 e toast interativo em TUI real; fechar PRs #4/#6 do Dependabot na UI (BACKLOG #17).
 
 ## Commands (2026-09-17, sem Docker no ambiente)
 

@@ -51,7 +51,7 @@
 - `scripts/vpn.ps1` valida Compose >= 2.24.4, perfil, portas, segredos e
   healthcheck; os testes PowerShell simulam Docker e rejeitam perfis inválidos,
   caminhos/hosts inválidos e segredos ausentes.
-- Toolchain: Node `22.23.2`, OpenCode `1.18.31`, digest jammy atual, CI `ubuntu-24.04` (SHAs/digest verificados na origem; build real pendente na CI).
+- Toolchain: Node `22.23.2`, OpenCode `1.18.31`, base Ubuntu 24.04 LTS (digest do índice multi-arch), CI `ubuntu-24.04` com jobs de validação, secret-scan (gitleaks) e supply-chain (trivy) — SHAs/digest verificados na origem e build revalidado na CI (2026-10-30).
 
 ## Constraints
 
