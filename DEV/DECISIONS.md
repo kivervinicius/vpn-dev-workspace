@@ -49,7 +49,7 @@ A imagem do terminal é construída com `HOST_UID`/`HOST_GID` (padrão 1000) par
 
 ## GUI do OpenCode dentro do túnel via helper `vpn-opencode`
 
-O OpenCode GUI é executado dentro do `terminal` (tráfego de LLM 100% pela VPN) e publicado na faixa do Gluetun via `vpn-opencode web|serve` (porta `OPENCODE_GUI_PORT`, padrão 10001). `web` serve o painel no navegador do host; `serve` expõe a ponta para o Desktop App. A senha vem de `OPENCODE_GUI_PASSWORD_FILE` (basic auth, usuário `opencode`); sem o arquivo, o painel abre sem senha, apenas para uso local. O estado é compartilhado com o CLI porque ambos usam a mesma home e os mesmos projetos.
+O OpenCode GUI é executado dentro do `terminal` (tráfego de LLM 100% pela VPN) e publicado na faixa do Gluetun via `vpn-opencode web|serve` (porta `OPENCODE_GUI_PORT`, padrão 10001). `web` serve o painel no navegador do host; `serve` expõe a ponta para o Desktop App. A senha vem de `OPENCODE_GUI_PASSWORD_FILE` (basic auth, usuário `opencode`); sem o arquivo, o painel abre sem senha, apenas para uso local. Com `HOST_BIND_ADDRESS` em LAN, `vpn-switch`/`vpn.ps1` recusam subir sem um arquivo de senha não vazio, porque o painel ficaria exposto na rede local. O estado é compartilhado com o CLI porque ambos usam a mesma home e os mesmos projetos.
 
 ## Achados de runtime (2026-08-19)
 - `DNS_REBINDING_PROTECTION_EXEMPT_HOSTNAMES` do Gluetun rejeita curingas (`*.omega.local` inválido): exigem-se nomes explícitos separados por vírgula.

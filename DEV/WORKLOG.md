@@ -1,5 +1,10 @@
 # Worklog
 
+## 2026-10-30 - Docs da regra LAN do painel + guarda de VPN_PORT_RANGE
+
+- Changed: `DEV/DECISIONS.md`, `README.md` e `DEV/RUNBOOKS/opencode-desktop-vpn.md` agora registram que bind em LAN exige `OPENCODE_GUI_PASSWORD_FILE` não vazio (`vpn-switch`/`vpn.ps1` recusam subir sem ele); `scripts/verify-compose` ganhou checagem estática de que o default de `VPN_PORT_RANGE` bate entre `docker-compose.yml` e `.env.example` (sem Docker, antes dos perfis). Revisão de docs fechou o BACKLOG #4 (sem `secrets/` rastreado; `secrets.zip`/`.secrets/` ignorados) e alinhou a contagem da suíte (45/45) em `CONTEXT`/`SPECS`.
+- Verified: `verify-docs` OK, `bash -n scripts/verify-compose` limpo, suíte Linux **45/45**, `node --test` **8/8**; divergência simulada é detectada. `verify-compose` completo segue exigindo Docker (CI).
+
 ## 2026-10-30 - CI do Dependabot resolvida, base LTS e backlog #2/#3/#9
 
 - Why: o repositório tinha PRs vermelhos do Dependabot (bumps `ubuntu` 22.04→25.10/26.04; runs 100/101 falhavam no build da imagem) e os itens #2/#3/#9 do BACKLOG abertos. Causa do build quebrado: imagens oficiais Ubuntu >= 23.04 trazem o usuário `ubuntu` (UID/GID 1000) e o `groupadd`/`useradd` do Dockerfile colidiam.

@@ -10,6 +10,8 @@ conectado ao servidor que roda DENTRO do túnel VPN (`vpn-opencode serve`).
 - `.env` com `OPENCODE_GUI_PORT` (padrão `10001`) dentro de `VPN_PORT_RANGE` e
   `OPENCODE_GUI_PASSWORD_FILE` (padrão `.secrets/opencode_gui_password`).
 - A porta é publicada pelo Gluetun apenas em `127.0.0.1` (`HOST_BIND_ADDRESS`).
+  Com bind em LAN, `vpn-switch`/`vpn.ps1` exigem `OPENCODE_GUI_PASSWORD_FILE`
+  com arquivo não vazio e recusam subir sem ele.
 
 ## 1. Subir o servidor (ponta para o app)
 

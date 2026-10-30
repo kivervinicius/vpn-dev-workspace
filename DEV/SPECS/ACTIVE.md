@@ -63,7 +63,7 @@
 
 ## Verification Plan
 
-- Passed: OpenCode adapters **8/8**, Linux suite **43/43**, `verify-docs`, `verify-compose` (8 profiles), changed-script `bash -n`, and Docker image/runtime deployment.
+- Passed: OpenCode adapters **8/8**, Linux suite **45/45** (inclui 2 testes de bind LAN do painel), `verify-docs`, `verify-compose` (8 profiles), changed-script `bash -n`, and Docker image/runtime deployment.
 - Runtime: both installed clients were exercised against a local mock returning structured HTTP 429. v1 changed egress `189.1.170.10` → `189.1.170.177` on br71; v2 changed `189.1.170.177` → `189.1.168.12` on br72. Recovery state confirmed each target and IP transition; final `vpn-check` passed **6/6**. Plugin discovery confirmed v2 `vpn-recovery`.
 - Limits: no real provider quota was used; provider quota reset is not guaranteed by IP change. The pre-existing managed v2 service was not changed; its occupied port required standalone mode for the v2 TUI E2E.
 

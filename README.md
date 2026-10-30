@@ -315,7 +315,7 @@ O helper `vpn-opencode` roda o OpenCode dentro do container (tráfego de LLM 100
 - Antes de uma recuperação de conectividade, o supervisor registra a sessão raiz mais recente com `opencode session list`. Depois que o túnel volta e o servidor reinicia, ele confirma que esse mesmo ID de sessão continua disponível na home persistente. Isso preserva o **mesmo contexto/sessão** para Desktop/Web/CLI reconectarem.
 - Uma resposta que estava em voo não é reenviada automaticamente: repetir o último prompt poderia duplicar comandos ou tools já executados. A recuperação restaura VPN + servidor + sessão persistida; a continuação exata da chamada interrompida depende do mecanismo de replay/continuação do próprio OpenCode.
 - Sonda no `vpn-auto-reconnect` (`OPENCODE_AUTOCHECK=true`) continua apenas observacional; a responsabilidade de recuperar o OpenCode fica centralizada no `opencode-supervisor`.
-- Senha (basic auth, usuário `opencode`): arquivo `OPENCODE_GUI_PASSWORD_FILE` (padrão `.secrets/opencode_gui_password`). Sem o arquivo, o painel abre sem senha — apenas para uso local.
+- Senha (basic auth, usuário `opencode`): arquivo `OPENCODE_GUI_PASSWORD_FILE` (padrão `.secrets/opencode_gui_password`). Sem o arquivo, o painel abre sem senha — apenas para uso local; com `HOST_BIND_ADDRESS` em LAN, `vpn-switch`/`vpn.ps1` exigem o arquivo não vazio e recusam subir sem ele.
 - O estado é compartilhado com o CLI: o mesmo `$HOME` e os mesmos projetos são usados por `opencode` no terminal e pela GUI.
 
 ### 7.1 Conectar o Desktop App (passo a passo)
