@@ -43,6 +43,8 @@ vpn-server-rotate --list   # ver / trocar servidor
 ./scripts/vpn-opencode serve --detach       # fundo p/ Desktop App
 ./scripts/vpn-opencode supervise --mode serve  # self-heal persistente
 ./scripts/vpn-opencode check                # ok|down|quota
+./scripts/opencode-vpn-install              # launchers + plugins vpn-recovery
+opencode1 | opencode2                       # v1 (home isolada) / v2 (compartilhada)
 ```
 
 Desktop App → `http://127.0.0.1:10001`, login `opencode`, senha em `.secrets/opencode_gui_password`.

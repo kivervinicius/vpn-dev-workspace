@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# Run OpenCode v1 through the VPN terminal, except when already inside it.
+set -Eeuo pipefail
+
+# Ajuda antes de qualquer checagem de ambiente/túnel: --help nunca depende de VPN.
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  echo "Uso: opencode1 [--help] [argumentos do OpenCode]" >&2
+  echo "Executa o OpenCode v1 dentro do container VPN; não há fallback no host." >&2
+  exit 0
+fi
+
+readonly V1_HOME="${OPENCODE_V1_HOME:-${HOME:?HOME must be set}/.opencode-v1}"
+readonly HOST_HOME="${OPENCODE_HOST_HOME:-${HOME:?HOME must be set}}"
+readonly V1_BIN="${V1_HOME}/bin/opencode"
+readonly TERMINAL_CONTAINER="${OPENCODE_TERMINAL_CONTAINER:-vpn-dev-workspace-terminal-1}"
+
+if [[ "${VPN_WORKSPACE_CONTAINER:-}" == "1" ]]; then
+  if [[ ! -x "$V1_BIN" ]]; then
+    printf 'opencode1: v1 binary is unavailable: %s\n' "$V1_BIN" >&2
+    exit 127
+  fi
+  if ! vpn-check --only tunnel -q >/dev/null 2>&1; then
+    echo 'opencode1: VPN tunnel is unhealthy; run vpn-reconnect before starting OpenCode.' >&2
+    exit 1
+  fi
+  auth_source="${HOST_HOME}/.local/share/opencode/auth.json"
+  auth_target="${V1_HOME}/.local/share/opencode/auth.json"
+  if [[ ! -e "$auth_target" && -r "$auth_source" ]]; then
+    mkdir -p -- "$(dirname "$auth_target")" || exit 1
+    install -m 0600 -- "$auth_source" "$auth_target" || exit 1
+  fi
+  export HOME="$V1_HOME"
+  export XDG_DATA_HOME="$V1_HOME/.local/share"
+  export XDG_CONFIG_HOME="$V1_HOME/.config"
+  export XDG_STATE_HOME="$V1_HOME/.local/state"
+  exec "$V1_BIN" "$@"
+fi
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo 'opencode1: Docker is required; refusing to run OpenCode on the host.' >&2
+  exit 1
+fi
+if [[ "$(docker inspect --format '{{.State.Running}}' "$TERMINAL_CONTAINER" 2>/dev/null || true)" != 'true' ]]; then
+  printf 'opencode1: VPN terminal container is not running: %s\n' "$TERMINAL_CONTAINER" >&2
+  exit 1
+fi
+if ! docker exec "$TERMINAL_CONTAINER" vpn-check --only tunnel -q >/dev/null 2>&1; then
+  echo 'opencode1: VPN tunnel is unhealthy; run vpn-reconnect before starting OpenCode.' >&2
+  exit 1
+fi
+
+workdir="$(pwd -P 2>/dev/null || printf /projetos)"
+case "$workdir" in
+  /projetos|/projetos/*|/home/*|/tmp|/tmp/*) ;;
+  *) workdir=/projetos ;;
+esac
+
+tty_flags=(-i)
+if [[ -t 0 && -t 1 ]]; then
+  tty_flags+=(-t)
+fi
+exec docker exec "${tty_flags[@]}" \
+  -e VPN_WORKSPACE_CONTAINER=1 \
+  -e HOME="$V1_HOME" \
+  -e OPENCODE_HOST_HOME="$HOST_HOME" \
+  -e XDG_DATA_HOME="$V1_HOME/.local/share" \
+  -e XDG_CONFIG_HOME="$V1_HOME/.config" \
+  -e XDG_STATE_HOME="$V1_HOME/.local/state" \
+  -e TERM="${TERM:-xterm-256color}" \
+  -w "$workdir" \
+  "$TERMINAL_CONTAINER" \
+  "$V1_BIN" "$@"

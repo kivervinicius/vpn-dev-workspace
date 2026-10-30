@@ -1,5 +1,166 @@
 # Verify
 
+## Latest Verification - 2026-10-30 (OpenCode VPN recovery v1/v2)
+
+### Passaram
+
+- `node --test tests/opencode/*.test.mjs`: **8/8**; structured v1/v2 classification, abort/retry behavior, TUI deduplication, and account/credit exclusions.
+- `bash tests/linux/test-scripts.sh`: **43/43**; lock contention, verified changed IP, cooldown/window limits, free-tier/429 rotation, and launcher behavior.
+- `./scripts/verify-docs`, `./scripts/verify-compose` (**8 perfis**) e `bash -n` nos scripts alterados.
+- `opencode1 --version` → **1.19.5**; `opencode2 --version` → **2.1.3**. Installed v2 plugin discovery included `vpn-recovery`.
+- Runtime E2E with a local-only synthetic HTTP 429 provider triggered actual VPN recovery in both clients. v1: `br71.nordvpn.com`, `189.1.170.10` → `189.1.170.177`. v2: `br72.nordvpn.com`, `189.1.170.177` → `189.1.168.12`. Both helper state records confirmed the target and before/after IP; final `vpn-check --json` passed **6/6**.
+- The active tunnel now uses `br72.nordvpn.com`, public IP `189.1.168.12` (São Paulo). Both E2E requests went only to the local mock; no real provider quota or prompt replay.
+
+### Limites
+
+- The pre-existing managed OpenCode service occupied its default port, so v2 E2E ran in `--standalone` mode without changing that service.
+- A changed egress IP does not guarantee that the provider resets its quota.
+
+The older records below are historical. A VPN switch changes egress IP but cannot guarantee that the provider's quota resets.
+
+
+
+## Historical Verification - 2026-10-23 (free tier × IP; superseded)
+
+### Passaram
+
+- v2 free na VPN: 9/9 modelos free OK (`beam`, `big-pickle`, `deepseek`, `flint`, `glm`, `mimo`, `nemotron-3-ultra`, `nemotron-3.5-lightning`, `nemotron-3.5-super-vl`).
+- Host (IP residencial): 9/9 modelos free BLOCKED (QUOTA).
+- **Descoberta**: o limite free tier v2 é **por IP** (janela ~200 req/5h), não por conta/modelo.
+- Host (IP residencial `168.205.49.98`): todos 9 modelos QUOTA.
+- VPN (IP `189.1.168.17`): 9/9 modelos OK.
+- `VPN_ROTATE_SERVERS=true` reativado — rotação de IP renova a janela de 5h.
+- `opencode-free` (v1) funciona no host e no container.
+
+### Observações
+
+- O limite free v2 é por IP (janela ~200 req/5h), não por conta/modelo.
+- Host (IP residencial) → janela esgotada; VPN (IP datacenter) → janela própria → todos modelos OK.
+- `VPN_ROTATE_SERVERS=true` reativado — rotação de IP renova a janela de 5h.
+- v1 continua como fallback (contrato legado `/api/chat`).
+
+## Latest Verification - 2026-10-22 (quota free v2 é intermitente)
+
+### Passaram
+
+- v2.0.29, v2.1.2 e v2.1.3 com `--standalone` + home temporário/auth: `glm-5.3-flash-free` e `deepseek-v4.1-flash-free` responderam `OK` quando a quota permitiu.
+- Histórico por versão: 2.0.29 (25 succeeded), 2.1.1 (1), 2.1.2 (7 succeeded/5 failed), 2.1.3 (2 succeeded/4 failed).
+- Em 22/10: `deepseek` falhou às 16:29 e voltou às 20:30; `glm` funcionou no intervalo. Não houve versão de corte.
+
+### Observações
+
+- O limite é por conta/modelo/janela; trocar o modelo free costuma resolver antes de pensar em downgrade.
+- v1 continua como fallback por usar o contrato legado.
+
+## Latest Verification - 2026-10-22 (contorno do free tier via v1)
+
+### Passaram
+
+- `opencode-free run -m opencode/deepseek-v4.1-flash-free "Responda apenas OK"` → `OK` no host e no container/VPN.
+- `opencode2 run` com o mesmo modelo → `Free usage limit reached. Connect a provider or subscribe to OpenCode Go...`.
+- `opencode-free --version` → `1.19.4` (v1).
+- Mesmo IP/conta: v1 responde, v2 bloqueia. O limite é aplicado ao v2, não ao ASN.
+
+### Observações
+
+- Contorno legítimo: usar o cliente oficial v1 (`opencode-free`); sem spoofing de headers/endpoint.
+- v2 fica para modelo pago/chave própria.
+
+## Latest Verification - 2026-10-22 (free tier × ASN)
+
+### Passaram
+
+- `vpn-asn` no host: `168.205.49.98` / **AS265363 RV NET** (residencial).
+- `vpn-asn` no container: `189.1.168.17` / **AS262287 Latitude.sh** (datacenter, com aviso).
+- `opencode-free --version` no host: `opencode v2.1.3`.
+- `opencode-free` no container: recusa com exit 1 e instrução para usar o host.
+- Amostra NordVPN: Datacamp AS60068/AS212238, Hydra AS25369, Latitude AS262287/AS396356; todos datacenter.
+
+## Latest Verification - 2026-10-22 (histórico v2 → v1)
+
+### Passaram
+
+- `opencode1-import-v2`: snapshot `VACUUM INTO` com **1.500 sessões**, `quick_check ok`; executado no container via `node:sqlite` (sem python3); banco v1 anterior salvo em `.bak-<data>`.
+- `opencode1 session list` lista o histórico (ex.: `Verificação do repositório`, `Replicar título container para aba externa`).
+- Export direto do binário v1 de uma sessão: **71 mensagens**.
+- `opencode1 --version` = 1.19.4.
+
+### Observações
+
+- `opencode1 export` através do wrapper (`docker exec -i`) trunca em ~192 KB; usar o binário direto no host para exports grandes.
+- O snapshot é unidirecional; novas sessões no v2 exigem rodar `opencode1-import-v2` de novo.
+
+## Latest Verification - 2026-10-22 (atualização automática v1/v2)
+
+### Passaram
+
+- `opencode-update --check`: v1 `1.19.4` = latest; v2 `2.1.3` = latest.
+- `systemctl --user start opencode-update.service`: concluído, log com “já atualizado”.
+- Timer `opencode-update.timer` habilitado; próxima execução 2026-10-23 00:10.
+- `npm install -g @opencode/cli@2.1.3 --prefix /tmp/...` validado (binário 2.1.3 funcional).
+
+### Observações
+
+- v2 é atualizado via npm (`@opencode/cli`), não pelo GitHub releases (o “latest” do GitHub é a linha 1.x). v1 é atualizado pelo GitHub `v1.*`.
+
+## Latest Verification - 2026-10-22 (opencode1/opencode2)
+
+### Passaram
+
+- `opencode2 --version` → `2.1.3` no host e no container.
+- `opencode1 --version` → `1.19.4` no host (via `docker exec`) e no container.
+- `opencode1 models` lista o catálogo atual (`deepseek-v4.1-flash-free`, `glm-5.3-flash-free`, `nemotron-3.5-*`, etc.).
+- `~/.opencode-v1` criado com `opencode.db` próprio; banco do v2 não foi alterado.
+- `auth.json` copiado do v2 apenas quando o v1 ainda não tem o seu.
+
+### Não passou / limitação
+
+- `opencode2 session export <id>` → `opencode1 import` falha: `Missing key at ["slug"]`; com shim `slug`/`version`, falha em `Expected Message`. Sessões v1↔v2 não são compatíveis; sync automático não implementado.
+
+## Latest Verification - 2026-10-22 (rotação entre países + free tier opt-in)
+
+### Passaram
+
+- Suíte Linux **55/55**, incluindo `vpn-server-rotate --countries "Brazil, Argentina"` (patch com `countries` e `hostnames:[]`) e `--countries ""`/`--to` retornando exit 2.
+- `opencode-limit-watch --once` com `OPENCODE_FREE_TIER_ROTATE=false`: não chama `vpn-server-rotate` e loga `rotação ignorada`.
+- `bash -n` nos scripts alterados; `verify-docs`; `verify-compose` (8 perfis).
+- Runtime: `--countries "Argentina"` falhou no handshake (103.50.33.x) e a re-seleção aleatória no Brasil também; com `VPN_SERVER_HOSTNAMES` fixo (br71…) o túnel voltou (`189.1.168.6`) e `vpn-check` passou 6/6.
+- Teste de países com Gluetun temporário: Chile/Colômbia/Peru/México/EUA/Espanha timeout; Portugal/Canadá `auth-failure` (provável rate limit); Argentina timeout; TCP 443 pendurou; porta custom 1231 rejeitada para NordVPN. Apenas o range fixo `br71…` (`189.1.168.x`) conectou.
+
+### Não rodaram / observações
+
+- A mudança de país em runtime depende da API do Gluetun; o teste usa stub de `curl`. Falta validar `--countries` contra o Gluetun real.
+
+## Latest Verification - 2026-10-22 (isolamento host x container + DB)
+
+### Passaram
+
+- `docker compose config`: `XDG_STATE_HOME=/home/desenvolvedor/.local/state-vpn` no `terminal` e no `opencode-supervisor`; `XDG_DATA_HOME` permanece o padrão (`~/.local/share`) para compartilhar DB/sessões/auth com o host.
+- `terminal` recriado após reverter o `XDG_DATA_HOME`; `~/.local/share/opencode/opencode.db` (3,0 GB) visível dentro do container; sessões/histórico restaurados.
+- `opencode.db`: `VACUUM` concluído em 33,8s, de 17 GB para 3,0 GB; backup `opencode.db.backup-20261022-124116` (3,0 GB).
+- `verify-compose` (8 perfis) e `verify-docs`.
+- `terminal` recriado; variáveis presentes no container; `opencode-limit-watch` rodando; último `registration replaced` às 16:32 (antes da recriação) e `service.json` estável no host.
+- `VACUUM INTO`: 3.141.517.312 bytes; `quick_check ok`; contagens preservadas (1.500 sessões, 67.481 mensagens, 301.831 parts).
+- `opencode.db`: `page_count` 4.261.952 e `freelist_count` 3.487.278 (14,3 GB livres).
+
+### Não rodaram / observações
+
+- A compactação in-place (`VACUUM`) encerra todas as instâncias do OpenCode; o resultado fica em `~/.local/share/opencode/compact-db.log`.
+
+## Latest Verification - 2026-10-22 (stack recriada + contenção do OpenCode)
+
+### Passaram
+
+- `./scripts/vpn-switch nordvpn-openvpn` no host: `down` + `up -d --build --force-recreate`; 3 containers recriados (`vpn-1` e `vpn-auto-reconnect-1` healthy, `terminal` Up).
+- `vpn-check` no `terminal`: 6/6 ok (túnel, IP público, DNS do túnel, resolução, `/etc/resolv.conf`, `gitlab.omega`).
+- `vpn-status --json`: `running`, NordVPN/OpenVPN, IP `189.1.170.12` (São Paulo).
+- Egress: container `189.1.170.12` (VPN) x host `168.205.49.98` (direto).
+- `terminal` recriado sobe `opencode-limit-watch` via Compose (PID 10 no container).
+
+### Não rodaram / observações
+
+- A sessão OpenCode ativa desta execução ficou no host (`opencode --yolo` em `user.slice`), portanto fora do túnel; a instância do container foi encerrada pela recriação.
+
 ## Latest Verification - 2026-10-22 (rotação no limite gratuito do OpenCode)
 
 ### Passaram

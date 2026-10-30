@@ -39,6 +39,7 @@ Encerrar: `./scripts/vpn-switch stop`. Versão imprimível de 1 página: [docs/T
 - [Exemplo de uso básico](examples/uso-basico.md) — NordVPN + OpenVPN passo a passo.
 - [Cenários avançados](examples/cenarios-avancados.md) — intranet, `LOCAL_HOSTS`, proxy, supervisor, home read-only, senhas via arquivo.
 - [Runbook OpenCode Desktop](DEV/RUNBOOKS/opencode-desktop-vpn.md) — Desktop/Web pela VPN.
+- [Runbook OpenCode v1/v2](DEV/RUNBOOKS/opencode-v1-v2.md) — launchers, versões, importação de histórico e recuperação por limite.
 - [Runbook de troubleshooting](DEV/RUNBOOKS/troubleshooting-vpn.md) — diagnóstico e resolução.
 
 ## Objetivo
@@ -70,7 +71,7 @@ O assistente cria o diretório `.secrets/` (modo 0700), gera a chave de API do G
    ./scripts/vpn-switch nordvpn-openvpn
    ```
 
-   Não execute `docker compose up` diretamente: ele não seleciona um provedor nem seus arquivos de segredo. Use sempre `vpn-switch <perfil>`.
+   Não execute `docker compose up` diretamente: ele não seleciona um provedor nem seus arquivos de segredo. Use sempre `vpn-switch <perfil>`. Na primeira execução o Compose também constrói a imagem local do Gluetun (`gluetun/`, versão fixada + patch de retry da coleta de IP público), o que exige acesso à internet.
 
 4. Abra o terminal Zsh:
 
@@ -192,6 +193,8 @@ O repositório também inclui um `Makefile` com atalhos práticos (`make help`, 
 
 O `vpn-reconnect` aguarda o IP público do Gluetun após a reconexão (o endpoint só o publica segundos depois de o túnel subir) e imprime o IP quando disponível; se o IP não voltar, encerra com erro para o `vpn-auto-reconnect` retentar.
 
+O Gluetun usa `ifconfig.co` para obter o IP público. A imagem local é construída a partir da versão fixada do Gluetun com um patch que tenta a coleta até três vezes, com dois segundos entre tentativas; não reinicia o túnel para repetir a consulta. A disponibilidade e os limites desse serviço externo ainda podem afetar a verificação de saúde e a reconexão. O build exige acesso à fonte fixada e às dependências Go, e executa os testes do patch.
+
 Para automação: `vpn-status --json|-q`, `vpn-check --json|-q [--only tunnel|dns|internal|hosts]`, `vpn-top --json|--no-color`; todo script responde `--help`. O `vpn-check` sai `0` saudável / `1` com falha (a contagem vai na mensagem/JSON).
 
 ### 4.1 Rotação automática de servidor (opt-in)
@@ -206,7 +209,7 @@ VPN_ROTATE_SERVERS=true
 # VPN_ROTATE_INTERVAL_SECONDS=86400
 ```
 
-Com `VPN_ROTATE_SERVERS=true`, após `VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE` falhas consecutivas (padrão 3), o `vpn-auto-reconnect` chama `vpn-server-rotate` e recomeça a contagem. Com `VPN_SERVER_HOSTNAMES` preenchido, os servidores são ciclados na ordem; sem a lista, o Gluetun re-seleciona um servidor aleatório no país configurado. Hostnames inválidos para o provedor são rejeitados pela API do Gluetun. Manual: `vpn-server-rotate [--to <host>|--random|--list]`.
+Com `VPN_ROTATE_SERVERS=true`, após `VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE` falhas consecutivas (padrão 3), o `vpn-auto-reconnect` chama `vpn-server-rotate` e recomeça a contagem. Com `VPN_SERVER_HOSTNAMES` preenchido, os servidores são ciclados na ordem; sem a lista, o Gluetun re-seleciona um servidor aleatório no país configurado. Hostnames inválidos para o provedor são rejeitados pela API do Gluetun. Manual: `vpn-server-rotate [--to <host>|--random|--countries "Brazil,Argentina,Chile"|--list]`. Com `--countries`, a lista de hostnames é limpa e o Gluetun escolhe aleatoriamente entre os países informados; para rotação entre países via `.env`, use `VPN_COUNTRY` com vírgulas e deixe `VPN_SERVER_HOSTNAMES` vazio. Em redes restritivas, servidores aleatórios podem não completar o handshake — nesse caso fixe hostnames alcançáveis em `VPN_SERVER_HOSTNAMES`.
 
 > Se o seu provedor de acesso bloquear faixas de IP de alguns servidores (a re-seleção aleatória pode cair repetidamente neles), preencha `VPN_SERVER_HOSTNAMES` com uma lista de servidores conhecidamente acessíveis para a rotação.
 
@@ -302,13 +305,14 @@ O helper `vpn-opencode` roda o OpenCode dentro do container (tráfego de LLM 100
 - Gerenciar: `vpn-opencode status|logs [--port P]`, `vpn-opencode stop [--port P]`, fundo com `web|serve --detach`.
 - Verificação: `vpn-opencode check [--port P] [--json|-q]` distingue `ok|down|quota` (exit `0` ok / `1` down|quota); `vpn-top` mostra a seção OpenCode.
 - Supervisor persistente (recomendado): `vpn-opencode supervise --mode serve` inicia o serviço `opencode-supervisor`. Ele roda no mesmo namespace da VPN, usa a mesma home/workspace e **não** recebe o socket Docker.
-- Recuperação automática: queda simples do processo com túnel saudável reinicia apenas o OpenCode; mensagens de desconexão/rede ou `Provider rate limit exceeded`/HTTP 429 param o OpenCode, rotacionam o servidor pelo Control Server autenticado do Gluetun e sondam o túnel. Se aquele servidor não ficar saudável, o supervisor tenta outro servidor até recuperar a conectividade ou atingir a proteção anti-loop; o OpenCode só volta a subir depois de um túnel confirmado.
-- Limite do plano OpenCode Go (`Go limit reached` / `Usage limit reached ... reset`) é `account_rate_limit`: o supervisor **não rotaciona a VPN** nesse caso, porque o limite pertence à conta e trocar IP não o reseta. O processo permanece vivo para o reset/fallback do próprio OpenCode.
-- Limite da franquia gratuita (`FreeUsageLimitError`, `Free limit reached`, `Free usage limit reached`, `Subscribe to OpenCode Go`) é `free_tier_limit`: com `OPENCODE_FREE_TIER_ROTATE=true` (padrão), rotaciona a VPN para renovar a franquia por IP. O watcher `opencode-limit-watch` roda no container `terminal`, observa o log do TUI (v1/v2), confere se o IP realmente mudou (até `OPENCODE_LIMIT_ROTATE_ATTEMPTS` servidores) e, se o limite persistir, executa `OPENCODE_LIMIT_FALLBACK_HOOK`; tem cooldown (`OPENCODE_LIMIT_ROTATE_COOLDOWN_SECONDS`) e limite por janela (`OPENCODE_LIMIT_ROTATE_MAX`/`OPENCODE_LIMIT_ROTATE_WINDOW_SECONDS`).
-- Proteção anti-loop: `OPENCODE_RECOVERY_MAX_ROTATIONS`, `OPENCODE_RECOVERY_WINDOW_SECONDS` e `OPENCODE_RECOVERY_COOLDOWN_SECONDS` limitam cada janela de recuperação; quando a janela bloqueia novas trocas, o motivo fica pendente e a tentativa é retomada posteriormente.
+- Recuperação automática: queda do processo com VPN saudável reinicia apenas o OpenCode; somente desconexão real ou túnel unhealthy acionam recuperação VPN pelo supervisor. O `vpn-opencode check` é observacional e não inicia rotação; limites de provider não são falhas de túnel.
+- Plugins das versões fixadas classificam somente eventos/campos estruturados: free-tier e HTTP 429/rate-limit podem solicitar troca real de servidor/IP; limites de conta e crédito não alteram VPN. Texto de resposta e logs nunca são gatilhos.
+- A recuperação por limite é best effort: o plugin chama o helper `scripts/opencode-limit-recover` (montado em `/usr/local/bin`), que exige túnel saudável, IP público válido e IP de saída diferente, sob o lock compartilhado `/var/lib/vpn-control/operation.lock`; respeita cooldown de 300 s, até 6 eventos por janela móvel de 3600 s e até 3 alvos distintos por evento (estado em `/var/lib/vpn-control/opencode-limit-recovery.json`). Candidatos são somente hostnames configurados em `VPN_SERVER_HOSTNAMES`; o resultado identifica o alvo solicitado, não comprova o peer remoto. Trocar o IP não garante reset de quota.
+- Em v1, retry estruturado só solicita recuperação após confirmação do abort; erro terminal estruturado não exige abort. Em v2, o hook do servidor veta retry classificado e um único evento de falha na TUI pode solicitar recuperação; execução headless não tem recuperação TUI. Nenhum plugin reenvia o prompt.
+- Proteção anti-loop do supervisor (`OPENCODE_RECOVERY_MAX_ROTATIONS`, `OPENCODE_RECOVERY_WINDOW_SECONDS` e `OPENCODE_RECOVERY_COOLDOWN_SECONDS`) limita recuperação de conectividade, separada dos limites do plugin.
 - `vpn-opencode watch` permanece como compatibilidade: inicia o supervisor persistente e acompanha seus logs.
-- Watcher de limite no TUI: o container `terminal` sobe `opencode-limit-watch`, que observa `~/.local/share/opencode/log/opencode.log` (TUI v1/v2) e rotaciona a VPN quando o limite gratuito aparece. Log em `/tmp/opencode-limit-watch.log`; teste sem rotacionar: `opencode-limit-watch --dry-run --once "<texto>"`.
-- Antes de uma recuperação por VPN, o supervisor registra a sessão raiz mais recente com `opencode session list`. Depois que o túnel volta e o servidor reinicia, ele confirma que esse mesmo ID de sessão continua disponível na home persistente. Isso preserva o **mesmo contexto/sessão** para Desktop/Web/CLI reconectarem.
+- Launchers e plugins globais: `./scripts/opencode-vpn-install` instala `opencode1` (v1, dados isolados em `~/.opencode-v1`) e `opencode2` (v2, home compartilhada) no `PATH` do host e o plugin `vpn-recovery` nos diretórios globais de cada versão. Ambos executam no terminal da VPN e recusam iniciar com túnel unhealthy; guia completo em `DEV/RUNBOOKS/opencode-v1-v2.md`.
+- Antes de uma recuperação de conectividade, o supervisor registra a sessão raiz mais recente com `opencode session list`. Depois que o túnel volta e o servidor reinicia, ele confirma que esse mesmo ID de sessão continua disponível na home persistente. Isso preserva o **mesmo contexto/sessão** para Desktop/Web/CLI reconectarem.
 - Uma resposta que estava em voo não é reenviada automaticamente: repetir o último prompt poderia duplicar comandos ou tools já executados. A recuperação restaura VPN + servidor + sessão persistida; a continuação exata da chamada interrompida depende do mecanismo de replay/continuação do próprio OpenCode.
 - Sonda no `vpn-auto-reconnect` (`OPENCODE_AUTOCHECK=true`) continua apenas observacional; a responsabilidade de recuperar o OpenCode fica centralizada no `opencode-supervisor`.
 - Senha (basic auth, usuário `opencode`): arquivo `OPENCODE_GUI_PASSWORD_FILE` (padrão `.secrets/opencode_gui_password`). Sem o arquivo, o painel abre sem senha — apenas para uso local.
@@ -471,6 +475,7 @@ Esse mount concede ao terminal acesso de leitura e escrita a toda a home indicad
 ./scripts/verify-docs
 ./scripts/verify-compose
 ./tests/linux/test-scripts.sh
+node --test tests/opencode/*.test.mjs
 # ou execute tudo de uma vez com o Makefile:
 make verify
 ```
@@ -478,8 +483,9 @@ make verify
 ### CI (GitHub Actions)
 
 A pipeline `Validate` roda em cada push/PR: ShellCheck + `bash -n` + `git diff --check`,
-suítes Linux (incl. testes HTTP com socat) e Windows (Pester), `verify-docs`,
-`verify-compose` e `docker build --pull`. O job `secret-scan` varre o histórico
+suítes Linux (incl. testes HTTP com socat) e Windows (Pester), testes dos
+plugins OpenCode (`node --test`), `verify-docs`, `verify-compose` e
+`docker build --pull`. O job `secret-scan` varre o histórico
 completo com gitleaks (imagem pinada por digest) e falha o build se encontrar
 segredos. Bumps das Actions e da imagem base são propostos automaticamente pelo
 Dependabot (`.github/dependabot.yml`, semanal); `NODE_VERSION`/`OPENCODE_VERSION`

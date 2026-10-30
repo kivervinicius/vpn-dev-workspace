@@ -119,6 +119,13 @@ recover_until_healthy() {
       consecutive_failures=0
       echo "VPN saudável: IP público confirmado."
       return 0
+    else
+      reconnect_rc=$?
+      if ((reconnect_rc == 75)); then
+        echo "VPN já está sendo alterada; nova tentativa no próximo ciclo." >&2
+        sleep "$RETRY_SECONDS"
+        continue
+      fi
     fi
 
     consecutive_failures=$((consecutive_failures + 1))
@@ -126,9 +133,17 @@ recover_until_healthy() {
     set_state degraded
     echo "VPN sem IP público; tentativa ${consecutive_failures} falhou." >&2
 
+
     if $ROTATE_ON_FAILURE && ((consecutive_failures >= ATTEMPTS_BEFORE_ROTATE)); then
       echo "Trocando de servidor após ${consecutive_failures} falhas consecutivas..." >&2
-      if "$(resolve_helper vpn-server-rotate)"; then
+      rotate_rc=0
+      "$(resolve_helper vpn-server-rotate)" || rotate_rc=$?
+      if ((rotate_rc == 75)); then
+        echo "VPN já está sendo alterada; nova tentativa no próximo ciclo." >&2
+        sleep "$RETRY_SECONDS"
+        continue
+      fi
+      if ((rotate_rc == 0)); then
         set_state healthy
         consecutive_failures=0
         write_count

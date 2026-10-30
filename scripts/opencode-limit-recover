@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly STATE_FILE="${OPENCODE_LIMIT_RECOVERY_STATE_FILE:-/var/lib/vpn-control/opencode-limit-recovery.json}"
+readonly ROTATE_STATE_FILE="${VPN_ROTATE_STATE_FILE:-/var/lib/vpn-control/vpn-rotate.index}"
+readonly WINDOW_SECONDS=3600
+readonly COOLDOWN_SECONDS=300
+readonly EVENT_LIMIT=6
+readonly MAX_ATTEMPTS=3
+
+emit() {
+  jq -cn --arg status "$1" --arg reason "$2" --arg before_ip "${3:-}" \
+    --arg after_ip "${4:-}" --arg target "${5:-}" \
+    '{status:$status,reason:$reason,before_ip:$before_ip,after_ip:$after_ip,target:$target}'
+}
+fail() { emit failed "$1" "${before_ip:-}" "${after_ip:-}" "${target:-}"; exit 1; }
+skip() { emit skipped "$1" "${before_ip:-}" "${after_ip:-}" "${target:-}"; exit 0; }
+skip_busy() { emit skipped "$1" "${before_ip:-}" "${after_ip:-}" "${target:-}"; exit 75; }
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  echo "Uso: opencode-limit-recover --event free_tier_limit|rate_limit|account_limit|credit_limit" >&2
+  echo "Troca o servidor VPN somente para free_tier_limit (opt-in) e rate_limit." >&2
+  echo "Emite JSON {status,reason,before_ip,after_ip,target}; 0 ok, 1 falha, 2 argumento, 75 lock ocupado." >&2
+  exit 0
+fi
+if (($# != 2)) || [[ "$1" != "--event" ]]; then
+  emit failed invalid_arguments "" "" ""
+  exit 2
+fi
+event="$2"
+case "$event" in
+  free_tier_limit|rate_limit|account_limit|credit_limit) ;;
+  *) emit failed invalid_arguments "" "" ""; exit 2 ;;
+esac
+
+if [[ "$event" == account_limit || "$event" == credit_limit ]]; then skip "$event"; fi
+
+for dependency in jq node; do
+  command -v "$dependency" >/dev/null 2>&1 || { emit failed missing_dependency "" "" ""; exit 1; }
+done
+[[ "${OPENCODE_LIMIT_ROTATE_ATTEMPTS:-3}" =~ ^[1-9][0-9]*$ ]] || {
+  emit failed invalid_configuration "" "" ""; exit 1;
+}
+attempt_limit="$OPENCODE_LIMIT_ROTATE_ATTEMPTS"
+((attempt_limit > MAX_ATTEMPTS)) && attempt_limit="$MAX_ATTEMPTS"
+
+source "$(dirname "${BASH_SOURCE[0]}")/vpn-control-lock.sh"
+if vpn_control_lock_acquire; then :; else
+  lock_rc=$?
+  if ((lock_rc == 75)); then skip_busy lock_busy; fi
+  emit failed lock_unavailable "" "" ""; exit 1
+fi
+
+now="$(date +%s)"
+mkdir -p "$(dirname "$STATE_FILE")" || { emit failed state_unavailable "" "" ""; exit 1; }
+state='{}'
+if [[ -r "$STATE_FILE" ]]; then
+  state="$(jq -ce 'if type == "object" then . else error("invalid") end' "$STATE_FILE" 2>/dev/null)" || {
+    emit failed state_invalid "" "" ""; exit 1;
+  }
+fi
+
+recent="$(jq -c --argjson now "$now" --argjson window "$WINDOW_SECONDS" \
+  '[.events[]? | select(type == "number" and . <= $now and $now - . < $window)]' <<<"$state" 2>/dev/null)" || \
+  fail state_invalid
+last_event="$(jq -r 'if (.last_event | type) == "number" then .last_event else 0 end' <<<"$state" 2>/dev/null)" || \
+  fail state_invalid
+if ((last_event > 0 && now - last_event < COOLDOWN_SECONDS)); then skip cooldown; fi
+recent_count="$(jq 'length' <<<"$recent" 2>/dev/null)" || fail state_invalid
+if ((recent_count >= EVENT_LIMIT)); then skip event_limit; fi
+recent="$(jq -c --argjson now "$now" '. + [$now]' <<<"$recent")"
+state="$(jq -c --argjson events "$recent" --argjson now "$now" \
+  '.events=$events | .last_event=$now' <<<"$state")"
+
+write_state() {
+  local temp
+  temp="$(mktemp "${STATE_FILE}.XXXXXX")" || return 1
+  chmod 0600 "$temp" || { rm -f "$temp"; return 1; }
+  if ! printf '%s\n' "$state" >"$temp" || ! mv -f "$temp" "$STATE_FILE"; then
+    rm -f "$temp"
+    return 1
+  fi
+}
+write_state || { emit failed state_write_failed "" "" ""; exit 1; }
+
+resolve_helper() {
+  if command -v "$1" >/dev/null 2>&1; then
+    command -v "$1"
+  elif [[ -x "/usr/local/bin/$1" ]]; then
+    printf '/usr/local/bin/%s' "$1"
+  else
+    return 1
+  fi
+}
+status_bin="$(resolve_helper vpn-status)" || fail vpn_status_unavailable
+rotate_bin="$(resolve_helper vpn-server-rotate)" || fail rotate_helper_unavailable
+check_bin="$(resolve_helper vpn-check)" || fail vpn_check_unavailable
+
+status_json="$("$status_bin" --json 2>/dev/null)" || fail vpn_status_unavailable
+vpn_state="$(jq -r '.vpn // empty' <<<"$status_json" 2>/dev/null || true)"
+before_ip="$(jq -r '.public_ip // empty' <<<"$status_json" 2>/dev/null || true)"
+valid_ip() { [[ -n "$1" ]] && node -e 'process.exit(require("node:net").isIP(process.argv[1]) ? 0 : 1)' "$1" >/dev/null 2>&1; }
+[[ "$vpn_state" == running ]] || fail vpn_not_running
+valid_ip "$before_ip" || fail invalid_before_ip
+
+raw_hosts="${VPN_SERVER_HOSTNAMES:-}"
+IFS=',' read -r -a raw_candidates <<< "$raw_hosts"
+candidates=()
+for candidate in "${raw_candidates[@]:-}"; do
+  candidate="${candidate#"${candidate%%[![:space:]]*}"}"
+  candidate="${candidate%"${candidate##*[![:space:]]}"}"
+  [[ -n "$candidate" ]] || continue
+  duplicate=false
+  for existing in "${candidates[@]:-}"; do [[ "$existing" == "$candidate" ]] && duplicate=true && break; done
+  $duplicate || candidates+=("$candidate")
+done
+((${#candidates[@]} > 0)) || fail no_candidates
+
+previous_target="$(jq -r '.confirmed_target // empty' <<<"$state")"
+current_host_count="$(jq -r '(.hostnames // []) | if type == "array" then length else 0 end' <<<"$status_json" 2>/dev/null)" || fail vpn_status_invalid
+current_host=""
+if ((current_host_count == 1)); then
+  current_host="$(jq -r '.hostnames[0] // empty' <<<"$status_json" 2>/dev/null)" || fail vpn_status_invalid
+fi
+previous_index=-1
+for i in "${!candidates[@]}"; do
+  if [[ "${candidates[$i]}" == "$previous_target" ]]; then
+    previous_index="$i"
+    break
+  fi
+done
+ordered=()
+start_offset=0
+base_index=0
+if ((previous_index >= 0)); then
+  base_index="$previous_index"
+  start_offset=1
+fi
+for ((offset=start_offset; offset<${#candidates[@]}; offset++)); do
+  candidate="${candidates[$(((base_index + offset) % ${#candidates[@]}))]}"
+  [[ "$candidate" != "$previous_target" ]] || continue
+  if ((current_host_count == 1)) && [[ "$candidate" == "$current_host" ]]; then
+    continue
+  fi
+  ordered+=("$candidate")
+done
+((${#ordered[@]} > 0)) || fail no_alternative
+
+target=""
+after_ip=""
+tried=0
+for candidate in "${ordered[@]}"; do
+  ((tried < attempt_limit)) || break
+  target="$candidate"
+  tried=$((tried + 1))
+  if ! "$rotate_bin" --to "$target" >/dev/null 2>&1; then continue; fi
+  if ! "$check_bin" --only tunnel -q >/dev/null 2>&1; then continue; fi
+  current="$("$status_bin" --json 2>/dev/null)" || continue
+  [[ "$(jq -r '.vpn // empty' <<<"$current" 2>/dev/null || true)" == running ]] || continue
+  candidate_ip="$(jq -r '.public_ip // empty' <<<"$current" 2>/dev/null || true)"
+  valid_ip "$candidate_ip" || continue
+  [[ "$candidate_ip" != "$before_ip" ]] || continue
+  after_ip="$candidate_ip"
+  state="$(jq -c --arg target "$target" --arg before "$before_ip" --arg after "$after_ip" \
+    '.confirmed_target=$target | .before_ip=$before | .after_ip=$after' <<<"$state")"
+  write_state || fail state_write_failed
+  emit changed ip_changed "$before_ip" "$after_ip" "$target"
+  exit 0
+done
+fail no_verified_change

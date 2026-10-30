@@ -15,7 +15,7 @@ explicitamente descartado.
 | 8 | Higiene segredos locais (concluído 2026-10-01): `chmod 600`, remoção de `secrets/` legada duplicada, `.gitignore` e `.dockerignore` protegidos | média | feito |
 | 9 | Supply-chain restante: gitleaks/Trivy na CI, Dependabot/Renovate p/ pins, `read_only+tmpfs` (adiado: exige validação runtime) | alta | proposto (gitleaks como próximo passo; priorizado 2026-10-16) |
 | 7 | Exemplo avançado opt-ins (LAN/DNS/GUI) + teste mock de DNS/leak | baixa | feito 2026-10-01 (`examples/cenarios-avancados.md`, runbook troubleshooting) |
-| 10 | Disparo do `OPENCODE_LIMIT_HOOK` dentro do container + `check` real contra OpenCode (402/429 Zen) | alta | pendente (runtime no host) |
+| 10 | OpenCode usage limits + `OPENCODE_LIMIT_HOOK` | média | superseded: structured v1/v2 notifications; quota/429 never mutate VPN |
 | 11 | CRLF no checkout Windows: `.gitattributes` com `* text=auto eol=lf` | média | feito 2026-10-16 |
 | 12 | Robustez 2026-10-16: wait da ponte SSH 5s→30s, teste Pester de `WORKSPACE_DIR`, mascaramento de credenciais no `vpn-top --json` + teste na suíte Linux | média | feito 2026-10-16 |
 | 13 | Paridade OpenCode host↔container no modo Windows (skills/config via mounts em `compose.windows.yml`; SQLite/sessoes isolados por limitacao do File Sharing) | média | feito 2026-10-16 |

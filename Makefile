@@ -40,3 +40,4 @@ verify: ## Executa todas as verificações do repositório (compose, docs e test
 	@./scripts/verify-compose
 	@./scripts/verify-docs
 	@./tests/linux/test-scripts.sh
+	@node --test tests/opencode/*.test.mjs

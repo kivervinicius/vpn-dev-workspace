@@ -7,6 +7,7 @@ services:
       HOME: /home/developer
       PATH: /opt/vpn/bin:/home/developer/.local/bin:/home/developer/.opencode/bin:/home/developer/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       SSH_AUTH_SOCK: /tmp/vpn-ssh-agent.sock
+      VPN_WORKSPACE_CONTAINER: "1"
       # O .npmrc do host pode ter cache/prefix com caminho Windows (D:\...);
       # dentro do container o cache fica na home Linux.
       NPM_CONFIG_CACHE: /home/developer/.npm
@@ -34,7 +35,9 @@ services:
       - ./scripts/vpn-top:/usr/local/bin/vpn-top:ro
       - ./scripts/vpn-server-rotate:/usr/local/bin/vpn-server-rotate:ro
       - ./scripts/vpn-opencode:/usr/local/bin/vpn-opencode:ro
-      - ./scripts/opencode-limit-watch:/usr/local/bin/opencode-limit-watch:ro
+      - ./scripts/vpn-control-lock.sh:/usr/local/bin/vpn-control-lock.sh:ro
+      - ./scripts/opencode-limit-recover:/usr/local/bin/opencode-limit-recover:ro
+      - vpn_control_state:/var/lib/vpn-control
       - ./scripts/vpn-hosts-import:/usr/local/bin/vpn-hosts-import:ro
       - ./scripts/vpn-hosts-apply:/usr/local/bin/vpn-hosts-apply:ro
       - ./scripts/vpn-ssh-agent-relay:/usr/local/bin/vpn-ssh-agent-relay:ro
@@ -78,6 +81,8 @@ services:
       - ./scripts/vpn-check:/usr/local/bin/vpn-check:ro
       - ./scripts/vpn-reconnect:/usr/local/bin/vpn-reconnect:ro
       - ./scripts/vpn-server-rotate:/usr/local/bin/vpn-server-rotate:ro
+      - ./scripts/vpn-control-lock.sh:/usr/local/bin/vpn-control-lock.sh:ro
+      - vpn_control_state:/var/lib/vpn-control
       - ./scripts/vpn-ssh-agent-relay:/usr/local/bin/vpn-ssh-agent-relay:ro
       - ./scripts/vpn-home-link:/usr/local/bin/vpn-home-link:ro
       - ./config/alsa-null.conf:/etc/alsa-null.conf:ro
@@ -94,3 +99,4 @@ services:
 
 volumes:
   vpn_windows_home:
+  vpn_control_state:

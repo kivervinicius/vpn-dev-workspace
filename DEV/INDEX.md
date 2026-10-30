@@ -16,6 +16,8 @@
 | `TESTING.md` | Estratégia de verificação e comandos |
 | `RUNBOOKS/` | Procedimentos operacionais |
 | `RUNBOOKS/opencode-desktop-vpn.md` | Como conectar o OpenCode Desktop/Web pela VPN (passos validados) |
+| `RUNBOOKS/opencode-v1-v2.md` | Launchers v1/v2, versões, histórico e recuperação por limite |
+| `RUNBOOKS/troubleshooting-vpn.md` | Diagnóstico e resolução de problemas da VPN |
 | `compose.windows.yml` | Override Docker Compose para PowerShell/Docker Desktop no Windows |
 | `BACKLOG.md` | Pendências triadas com prioridade |
 | `TASKS/` | (intencionalmente vazio) planos e artefatos de tarefas |

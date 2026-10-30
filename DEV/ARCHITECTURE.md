@@ -66,12 +66,16 @@ Os scripts de operação e diagnóstico do repositório organizam-se da seguinte
 - `vpn-top` — painel de status com serviços Docker (quando disponível), túnel e auto-reconexão.
 - `vpn-auto-reconnect` — valida a saúde a cada intervalo e recupera a conectividade; com `VPN_ROTATE_SERVERS=true`, troca de servidor após falhas consecutivas.
 - `vpn-opencode` — executa `opencode web|serve` dentro do `terminal` na faixa publicada (o tráfego de LLM fica 100% no túnel); lê a senha em `OPENCODE_GUI_PASSWORD_FILE` e expõe basic auth (`opencode`).
+- `opencode-limit-recover` — helper chamado pelos plugins v1/v2 para free-tier e rate-limit estruturado automáticos; exige IP de saída novo e túnel saudável, com lock, cooldown e orçamento de eventos.
+- `vpn-control-lock.sh` — lock não bloqueante compartilhado entre reconexão, rotação e recuperação por limite.
 - `vpn-hosts-gen` — valida `LOCAL_HOSTS` e gera `.hosts.local.gen` (git-ignorado, linhas `IP nome`). Não fala com o Gluetun nem com o Docker.
 - `vpn-hosts-apply` — injeta o snippet no `/etc/hosts` de `terminal` e `vpn-auto-reconnect` via `docker exec -u 0` (idempotente); o `vpn-switch` chama pós-up. Não fala com o Gluetun.
 - `vpn-hosts-import` — sugere a linha `LOCAL_HOSTS` a partir do `/etc/hosts` do host filtrado por domínio; roda só no host.
 
 
-O `opencode-supervisor` possui o processo `opencode web|serve` como filho, sem Docker socket. Ele observa apenas novos logs do processo: falha simples do processo reinicia o app; desconexão/provider rate limit dispara `vpn-server-rotate`, aguarda `vpn-check --only tunnel` e só então reinicia o OpenCode. Limites do plano Go identificados como `account_rate_limit` não rotacionam a VPN. Cooldown, janela e máximo de rotações evitam loops. A home/workspace são os mesmos do terminal, preservando estado e projetos.
+O `opencode-supervisor` possui o processo `opencode web|serve` como filho, sem Docker socket. Ele observa apenas novos logs do processo: falha simples do processo reinicia o app; desconexão real ou túnel unhealthy dispara `vpn-server-rotate`, aguarda `vpn-check --only tunnel` e só então reinicia o OpenCode. Limites de provider não são classificados por texto/log e nunca alteram a VPN nesse serviço. Cooldown, janela e máximo de rotações evitam loops. A home/workspace são os mesmos do terminal, preservando estado e projetos.
+
+Os limites estruturados são tratados pelos plugins `vpn-recovery` v1/v2, que chamam `opencode-limit-recover` com o tipo do evento. O helper valida VPN running e IP público antes/depois, percorre no máximo três hostnames de `VPN_SERVER_HOSTNAMES` e compartilha `vpn-control-lock.sh`/`/var/lib/vpn-control` com reconexão e rotação. Free-tier e rate-limit estruturado trocam automaticamente. Conta/crédito nunca alteram VPN. O resultado informa o alvo solicitado, não o peer remoto, e não garante reset de quota.
 
 ## Acesso à rede interna do host (opt-in)
 

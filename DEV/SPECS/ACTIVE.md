@@ -10,16 +10,14 @@
 - Alinhamento do OpenCode da imagem com o host e montagem integral da home no mesmo caminho.
 - Correção do `vpn-reconnect` para aguardar e imprimir o IP público após a reconexão.
 - Saúde do ambiente: `vpn-check` (túnel, IP, DNS do túnel e checagem básica de vazamento de DNS), `vpn-top` (dashboard), `vpn-server-rotate` (troca de servidor pela API de controle) e rotação automática opt-in no `vpn-auto-reconnect`.
-- Gluetun v3.41.3 (digest fixado), `jq` na imagem e DNS resolvido pelo túnel (`dns: 127.0.0.1`).
+- Gluetun v3.41.3 com base em digest fixado e imagem local `v3.41.3-publicip-recovery.1` (fonte e sha256 fixados em `gluetun/Dockerfile`; retry da coleta de IP público e `PUBLICIP_API=ifconfigco`), `jq` na imagem e DNS resolvido pelo túnel (`dns: 127.0.0.1`).
 - Acesso opcional à rede interna do host: `FIREWALL_SUBNETS` (sub-rede da LAN detectada pelo `vpn-switch` + extras), `INTERNAL_DNS`/`INTERNAL_DNS_EXEMPT_HOSTNAMES` para nomes internos e `INTERNAL_TEST_HOST` no `vpn-check`.
 - Paridade de home: `HOST_UID`/`HOST_GID` na imagem e mounts opcionais de `SSH_AUTH_SOCK` e `RUN_USER_DIR` no terminal.
-- GUI do OpenCode pela VPN: `scripts/vpn-opencode` mantém `web`/`serve` diretos e adiciona `supervise`; o serviço `opencode-supervisor` possui o processo OpenCode dentro do namespace da VPN, sem Docker socket. Queda simples reinicia só o app; desconexão ou provider rate limit/429 dispara rotação pelo Control Server do Gluetun, sonda o túnel e tenta outro servidor quando necessário até recuperar conectividade ou atingir cooldown/janela/máximo de rotações. Antes de derrubar o processo, o supervisor registra a sessão mais recente; após a recuperação confirma que o mesmo ID continua disponível na home persistente. O banner/erro de franquia gratuita (`FreeUsageLimitError`, `free_tier_limit`, `Free limit reached`, `Free usage limit reached`, `Subscribe to OpenCode Go`) vira `free_tier_limit` e, com `OPENCODE_FREE_TIER_ROTATE=true` (padrão), rotaciona a VPN para renovar a franquia por IP; `Go limit reached`/`account_rate_limit` continua como `account_limit` sem rotação. O watcher `opencode-limit-watch` roda no container `terminal`, observa o log do TUI (v1/v2) e aplica a mesma ação com cooldown/limite por janela. `OPENCODE_AUTOCHECK` permanece apenas observacional.
-- Limites do Zen: `credit_limit` (`CreditLimitExceeded`, `InsufficientFunds`, erros de
-  budget) como evento próprio do supervisor, sem rotação inútil de VPN; detecção no
-  `vpn-opencode check` pelo status HTTP (402 → `credit-exhausted`, 429 com padrão Zen →
-  `zen-usage-limit`, 429 genérico → `rate-limit`) usando os mesmos padrões do supervisor.
-  `OPENCODE_LIMIT_HOOK` dispara um executável dentro de `WORKSPACE_DIR` em background ao
-  detectar qualquer limite, recebendo o tipo e o `retry_after` extraído dos logs.
+- GUI do OpenCode pela VPN: `scripts/vpn-opencode` mantém `web`/`serve` e adiciona `supervise`; o processo roda no namespace VPN, sem Docker socket. Queda simples reinicia só o app; apenas desconexão real ou túnel unhealthy dispara recuperação VPN e confirmação de saúde antes do restart. Sessão persistida é verificada, sem replay automático da requisição interrompida.
+- Plugins das versões fixadas classificam somente eventos e campos estruturados. Free-tier e HTTP 429/rate-limit trocam servidor/IP automaticamente; account/credit não alteram a VPN. Texto arbitrário e logs nunca acionam recuperação.
+- Recuperação por limite exige túnel running, IP público válido e IP de saída diferente, serializa alterações por lock compartilhado, aplica cooldown de 300 s, limita a 6 eventos por janela móvel de 3600 s e até 3 alvos distintos por evento. Timeout do helper: 600 s. Best effort; troca de IP não garante reset de quota.
+- v1: retry estruturado só solicita recovery após abort confirmado; erro terminal estruturado não exige abort. v2: hook do servidor veta retry classificado e um único `session.execution.failed` da TUI pode recuperar; headless não tem recovery TUI. Nenhum plugin reenvia prompt.
+- `vpn-opencode check` é observacional; `opencode-supervisor` recupera somente queda de processo ou desconexão/túnel unhealthy reais. `OPENCODE_AUTOCHECK` permanece apenas observacional.
 - Robustez dos scripts: timeouts em todo I/O de rede (`--connect-timeout/--max-time`, `timeout 5` no TCP), checagem explícita de dependências (`need()`), sem aborts crípticos de `set -e`, `trap` em loops/sleeps longos, validações de porta/intervalo.
 - Docs como contrato: `TESTING.md` preenchido, `BACKLOG.md` com pendências triadas, `verify-docs` trava drifts (versões, `SERVER_HOSTNAMES`, `PATH` host-first, `INTERNAL_TEST_PORT`, `LOCAL_HOSTS`).
 - Hosts locais: `LOCAL_HOSTS` (`nome=ip`) vira snippet injetado no `/etc/hosts` do terminal pós-up via `vpn-switch` (sem Gluetun/DNS envolvido); `vpn-hosts-import --domain` sugere a linha a partir do `/etc/hosts` do host; `vpn-check` valida cada mapeamento.
@@ -42,16 +40,9 @@
 - Com a LAN/interno configurados, `vpn-check` alcança `INTERNAL_TEST_HOST` e o firewall libera apenas a sub-rede da rota padrão + `FIREWALL_SUBNETS`. Validado em runtime: `http://192.168.30.20/ → 200` pelo túnel e `vpn-check` todo ok.
 - O terminal herda UID/GID do host; com `SSH_AUTH_SOCK` definido, `ssh-add -l` dentro do terminal lista as chaves da sessão do host. Validado: chave `gitlab-ci-lightsaber-deploy` listada.
 - `vpn-opencode web` abre o painel em `http://127.0.0.1:${OPENCODE_GUI_PORT}` com o tráfego saindo pela VPN; `vpn-opencode serve` expõe a ponta para o Desktop App. Validado: `401` sem senha / `200` com basic auth (`web`) e `200` servindo o app (`serve`); conexão real do Desktop App pendente.
-- `vpn-opencode check` distingue `ok|down|quota` (`--json` com `{status,port,detail}`); `watch` é compatibilidade para iniciar o `opencode-supervisor` e seguir logs. O supervisor classifica `free_tier_limit|account_limit|credit_limit|rate_limit|disconnect`: `rate_limit`/desconexão rotacionam a VPN; `free_tier_limit` também rotaciona quando `OPENCODE_FREE_TIER_ROTATE=true`; `account_limit` e `credit_limit` não. Em recuperação de conectividade, o OpenCode só reinicia após `vpn-check --only tunnel` ficar saudável; o contexto da sessão capturada é verificado após o restart sem reenviar automaticamente a requisição interrompida. Com `OPENCODE_AUTOCHECK=true`, o `vpn-auto-reconnect` continua apenas observacional.
-- `vpn-reconnect` recupera e imprime o IP público após a reconexão. Validado: `IP público: 189.1.168.191` (com servidor fixado via API).
-- O supervisor classifica `CreditLimitExceeded` e `InsufficientFunds` como `credit_limit`
-  sem rotacionar a VPN, e `check` distingue `credit-exhausted` (402), `zen-usage-limit`
-  (429 com padrão Zen) e `rate-limit` (429 genérico). Validado estaticamente e com smoke
-  funcional contra servidor HTTP real; disparo do `OPENCODE_LIMIT_HOOK` dentro do
-  container ainda requer runtime.
-- `OPENCODE_LIMIT_HOOK` é repassado pelo Compose ao serviço `opencode-supervisor` e
-  executa em background com o tipo do limite e o `retry_after`. Validado:
-  `retry-after: 1800` → `(reset em 1800s)`; `reset in 4 days` → `(reset in 4 days)`.
+- `vpn-opencode check` distingue `ok|down|quota` (`--json` com `{status,port,detail}`); `watch` inicia o `opencode-supervisor`. O check é observacional e não dispara recovery. O supervisor recupera somente queda de processo ou desconexão/túnel unhealthy reais; não classifica limites de provider por texto/logs.
+- Os plugins v1/v2 classificam apenas campos/eventos estruturados: free-tier e HTTP 429/rate-limit estruturado acionam troca VPN automaticamente; account/credit nunca alteram VPN. A ação exige túnel saudável e IP válido diferente, lock compartilhado e limites de cooldown/orçamento/alvos definidos acima. Não garante reset de quota.
+- Em v1, retry exige abort confirmado antes de solicitar a mudança; erro terminal estruturado não exige abort. Em v2, hook server veta retries estruturados e um único evento TUI `session.execution.failed` dispara recovery; headless não tem recovery TUI. Nenhum plugin reproduz prompt.
 - Scripts falham rápido e claro: `curl` nunca pendura (>10s), `vpn-check` valida `INTERNAL_TEST_PORT` e limita o TCP a 5s, `vpn-top` sobrevive a falha transitória de settings, `vpn-server-rotate` ignora hostnames vazios/espaçados, helpers resolvem via PATH com fallback.
 - Docs acompanham o código: sem menção a `v3.40.0`/`1.18.16`, `INTERNAL_TEST_PORT` e `OPENVPN_PROTOCOL` documentados, `protonvpn-wireguard` com `SERVER_HOSTNAMES` como os demais.
 - Com `LOCAL_HOSTS=gitlab.omega=<ip>`, `getent hosts gitlab.omega` no terminal retorna o IP e o `vpn-check` marca ok (alcance real exige a sub-rede em `FIREWALL_SUBNETS`). Validado via fixtures; runtime com túnel real pendente no host.
@@ -72,13 +63,12 @@
 
 ## Verification Plan
 
-- ShellCheck (CI), verificações de scripts, Compose, documentação e build da imagem; `verify-docs` como trava de drift; validação de runtime com túnel real pendente no host quando houver mudança de comportamento (Docker não disponível no ambiente de edição): build, `vpn-switch nordvpn-openvpn`, `vpn-reconnect` ×2, `vpn-check` (incl. host interno), `vpn-top`, `vpn-opencode web` e `serve`, `ssh-add -l` no terminal.
+- Passed: OpenCode adapters **8/8**, Linux suite **43/43**, `verify-docs`, `verify-compose` (8 profiles), changed-script `bash -n`, and Docker image/runtime deployment.
+- Runtime: both installed clients were exercised against a local mock returning structured HTTP 429. v1 changed egress `189.1.170.10` → `189.1.170.177` on br71; v2 changed `189.1.170.177` → `189.1.168.12` on br72. Recovery state confirmed each target and IP transition; final `vpn-check` passed **6/6**. Plugin discovery confirmed v2 `vpn-recovery`.
+- Limits: no real provider quota was used; provider quota reset is not guaranteed by IP change. The pre-existing managed v2 service was not changed; its occupied port required standalone mode for the v2 TUI E2E.
 
 ## Status
 
-- State: opencode-vpn-self-heal-implemented (limites do Zen corrigidos e verificados
-  estaticamente; CI e runtime de recuperação pendentes de validação)
+- State: implementation, deployment and both runtime recovery paths verified; active VPN is healthy on `br72.nordvpn.com` (`189.1.168.12`). OpenCode `1.19.5` and `2.1.3` are available through the VPN terminal.
 - Owner: Codex
-- Last updated: 2026-10-16 (follow-ups de robustez/seguranca verificados:
-  `.gitattributes`, wait da ponte SSH, mascaramento do `vpn-top --json`;
-  ver WORKLOG/VERIFY)
+- Last updated: 2026-10-30 (see HANDOFF/VERIFY/WORKLOG for runtime evidence)

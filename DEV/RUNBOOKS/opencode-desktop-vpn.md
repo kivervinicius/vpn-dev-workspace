@@ -172,7 +172,7 @@ Ao atualizar o Desktop, atualize na MESMA alteração:
 | Rotação aleatória cai em servidor morto | provedor de acesso bloqueia faixas (ex: 185.153.176.x) | `VPN_SERVER_HOSTNAMES` com servidores conhecidos |
 | `vpn-check` mostra DNS "starting" | endpoint do Gluetun com upstream plain | normal; resolução é validada à parte |
 | Nomes `.omega.local` NXDOMAIN no túnel | DNS da LAN não conhece; vivem no `/etc/hosts` do host | alcançar por IP; `INTERNAL_TEST_HOST` como IP |
-| Diálogo "quota acabou" no OpenCode | crédito do provider esgotado | recarregar crédito; `check` confirma `quota`; `watch` nunca reinicia quota |
+| Diálogo de limite no OpenCode | classe/estado do provider; `vpn-opencode check` é só observacional | consulte a política estruturada abaixo; não trate aviso nem resultado do check como gatilho VPN |
 | `vpn-opencode check` diz `down` | `web/serve` morreu ou porta fechada | `watch` reinicia sozinho (limitado) ou suba manual com `web|serve --detach` |
 
 ## 7. Verificação automática (opt-in)
@@ -188,43 +188,45 @@ Ao atualizar o Desktop, atualize na MESMA alteração:
 - `vpn-top` mostra a seção OpenCode (TCP + detalhe via `check` quando disponível).
 - Padrões de quota sobrescrevíveis via `OPENCODE_QUOTA_PATTERNS`; linhas varridas via `OPENCODE_CHECK_LOG_LINES`.
 
-## 8. Detecção de limites do Zen
+## 8. Eventos estruturados de limite do provider
 
-O supervisor e o `check` detectam automaticamente os limites do Zen:
+`vpn-opencode check [--json]` é observacional: informa `ok`, `down` ou `quota`,
+mas não aciona recuperação nem rotação. O supervisor recupera apenas falha
+real de processo/rede/túnel; mensagens ou logs de limite não são evidência de
+falha VPN.
 
-| Tipo | HTTP | Padrão detectado | Ação do supervisor |
-|---|---|---|---|
-| `FreeUsageLimitError` | 429 | `freeusagelimiterror`, `free limit reached`, `subscribe to go` | Mantém app vivo; VPN não altera franquia |
-| `GoUsageLimitError` | 429 | `go limit reached`, `weekly/monthly usage limit reached` | Mantém app vivo; aguarda reset |
-| `CreditLimitExceeded` | 402 | `creditlimitexceeded`, `credit_limit` | Mantém app vivo; hook é disparado |
-| `InsufficientFunds` | 402 | `insufficientfunds`, `payment required` | Mantém app vivo; hook é disparado |
-| `LimitExceeded` (budget) | 429 | `limitexceeded`, `budget_exceeded` | Mantém app vivo; hook é disparado |
-| Provider rate limit | 429 | `429`, `too many requests`, `rate limit exceeded` | Rotaciona VPN e reinicia OpenCode |
+Os plugins globais `vpn-recovery` das versões suportadas usam somente campos e
+eventos estruturados, nunca texto arbitrário de resposta ou logs:
 
-O `check` retorna `quota` com detalhe: `credit-exhausted`, `zen-usage-limit`, `rate-limit`, `quota-pattern-in-http`, `quota-pattern-in-logs`.
+| Evento estruturado | Comportamento |
+|---|---|
+| Free-tier | solicita troca automaticamente |
+| HTTP 429 / rate-limit | solicita troca automaticamente |
+| Conta / crédito | pode notificar; nunca altera VPN |
 
-### Hook de limite personalizado (`OPENCODE_LIMIT_HOOK`)
+A tentativa de recuperação por limite exige VPN running, túnel saudável e IP
+público válido diferente do anterior; ações são serializadas pelo lock
+compartilhado `/var/lib/vpn-control/operation.lock`. Candidatos são hostnames
+não vazios de `VPN_SERVER_HOSTNAMES`, sem seleção aleatória ou troca de país.
+Política: cooldown de 300 s, no máximo 6 eventos admitidos em janela móvel de
+3600 s, até 3 alvos distintos por evento e timeout de helper de 600 s. Um
+evento admitido consome orçamento mesmo se falhar. Só é reportado o alvo
+solicitado, não o peer remoto efetivamente conectado. É best effort: IP
+diferente não garante reset da quota do provider.
 
-Quando um limite é detectado, o supervisor executa um script personalizado:
+No v1, um retry só solicita recovery após o abort da sessão ser confirmado;
+falha/abort falso não troca VPN. Um `session.error` terminal estruturado pode
+solicitar recovery sem abort. No v2, o hook server veta retries classificados
+e uma única falha `session.execution.failed` na TUI pode solicitar recovery;
+modo headless não tem recuperação TUI. Nenhum fluxo reenvia prompt.
+
+Instale os launchers e plugins globais com:
 
 ```bash
-# .env
-OPENCODE_LIMIT_HOOK=/projetos/scripts/meu-hook-zen.sh
+./scripts/opencode-vpn-install
+opencode1 --version
+opencode2 --version
 ```
 
-O hook recebe dois argumentos — o tipo de limite (`free_tier_limit`, `account_limit`, `credit_limit`, `rate_limit`) e o `retry-after` extraído dos logs (segundos quando há `Retry-After`, ou a frase `reset in <n> <unidade>`; string vazia quando não há) — e roda em background (não bloqueia o supervisor). O caminho precisa estar dentro de `WORKSPACE_DIR` para ser visível no container. Exemplo:
-
-```bash
-#!/usr/bin/env bash
-# meu-hook-zen.sh — notifica quando limite do Zen é atingido
-event_type="$1"
-retry_after="$2"
-echo "[$(date)] Limite detectado: ${event_type} (retry_after=${retry_after:-n/d})" >> /tmp/zen-limit.log
-# Exemplo: notificação, troca de provider, recarregar crédito, etc.
-case "$event_type" in
-  credit_limit) curl -s -X POST https://hooks.example.com/zen ;;
-  rate_limit) echo "Rate limit — VPN será rotacionada pelo supervisor" ;;
-esac
-```
-
-O hook é opcional. Sem ele, o supervisor apenas loga (com a dica de reset, quando houver) e toma a ação padrão (manter vivo ou rotacionar VPN).
+Não interprete a troca de IP como renovação garantida de quota; confira as
+regras do provider e reenvie manualmente se decidir continuar.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-readonly API_URL="http://127.0.0.1:8000"
+readonly API_URL="${GLUETUN_API_URL:-http://127.0.0.1:8000}"
 readonly API_KEY_FILE="${GLUETUN_API_KEY_FILE:-/run/secrets/gluetun_api_key}"
 readonly IP_ATTEMPTS="${VPN_IP_ATTEMPTS:-30}"
 readonly IP_DELAY_SECONDS="${VPN_IP_DELAY_SECONDS:-5}"
@@ -20,6 +20,16 @@ need() {
 
 need curl
 need jq
+source "$(dirname "${BASH_SOURCE[0]}")/vpn-control-lock.sh"
+vpn_control_lock_acquire || {
+  lock_rc=$?
+  if ((lock_rc == 75)); then
+    echo "VPN já está sendo alterada; tente novamente no próximo ciclo." >&2
+    exit 75
+  fi
+  echo "Erro: não foi possível adquirir o lock de controle VPN." >&2
+  exit 1
+}
 
 [[ "$IP_ATTEMPTS" =~ ^[1-9][0-9]*$ ]] || {
   echo "Erro: VPN_IP_ATTEMPTS deve ser um número inteiro positivo." >&2

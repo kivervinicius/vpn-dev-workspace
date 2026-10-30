@@ -104,8 +104,10 @@ Para desenvolvimento contínuo via interface Web ou Desktop App:
 ```
 
 Benefícios:
-- Se a VPN cair ou sofrer rate limit (HTTP 429), o supervisor pausa o processo, rotaciona para outro servidor VPN, aguarda túnel saudável e retoma o OpenCode preservando a mesma sessão de chat.
-- Se a franquia da conta esgotar (`free_tier_limit`), o processo não é derrubado e não há rotações inúteis de VPN.
+- Se a VPN cair (desconexão real de rede ou túnel unhealthy), o supervisor serializa a recuperação, rotaciona/reconecta, aguarda o túnel saudável e retoma o OpenCode preservando a mesma sessão de chat.
+- Limites do provider não são falhas de rede: free-tier e HTTP 429 estruturados são tratados pelos plugins `vpn-recovery` (v1/v2), que trocam servidor/IP automaticamente (melhor esforço, sem reenvio de prompt); conta e crédito nunca alteram a VPN.
+
+Os plugins só existem depois de instalados uma vez no host: `./scripts/opencode-vpn-install` (guia em `DEV/RUNBOOKS/opencode-v1-v2.md`).
 
 ---
 

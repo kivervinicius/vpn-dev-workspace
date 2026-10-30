@@ -3,3 +3,9 @@
 # Linux; CRLF quebra a execucao ("env: can't execute 'sh\r'" e
 # "$'\r': command not found"). `text=auto` detecta binarios e nao os converte.
 * text=auto eol=lf
+
+# Arquivos de patch tem linhas de contexto que comecam com espaco (marcador do
+# unified diff) e blocos vazios representados por um espaco; sao esperados e
+# nao podem ser reescritos. Desliga a checagem de whitespace do git para eles
+# ("git diff --check" acusaria falso positivo).
+*.patch -whitespace

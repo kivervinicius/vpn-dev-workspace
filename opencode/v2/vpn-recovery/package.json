@@ -1,0 +1,13 @@
+{
+  "name": "vpn-recovery",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./server.js",
+    "./tui": "./tui.js"
+  },
+  "dependencies": {
+    "@opencode/plugin": "2.1.3"
+  }
+}

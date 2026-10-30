@@ -2,13 +2,13 @@
 
 ## Commands
 
-- Sintaxe: `bash -n scripts/*`, `sh -n scripts/vpn-entrypoint.sh`
-- Docs/perfis: `./scripts/verify-docs`
-- Compose (exige Docker): `./scripts/verify-compose`
+- Syntax: `bash -n scripts/*`, `sh -n scripts/vpn-entrypoint.sh`
+- Behavior: `./tests/linux/test-scripts.sh` and `node --test tests/opencode/*.test.mjs`
+- Docs/profiles: `./scripts/verify-docs`
+- Compose (requires Docker): `./scripts/verify-compose`
 - Lint (CI): ShellCheck `-S error` via `.github/workflows/validate.yml` (+`bash -n`, `sh -n`, `git diff --check`)
-- Whitespace: `git diff --check`
-- Build (exige Docker): `docker build --pull=true .`
-- Convenção: todo script responde `--help` com exit 0 (matriz no `verify-docs`)
+- Build (requires Docker): `docker build --pull=true .`
+- Convention: every script responds to `--help` with exit 0 (matrix in `verify-docs`)
 - Windows: `Invoke-Pester -Path tests/windows` no runner Windows; os testes
   simulam Docker e cobrem argumentos, perfis, caminhos com espaços, segredos e
   hosts locais. O teste real de túnel/agent depende de Docker Desktop e de um
@@ -41,14 +41,11 @@
   HTTP 429 genérico → `quota` (`rate-limit`), HTTP 200 com `quota exceeded` → `quota`
   (`quota-pattern-in-http`) e corpo neutro → `ok` (`ouvindo`, exit 0);
   `--json` emite `{status,port,detail}`; `vpn-top --json` inclui `.opencode`.
-- Classificador do self-heal roda na CI sem VPN real: `429 Too Many Requests`/`Provider rate limit exceeded` => `rate_limit`; `Go limit reached` +
-  mensagem de reset => `account_limit`; `CreditLimitExceeded`/`InsufficientFunds` => `credit_limit`;
-  `FreeUsageLimitError`/`Free limit reached`/`reason=free_tier_limit` => `free_tier_limit`;
-  `connection lost while streaming` => `disconnect`; texto normal => `none`.
-- Supervisor runtime: `vpn-opencode supervise --mode serve`; derrubar apenas o processo
-  deve reiniciar OpenCode sem rotacionar uma VPN saudável. Injetar evento de desconexão/limite
-  deve parar OpenCode, rotacionar/reconectar o Gluetun, confirmar túnel saudável e iniciar
-  OpenCode novamente. Validar também a proteção anti-loop por janela/cooldown.
+- Supervisor classifier: only actual network-disconnect/tunnel-health evidence may trigger VPN recovery; provider-limit messages/log text are never triggers. `vpn-opencode check` remains observational.
+- OpenCode recovery contract: structured free-tier and HTTP 429/rate-limit invoke recovery automatically. Account/credit never mutate VPN. Do not classify arbitrary provider prose or logs.
+- Recovery helper coverage (`tests/linux/test-scripts.sh`): changed only with running VPN, valid different before/after IP and healthy tunnel; equal/missing IP, VPN down, no candidates/alternative, cooldown, lock busy and invalid event are covered with fake API/rotate/check scripts. The rotate stub also verifies the inherited lock descriptor.
+- Plugins (`tests/opencode/vpn-recovery.test.mjs`): v1 retry recovery requires abort result `data === true`; abort false/error does not invoke the helper. Structured terminal `session.error` needs no abort. v2 server hook vetoes only structured provider-limit retries; only one deduplicated in-flight `session.execution.failed` TUI event invokes recovery. Account/credit notify but never invoke VPN mutation. Neither version replays a prompt.
+- These are local tests with synthetic events; real provider limits, a live tunnel outage, and an interactive toast remain runtime checks (recorded in `VERIFY.md`).
 - Hosts locais (runtime): com `LOCAL_HOSTS=gitlab.omega=<ip>`, `getent hosts
   gitlab.omega` no terminal retorna o IP e `vpn-check` marca ok; alcance real
   exige a sub-rede em `FIREWALL_SUBNETS`.

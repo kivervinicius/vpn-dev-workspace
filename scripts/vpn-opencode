@@ -34,7 +34,7 @@ usage() {
   echo "  logs [--tail N] [--port P]  logs do terminal (útil com --detach)" >&2
   echo "  check [--port P] [--json|-q] [--log-lines N]  verifica ok|down|quota (0/1); detalhe: credit-exhausted|zen-usage-limit|rate-limit|quota-pattern-in-http|quota-pattern-in-logs" >&2
   echo "  supervise [--port P] [--mode web|serve] [--interval N] [--restart-max N]" >&2
-  echo "    inicia supervisor persistente: desconexão/limite => rotaciona VPN + retoma OpenCode" >&2
+  echo "    inicia supervisor persistente: desconexão real => recuperação da VPN; limite/quota => apenas aviso" >&2
   echo "  supervise-stop|supervise-status|supervise-logs  gerencia o supervisor persistente" >&2
   echo "  watch [opções]              compatibilidade: inicia supervise e acompanha os logs" >&2
   echo "Porta padrão: \${OPENCODE_GUI_PORT:-10001} (deve estar na VPN_PORT_RANGE)." >&2
@@ -227,7 +227,7 @@ do_check() {
         echo "OpenCode ${status} em 127.0.0.1:${p} (${detail})."
       else
         if [[ "$status" == "quota" ]]; then
-          echo "ALERTA: OpenCode sinalizou limite/quota em 127.0.0.1:${p} (${detail}); o supervisor persistente rotaciona a VPN quando ativo." >&2
+          echo "ALERTA: OpenCode sinalizou limite/quota em 127.0.0.1:${p} (${detail}); isso não altera a VPN." >&2
         else
           echo "ALERTA: OpenCode ${status} em 127.0.0.1:${p} (${detail})." >&2
         fi

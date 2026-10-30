@@ -87,3 +87,9 @@ O OpenCode GUI é executado dentro do `terminal` (tráfego de LLM 100% pela VPN)
 - `vpn-check` agora sai 0/1 (contagem na mensagem/JSON); `--only tunnel` alimenta o health leve do `auto-reconnect` (cheio só informa, sem reconnect por blip de DNS).
 - Bumps com prova de origem: SHASUMS oficial (Node), tarballs baixados + `sha256sum` (OpenCode), registry API (jammy); build da CI reconfere os hashes.
 - Hardening conservador (cap_drop, no-new-privileges, logs, limits) — `read_only+tmpfs` adiado por exigir runtime; proxy HTTP opt-in na faixa publicada (sem `ports` novo); senha do proxy em env documentada como visível em `inspect`.
+
+## Recuperação por limite só com eventos estruturados (2026-10-30)
+
+Limites de provider são tratados fora do supervisor: os plugins globais `vpn-recovery` (v1/v2) classificam somente campos e eventos estruturados — free-tier e HTTP 429/rate-limit são recuperáveis e chamam `scripts/opencode-limit-recover` para trocar servidor/IP sob lock compartilhado, cooldown de 300 s e orçamento de eventos; conta/crédito e qualquer texto arbitrário de resposta ou logs nunca alteram a VPN. Nenhum prompt é reenviado.
+
+A decisão removeu a classificação por regex do log no `opencode-supervisor` (que passou a tratar apenas desconexão real e túnel unhealthy) e o watcher `opencode-limit-watch`: depender da prosa do provider produzia ações erradas, retry duplicado e rotações sem evidência de falha. O `vpn-opencode check` permanece observacional.

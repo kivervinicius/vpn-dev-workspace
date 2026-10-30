@@ -103,8 +103,9 @@ Quando o OpenCode interrompe chamadas aos modelos, consulte o status com o class
 ```
 
 - **`status: ok`**: Conexão e API do OpenCode operacionais.
-- **`status: quota`** (`free_tier_limit`): Limite de franquia gratuita atingido. Com `OPENCODE_FREE_TIER_ROTATE=true` (padrão), o watcher `opencode-limit-watch` (container `terminal`) e o `opencode-supervisor` rotacionam a VPN para renovar a franquia por IP. `account_limit`/`credit_limit` não rotacionam. Aguarde o ciclo de reset ou atualize a conta.
-- **`status: down`** (`disconnect` ou `rate_limit` HTTP 429): Falha de rota ou limite por IP. O `opencode-supervisor` rotaciona automaticamente a VPN pelo Gluetun e aguarda novo IP público antes de reiniciar o processo.
+- **`status: quota`**: resposta de limite do provider (free-tier, conta, crédito ou 429), não evidência de falha do túnel; o `check` é observacional e nunca rotaciona sozinho. Free-tier e 429 estruturados podem acionar a troca automática de servidor/IP pelos plugins v1/v2 (melhor esforço, sem reenvio de prompt e sem garantia de reset de quota); conta e crédito nunca alteram a VPN. Aguarde o reset ou use plano/provider autorizado.
+- **Rede restritiva / troca de país não conecta**: servidores sorteados ou de outros países podem não completar o handshake (timeout em UDP 1194; TCP 443 também pode pendurar). Fixe hostnames alcançáveis em `VPN_SERVER_HOSTNAMES` e use `vpn-server-rotate --to <host>`/round-robin; `--countries` só ajuda quando os servidores sorteados do país são alcançáveis. Nesta instalação, apenas o range `189.1.168.x` (br71/72/73/97/98) respondeu.
+- **`status: down`**: falha de rota ou da VPN. Confirme `vpn-check --only tunnel`, `vpn-status --json` e o log do `opencode-supervisor`; ele só reconecta/rotaciona após detectar desconexão ou túnel unhealthy e confirma saúde antes de reiniciar o processo. HTTP 429 não é evento de reconnect.
 
 ---
 

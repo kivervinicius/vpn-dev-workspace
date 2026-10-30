@@ -23,6 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     jq \
     xz-utils \
     zsh \
+    && if ! command -v flock >/dev/null 2>&1; then apt-get install -y --no-install-recommends util-linux; fi \
     && rm -rf /var/lib/apt/lists/*
 
 # Node.js oficial, com checksum fixado para cada arquitetura suportada.
@@ -61,6 +62,7 @@ ARG HOST_UID=1000
 ARG HOST_GID=1000
 RUN groupadd --gid "${HOST_GID}" developer \
     && useradd --uid "${HOST_UID}" --gid "${HOST_GID}" --create-home --shell /usr/bin/zsh developer
+RUN install -d -m 0700 -o "${HOST_UID}" -g "${HOST_GID}" /var/lib/vpn-control
 
 USER developer
 WORKDIR /projetos

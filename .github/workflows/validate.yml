@@ -22,18 +22,20 @@ jobs:
         run: find scripts -maxdepth 1 -type f ! -name '*.ps1' ! -name '*.zsh' -print0 | xargs -0 shellcheck -S error && find scripts -maxdepth 1 -type f ! -name '*.ps1' ! -name '*.zsh' -exec bash -n {} + && sh -n scripts/vpn-entrypoint.sh && find scripts -maxdepth 1 -type f -name '*.zsh' -exec zsh -n {} + && git diff --check
       - name: Run Linux scripts test suite
         run: ./tests/linux/test-scripts.sh
-      - name: Test OpenCode recovery classifier
+      - name: Test supervisor log classifier
+        # Limites de provider nunca são classificados pelo texto dos logs:
+        # free-tier/429 estruturados pertencem aos plugins vpn-recovery.
         run: |
-          test "$(bash ./scripts/opencode-supervisor --classify '429 Too Many Requests')" = "rate_limit"
-          test "$(bash ./scripts/opencode-supervisor --classify 'Provider rate limit exceeded')" = "rate_limit"
-          test "$(bash ./scripts/opencode-supervisor --classify 'FreeUsageLimitError: Free usage exceeded, subscribe to Go')" = "free_tier_limit"
-          test "$(bash ./scripts/opencode-supervisor --classify 'Free limit reached')" = "free_tier_limit"
-          test "$(bash ./scripts/opencode-supervisor --classify 'reason=free_tier_limit')" = "free_tier_limit"
-          test "$(bash ./scripts/opencode-supervisor --classify 'Go limit reached: usage limit reached. It will reset in 5 days')" = "account_limit"
-          test "$(bash ./scripts/opencode-supervisor --classify 'CreditLimitExceeded: credit limit exceeded')" = "credit_limit"
-          test "$(bash ./scripts/opencode-supervisor --classify 'InsufficientFunds: payment required')" = "credit_limit"
           test "$(bash ./scripts/opencode-supervisor --classify 'connection lost while streaming')" = "disconnect"
+          test "$(bash ./scripts/opencode-supervisor --classify 'network connection lost; retrying')" = "disconnect"
           test "$(bash ./scripts/opencode-supervisor --classify 'normal request completed')" = "none"
+          test "$(bash ./scripts/opencode-supervisor --classify '429 Too Many Requests')" = "none"
+          test "$(bash ./scripts/opencode-supervisor --classify 'Provider rate limit exceeded')" = "none"
+          test "$(bash ./scripts/opencode-supervisor --classify 'FreeUsageLimitError: Free usage limit reached')" = "none"
+          test "$(bash ./scripts/opencode-supervisor --classify 'Go limit reached: usage limit reached')" = "none"
+          test "$(bash ./scripts/opencode-supervisor --classify 'CreditLimitExceeded: credit limit exceeded')" = "none"
+      - name: Test OpenCode recovery plugins
+        run: node --test tests/opencode/*.test.mjs
       - name: Validate documentation
         run: ./scripts/verify-docs
       - name: Validate Compose profiles

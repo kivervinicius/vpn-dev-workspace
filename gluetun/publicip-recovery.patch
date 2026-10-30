@@ -1,0 +1,227 @@
+--- a/internal/publicip/loop.go
++++ b/internal/publicip/loop.go
+@@ -146,6 +146,34 @@
+ }
+ 
+ func (l *Loop) RunOnce(ctx context.Context) (err error) {
++	for attempt := 1; attempt <= 3; attempt++ {
++		if err = ctx.Err(); err != nil {
++			return err
++		}
++		err = l.runOnce(ctx)
++		if err == nil {
++			return nil
++		}
++		if ctx.Err() != nil {
++			return ctx.Err()
++		}
++		if attempt == 3 {
++			return err
++		}
++		l.logger.Warn(fmt.Sprintf("Public IP fetch failed: %v; retrying (attempt %d/3)", err, attempt+1))
++		timer := time.NewTimer(2 * time.Second)
++		select {
++		case <-ctx.Done():
++			timer.Stop()
++			return ctx.Err()
++		case <-timer.C:
++			timer.Stop()
++		}
++	}
++	return err
++}
++
++func (l *Loop) runOnce(ctx context.Context) (err error) {
+ 	singleRunCtx, singleRunCancel := context.WithCancel(ctx)
+ 	select {
+ 	case l.runTrigger <- singleRunCtx:
+--- a/internal/publicip/api/resilient.go
++++ b/internal/publicip/api/resilient.go
+@@ -116,8 +116,7 @@
+ 	}
+ 	resultsCh := make(chan resultData)
+ 	fetchersStarted := 0
+-	for range r.fetchers {
+-		fetcher := r.fetchers[fetchersStarted]
++	for i, fetcher := range r.fetchers {
+ 		if r.isBanned(fetcher) ||
+ 			(ip.IsValid() && !fetcher.CanFetchAnyIP()) {
+ 			continue
+@@ -130,16 +129,17 @@
+ 				result: result,
+ 				err:    err,
+ 			}
+-		}(fetchersStarted, fetcher)
++		}(i, fetcher)
+ 		fetchersStarted++
+ 	}
+ 
+-	// Collect resultDatas from goroutines first, which takes I/O time
+-	// so that we don't lock the ban map mutex for too long.
+-	resultDatas := make([]resultData, fetchersStarted)
+-	for range resultDatas {
+-		data := <-resultsCh
+-		resultDatas[data.i] = data
++	if fetchersStarted == 0 {
++		return models.PublicIP{}, errors.New("no eligible public IP fetchers")
++	}
++	// Preserve the original fetcher index, even when banned fetchers are skipped.
++	resultDatas := make([]resultData, 0, fetchersStarted)
++	for range fetchersStarted {
++		resultDatas = append(resultDatas, <-resultsCh)
+ 	}
+ 
+ 	// Mutex lock ban map and process results
+--- /dev/null
++++ b/internal/publicip/recovery_test.go
+@@ -0,0 +1,107 @@
++package publicip
++
++import (
++	"context"
++	"errors"
++	"io"
++	"net/http"
++	"net/netip"
++	"os"
++	"path/filepath"
++	"strings"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/qdm12/gluetun/internal/configuration/settings"
++	"github.com/qdm12/gluetun/internal/models"
++)
++
++type recoveryLogger struct{}
++
++func (recoveryLogger) Info(string)  {}
++func (recoveryLogger) Warn(string)  {}
++func (recoveryLogger) Error(string) {}
++
++type recoveryTransport func(*http.Request) (*http.Response, error)
++
++func (f recoveryTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
++
++func recoveryLoop(t *testing.T, transport recoveryTransport) (*Loop, string) {
++	t.Helper()
++	enabled := true
++	path := filepath.Join(t.TempDir(), "ip")
++	l, err := NewLoop(settings.PublicIP{Enabled: &enabled, IPFilepath: &path, APIs: []settings.PublicIPAPI{{Name: "ifconfigco"}}}, os.Getuid(), os.Getgid(), &http.Client{Transport: transport}, recoveryLogger{})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err = l.Start(context.Background()); err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() {
++		if err := l.Stop(); err != nil {
++			t.Error(err)
++		}
++	})
++	return l, path
++}
++
++func TestRecoveryAfterTimeout(t *testing.T) {
++	var calls atomic.Int32
++	l, path := recoveryLoop(t, func(*http.Request) (*http.Response, error) {
++		if calls.Add(1) == 1 {
++			return nil, context.DeadlineExceeded
++		}
++		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"ip":"192.0.2.42"}`)), Header: make(http.Header)}, nil
++	})
++	l.ipData = models.PublicIP{IP: netip.MustParseAddr("192.0.2.1")}
++	if err := os.WriteFile(path, []byte("192.0.2.1"), 0644); err != nil {
++		t.Fatal(err)
++	}
++	if err := l.RunOnce(context.Background()); err != nil {
++		t.Fatal(err)
++	}
++	if calls.Load() != 2 || l.GetData().IP.String() != "192.0.2.42" {
++		t.Fatalf("calls=%d data=%v", calls.Load(), l.GetData())
++	}
++	data, err := os.ReadFile(path)
++	if err != nil || string(data) != "192.0.2.42" {
++		t.Fatalf("file=%q err=%v", data, err)
++	}
++}
++func TestRecoveryPersistentFailure(t *testing.T) {
++	var calls atomic.Int32
++	l, _ := recoveryLoop(t, func(*http.Request) (*http.Response, error) { calls.Add(1); return nil, context.DeadlineExceeded })
++	if err := l.RunOnce(context.Background()); err == nil {
++		t.Fatal("expected error")
++	}
++	if calls.Load() != 3 || l.GetData().IP.IsValid() {
++		t.Fatalf("calls=%d data=%v", calls.Load(), l.GetData())
++	}
++}
++func TestRecoveryCancelDuringWait(t *testing.T) {
++	called := make(chan struct{}, 2)
++	l, _ := recoveryLoop(t, func(*http.Request) (*http.Response, error) {
++		called <- struct{}{}
++		return nil, context.DeadlineExceeded
++	})
++	ctx, cancel := context.WithCancel(context.Background())
++	done := make(chan error, 1)
++	go func() { done <- l.RunOnce(ctx) }()
++	<-called
++	time.Sleep(100 * time.Millisecond)
++	cancel()
++	select {
++	case err := <-done:
++		if !errors.Is(err, context.Canceled) {
++			t.Fatalf("error=%v", err)
++		}
++	case <-time.After(time.Second):
++		t.Fatal("cancellation blocked")
++	}
++	select {
++	case <-called:
++		t.Fatal("unexpected second request")
++	default:
++	}
++}
+--- /dev/null
++++ b/internal/publicip/api/recovery_test.go
+@@ -0,0 +1,40 @@
++package api
++
++import (
++	"context"
++	"github.com/qdm12/gluetun/internal/models"
++	"net/netip"
++	"strings"
++	"testing"
++)
++
++type recoveryFetcher struct {
++	name string
++	ip   netip.Addr
++}
++
++func (f *recoveryFetcher) String() string      { return f.name }
++func (f *recoveryFetcher) Token() string       { return "" }
++func (f *recoveryFetcher) CanFetchAnyIP() bool { return true }
++func (f *recoveryFetcher) FetchInfo(context.Context, netip.Addr) (models.PublicIP, error) {
++	return models.PublicIP{IP: f.ip}, nil
++}
++
++type recoveryWarner struct{}
++
++func (recoveryWarner) Warn(string) {}
++func TestRecoverySkipsBannedFetchers(t *testing.T) {
++	a := &recoveryFetcher{name: "first"}
++	b := &recoveryFetcher{name: "second", ip: netip.MustParseAddr("192.0.2.42")}
++	r := NewResilient([]Fetcher{a, b}, recoveryWarner{})
++	r.setBanned(a)
++	result, err := r.FetchInfo(context.Background(), netip.Addr{})
++	if err != nil || result.IP != b.ip {
++		t.Fatalf("result=%v error=%v", result, err)
++	}
++	r.setBanned(b)
++	_, err = r.FetchInfo(context.Background(), netip.Addr{})
++	if err == nil || !strings.Contains(err.Error(), "no eligible public IP fetchers") || strings.Contains(err.Error(), "%!w") {
++		t.Fatalf("error=%v", err)
++	}
++}

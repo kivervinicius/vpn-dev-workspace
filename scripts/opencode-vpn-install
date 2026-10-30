@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# Install the VPN-routed host launchers after validating the installed clients.
+set -Eeuo pipefail
+
+readonly EXPECTED_V1_VERSION=1.19.5
+readonly EXPECTED_V2_VERSION=2.1.3
+readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+readonly INSTALL_DIR="${HOME:?HOME must be set}/.local/bin"
+readonly V1_BIN="${OPENCODE_V1_BIN:-${HOME}/.opencode-v1/bin/opencode}"
+readonly V2_BIN="${OPENCODE_V2_BIN:-${HOME}/.opencode/bin/opencode}"
+readonly V1_HOME="${OPENCODE_V1_HOME:-${HOME}/.opencode-v1}"
+readonly V1_PLUGIN_DIR="${V1_HOME}/.config/opencode/plugins"
+readonly V2_CONFIG_HOME="${OPENCODE_V2_CONFIG_HOME:-${XDG_CONFIG_HOME:-${HOME}/.config}/opencode}"
+readonly V2_PLUGIN_DIR="${V2_CONFIG_HOME}/plugins"
+readonly V1_PLUGIN_SOURCE="${SCRIPT_DIR}/../opencode/v1/vpn-recovery.js"
+readonly V2_PLUGIN_SOURCE="${SCRIPT_DIR}/../opencode/v2/vpn-recovery"
+readonly V1_OLD_PLUGIN="${V1_PLUGIN_DIR}/provider-limit-notify.js"
+readonly V1_NEW_PLUGIN="${V1_PLUGIN_DIR}/vpn-recovery.js"
+readonly V2_OLD_PLUGIN="${V2_PLUGIN_DIR}/provider-limit-notify"
+readonly V2_NEW_PLUGIN="${V2_PLUGIN_DIR}/vpn-recovery"
+fail() {
+  printf 'opencode-vpn-install: %s\n' "$*" >&2
+  exit 1
+}
+usage() {
+  cat <<'EOF'
+Usage: opencode-vpn-install [--help]
+
+Validate OpenCode v1/v2 versions, then install VPN-routed launchers and the
+vpn-recovery plugins in their separate global config homes.
+Existing targets are backed up before replacement.
+EOF
+}
+
+case "${1:-}" in
+  -h|--help) usage; exit 0 ;;
+  "") ;;
+  *) usage >&2; fail "unexpected argument: $1" ;;
+esac
+
+[[ "$(uname -s)" == Linux ]] || fail 'host installation is supported only on Linux.'
+for source in opencode1 opencode2; do
+  [[ -f "$SCRIPT_DIR/$source" && -r "$SCRIPT_DIR/$source" ]] || fail "launcher source is missing: $SCRIPT_DIR/$source"
+done
+[[ -f "$V1_PLUGIN_SOURCE" && -r "$V1_PLUGIN_SOURCE" ]] || fail "v1 plugin source is missing: $V1_PLUGIN_SOURCE"
+[[ -d "$V2_PLUGIN_SOURCE" && -r "$V2_PLUGIN_SOURCE/package.json" ]] || fail "v2 plugin package is missing: $V2_PLUGIN_SOURCE"
+
+read_version() {
+  local name="$1" path="$2" expected="$3" result
+  [[ -x "$path" ]] || fail "$name binary is missing or not executable: $path"
+  result="$("$path" --version 2>&1)" || fail "$name --version failed; no files were changed."
+  [[ "$result" =~ (^|[^0-9])${expected//./\.}([^0-9]|$) ]] || \
+    fail "$name version mismatch (expected $expected); no files were changed."
+  printf '%s\n' "$result"
+}
+
+v1_version="$(read_version v1 "$V1_BIN" "$EXPECTED_V1_VERSION")" || exit
+v2_version="$(read_version v2 "$V2_BIN" "$EXPECTED_V2_VERSION")" || exit
+
+# Validate every source and client version before touching user files.
+mkdir -p -- "$INSTALL_DIR" || fail "cannot create install directory: $INSTALL_DIR"
+backup_stamp="$(date +%Y%m%d%H%M%S).$$"
+backup_target() {
+  local target="$1" backup_dir="${2:-}" backup_path
+  if [[ -e "$target" || -L "$target" ]]; then
+    if [[ -n "$backup_dir" ]]; then
+      mkdir -p -- "$backup_dir" || fail "could not create backup directory: $backup_dir"
+      backup_path="${backup_dir}/$(basename -- "$target")"
+    else
+      backup_path="${target}.backup.${backup_stamp}"
+    fi
+    cp -a -- "$target" "$backup_path" || fail "could not back up: $target"
+  fi
+}
+readonly V1_PLUGIN_BACKUP_DIR="${V1_HOME}/.config/opencode/plugin-backups/${backup_stamp}"
+readonly V2_PLUGIN_BACKUP_DIR="${V2_CONFIG_HOME}/plugin-backups/${backup_stamp}"
+backup_target "$INSTALL_DIR/opencode1"
+backup_target "$INSTALL_DIR/opencode2"
+backup_target "$V1_OLD_PLUGIN" "$V1_PLUGIN_BACKUP_DIR"
+backup_target "$V1_NEW_PLUGIN" "$V1_PLUGIN_BACKUP_DIR"
+backup_target "$V2_OLD_PLUGIN" "$V2_PLUGIN_BACKUP_DIR"
+backup_target "$V2_NEW_PLUGIN" "$V2_PLUGIN_BACKUP_DIR"
+
+stage_dir="$(mktemp -d "$INSTALL_DIR/.opencode-vpn-install.XXXXXX")" || fail 'could not stage launchers and plugins.'
+cleanup() { rm -rf -- "$stage_dir"; }
+trap cleanup EXIT
+install -m 0755 -- "$SCRIPT_DIR/opencode1" "$stage_dir/opencode1" || fail 'could not stage opencode1.'
+install -m 0755 -- "$SCRIPT_DIR/opencode2" "$stage_dir/opencode2" || fail 'could not stage opencode2.'
+install -m 0644 -- "$V1_PLUGIN_SOURCE" "$stage_dir/vpn-recovery.js" || fail 'could not stage v1 plugin.'
+cp -a -- "$V2_PLUGIN_SOURCE" "$stage_dir/vpn-recovery" || fail 'could not stage v2 plugin.'
+
+mkdir -p -- "$V1_PLUGIN_DIR" "$V2_PLUGIN_DIR" || fail 'could not create OpenCode plugin directories.'
+mv -f -- "$stage_dir/opencode1" "$INSTALL_DIR/opencode1" || fail 'could not install opencode1.'
+mv -f -- "$stage_dir/opencode2" "$INSTALL_DIR/opencode2" || fail 'could not install opencode2.'
+rm -rf -- "$V1_OLD_PLUGIN"
+mv -f -- "$stage_dir/vpn-recovery.js" "$V1_NEW_PLUGIN" || fail 'could not install v1 plugin.'
+rm -rf -- "$V2_OLD_PLUGIN"
+rm -rf -- "$V2_NEW_PLUGIN"
+mv -T -- "$stage_dir/vpn-recovery" "$V2_NEW_PLUGIN" || fail 'could not install v2 plugin.'
+printf 'Installed VPN-routed launchers and recovery plugins (v1 %s; v2 %s).\n' \
+  "$v1_version" "$v2_version"

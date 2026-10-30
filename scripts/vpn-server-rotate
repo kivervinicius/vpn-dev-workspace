@@ -3,32 +3,41 @@ set -Eeuo pipefail
 
 readonly API_URL="${GLUETUN_API_URL:-http://127.0.0.1:8000}"
 readonly API_KEY_FILE="${GLUETUN_API_KEY_FILE:-/run/secrets/gluetun_api_key}"
-readonly STATE_FILE="${VPN_ROTATE_STATE_FILE:-/tmp/vpn-rotate.index}"
+readonly STATE_FILE="${VPN_ROTATE_STATE_FILE:-/var/lib/vpn-control/vpn-rotate.index}"
 readonly CURL_TIMEOUT_ARGS=(--connect-timeout 5 --max-time 10)
 
 usage() {
-  echo "Uso: vpn-server-rotate [--to <host>|--random|--list] [--api-url <url>]" >&2
+  echo "Uso: vpn-server-rotate [--to <host>|--random|--countries <lista>|--list] [--api-url <url>]" >&2
   echo "  (sem flags) round-robin em VPN_SERVER_HOSTNAMES ou re-seleção aleatória" >&2
-  echo "  --to       salta direto para o host (deve estar na lista)" >&2
-  echo "  --random   ignora a lista e re-seleciona no país configurado" >&2
-  echo "  --list     mostra a lista e o índice atual" >&2
+  echo "  --to        salta direto para o host (deve estar na lista)" >&2
+  echo "  --random    ignora a lista e re-seleciona no país configurado" >&2
+  echo "  --countries lista de países separada por vírgula (ex: Brazil,Argentina,Chile);" >&2
+  echo "              limpa os hostnames e deixa o Gluetun escolher em qualquer um deles" >&2
+  echo "  --list      mostra a lista e o índice atual" >&2
   exit 0
 }
 
 want_to=""
 want_random=false
 want_list=false
+want_countries_raw=""
 api_url="$API_URL"
 while (($# > 0)); do
   case "$1" in
     --to) want_to="${2:-}"; [[ -n "$want_to" ]] || { echo "Erro: --to exige um hostname." >&2; exit 2; }; shift 2 ;;
     --random) want_random=true; shift ;;
+    --countries) want_countries_raw="${2:-}"; [[ -n "$want_countries_raw" ]] || { echo "Erro: --countries exige uma lista de países." >&2; exit 2; }; shift 2 ;;
     --list) want_list=true; shift ;;
     --api-url) api_url="${2:-}"; [[ -n "$api_url" ]] || { echo "Erro: --api-url exige um valor." >&2; exit 2; }; shift 2 ;;
     -h|--help) usage ;;
     *) echo "Erro: argumento desconhecido: $1" >&2; exit 2 ;;
   esac
 done
+
+if [[ -n "$want_to" && -n "$want_countries_raw" ]]; then
+  echo "Erro: --to e --countries são mutuamente exclusivos." >&2
+  exit 2
+fi
 
 need() {
   command -v "$1" >/dev/null 2>&1 || { echo "Erro: dependência ausente: $1" >&2; exit 2; }
@@ -69,6 +78,21 @@ if [[ -n "$hostnames_raw" ]]; then
   unset _split _h
 fi
 
+countries_req=()
+if [[ -n "$want_countries_raw" ]]; then
+  IFS=',' read -r -a _split_countries <<< "$want_countries_raw" || true
+  for _c in "${_split_countries[@]:-}"; do
+    _c="$(trim "$_c")"
+    [[ -n "$_c" ]] && countries_req+=("$_c")
+  done
+  unset _split_countries _c
+  ((${#countries_req[@]} > 0)) || { echo "Erro: --countries sem países válidos." >&2; exit 2; }
+fi
+
+if ((${#countries_req[@]} > 0)) && ((${#hostnames_env[@]} > 0)); then
+  echo "Aviso: VPN_SERVER_HOSTNAMES está definido; --countries vale só até o próximo restart e pode escolher servidores inalcançáveis. Para persistir, limpe VPN_SERVER_HOSTNAMES no .env." >&2
+fi
+
 patch=""
 if [[ -n "$want_to" ]] && ((${#hostnames_env[@]} == 0)); then
   echo "Erro: --to exige VPN_SERVER_HOSTNAMES preenchido." >&2
@@ -90,6 +114,9 @@ if $want_list; then
   else
     echo "Sem VPN_SERVER_HOSTNAMES (re-seleção aleatória no país configurado)."
   fi
+  if ((${#countries_req[@]} > 0)); then
+    printf 'Países solicitados: %s\n' "$(IFS=', '; echo "${countries_req[*]}")"
+  fi
   exit 0
 fi
 
@@ -99,10 +126,25 @@ need jq
 api_key="$(tr -d '\r\n' < "$API_KEY_FILE")"
 [[ -n "$api_key" ]] || { echo "Erro: chave da API vazia." >&2; exit 1; }
 
+source "$(dirname "${BASH_SOURCE[0]}")/vpn-control-lock.sh"
+vpn_control_lock_acquire || {
+  lock_rc=$?
+  if ((lock_rc == 75)); then
+    echo "VPN já está sendo alterada; tente novamente no próximo ciclo." >&2
+    exit 75
+  fi
+  echo "Erro: não foi possível adquirir o lock de controle VPN." >&2
+  exit 1
+}
+
 settings="$(api_request "${api_url}/v1/vpn/settings")"
 countries="$(printf '%s' "$settings" | jq -c '.provider.server_selection.countries // []' 2>/dev/null || printf '[]')"
 
-if ((${#hostnames_env[@]} > 0)) && ! $want_random; then
+if ((${#countries_req[@]} > 0)); then
+  countries_json="$(jq -nc --args '$ARGS.positional' "${countries_req[@]}")"
+  patch="$(jq -nc --argjson countries "$countries_json" '{provider:{server_selection:{hostnames:[],countries:$countries}}}')"
+  echo "Selecionando país(es): ${countries_req[*]}"
+elif ((${#hostnames_env[@]} > 0)) && ! $want_random; then
   total="${#hostnames_env[@]}"
   if ((total == 1)) && [[ -z "$want_to" ]]; then
     echo "Aviso: lista com 1 servidor (${hostnames_env[0]}); nada a rotacionar." >&2
@@ -123,8 +165,6 @@ if ((${#hostnames_env[@]} > 0)) && ! $want_random; then
   fi
   next=$(( (previous + 1) % total ))
   target="${hostnames_env[$next]}"
-  mkdir -p "$(dirname "$STATE_FILE")"
-  printf '%s\n' "$next" > "$STATE_FILE"
   patch="$(jq -nc --arg hostname "$target" '{provider:{server_selection:{hostnames:[$hostname]}}}')"
   echo "Rotacionando para o servidor: ${target}"
 else
@@ -140,7 +180,16 @@ if ! outcome="$(api_request -X PUT -H "Content-Type: application/json" -d "$patc
   exit 1
 fi
 echo "Resposta do Gluetun: ${outcome}"
+if [[ -n "${target:-}" ]]; then
+  mkdir -p "$(dirname "$STATE_FILE")" || { echo "Erro: não foi possível atualizar índice da rotação." >&2; exit 1; }
+  state_tmp="$(mktemp "${STATE_FILE}.XXXXXX")" || { echo "Erro: não foi possível atualizar índice da rotação." >&2; exit 1; }
+  printf '%s\n' "$next" > "$state_tmp" && mv -f "$state_tmp" "$STATE_FILE" || {
+    rm -f "$state_tmp"
+    echo "Erro: não foi possível atualizar índice da rotação." >&2
+    exit 1
+  }
+fi
 
 # O Gluetun reinicia o túnel ao aplicar as configurações; aguarda o IP novo.
 echo "Aguardando IP público após a troca..."
-exec "$(resolve_helper vpn-reconnect)"
+GLUETUN_API_URL="$api_url" exec "$(resolve_helper vpn-reconnect)"
