@@ -1,5 +1,5 @@
 "use strict";
-const { runJson, isObject, output } = require("./util.cjs");
+const { runJson, isObject, output, validIp } = require("./util.cjs");
 const STATUSES = new Set(["ok","degraded","down","unknown"]);
 function sourceStatus(result) {
   if (!result || !isObject(result.data)) return "unknown";
@@ -12,25 +12,40 @@ function collectFrom(results, now = () => new Date()) {
   const s = isObject(status.data) ? status.data : {};
   const c = isObject(check.data) ? check.data : {};
   const a = isObject(app.data) ? app.data : {};
-  const vpn = s.vpn === "running" ? "ok" : (typeof s.vpn === "string" && s.vpn !== "desconhecido" ? "down" : "unknown");
-  const hasChecks = typeof c.healthy === "boolean" && Array.isArray(c.checks);
-  const dns = hasChecks ? (c.checks.some(x => x && x.ok === false && /dns|resolv/i.test(String(x.name))) ? "degraded" : c.healthy ? "ok" : "unknown") : "unknown";
-  const openCode = a.status === "ok" ? "ok" : a.status === "down" ? "down" : a.status === "quota" ? "degraded" : "unknown";
-  const failures = hasChecks ? c.checks.filter(x => x && x.ok === false).map(x => ({name:String(x.name).slice(0,100),ok:false})) : [];
-  const known = [vpn,dns,openCode].filter(x=>x!=="unknown");
-  const overall = vpn === "down" ? "down" : !known.length ? "unknown" :
-    known.some(x=>x==="down"||x==="degraded") ? "degraded" : "ok";
-  const sources = ["status","check","opencode"].map(name=>({
-    name: {status:"vpn-status",check:"vpn-check",opencode:"vpn-opencode"}[name],
-    status:sourceStatus(results[name]), error: results[name] && results[name].failure || null
+  const statusSource=sourceStatus(status),checkSource=sourceStatus(check),opencodeSource=sourceStatus(app);
+  const hasChecks=typeof c.healthy==="boolean"&&Array.isArray(c.checks);
+  const checks=hasChecks?c.checks.filter(isObject):[];
+  const failures=checks.filter(x=>x.ok===false).map(x=>({name:String(x.name||"unknown").slice(0,100),ok:false}));
+  const criticalFailure=failures.some(x=>/t[uú]nel|tunnel|ip p[uú]blico|public.?ip|egress/i.test(x.name));
+  let vpn=s.vpn==="running"?"ok":
+    typeof s.vpn==="string"&&!["","desconhecido","unknown"].includes(s.vpn)?"down":"unknown";
+  if(vpn==="ok"&&(!validIp(s.public_ip)||criticalFailure))vpn="down";
+  else if(vpn==="ok"&&statusSource!=="ok")vpn="degraded";
+  const dnsChecks=checks.filter(x=>/dns|resolv/i.test(String(x.name||"")));
+  const dns=dnsChecks.some(x=>x.ok===false)?"degraded":
+    dnsChecks.length>0&&dnsChecks.every(x=>x.ok===true)?"ok":"unknown";
+  const network=!hasChecks?"unknown":c.healthy===false||checkSource!=="ok"?"degraded":
+    c.healthy===true?"ok":"unknown";
+  const openCode=a.status==="ok"?"ok":a.status==="down"?"down":
+    a.status==="quota"?"degraded":"unknown";
+  // Missing or stale source data cannot produce a green aggregate.
+  const components=[vpn,network,openCode];
+  const overall=vpn==="down"?"down":
+    components.some(x=>x==="down"||x==="degraded") ||
+    [statusSource,checkSource,opencodeSource].some(x=>x==="degraded")?"degraded":
+    components.some(x=>x==="unknown") ||
+    [statusSource,checkSource,opencodeSource].some(x=>x!=="ok")?"unknown":"ok";
+  const sources=["status","check","opencode"].map(name=>({
+    name:{status:"vpn-status",check:"vpn-check",opencode:"vpn-opencode"}[name],
+    status:sourceStatus(results[name]),error:results[name]&&results[name].failure||null
   }));
   return {
     schemaVersion:1, generatedAt:now().toISOString(), overall,
     components:{
-      network:{status:dns,dns},
+      network:{status:network,dns},
       vpn:{status:vpn,provider:typeof s.provider==="string" ? s.provider : null,
         type:typeof s.type==="string" ? s.type : null,
-        publicIp:typeof s.public_ip==="string" && s.public_ip ? s.public_ip : null,
+        publicIp:validIp(s.public_ip)?s.public_ip:null,
         location:typeof s.location==="string" ? s.location : null},
       opencode:{status:openCode,port:Number.isInteger(a.port)?a.port:null,
         detail:typeof a.detail==="string" ? a.detail.slice(0,100):null,

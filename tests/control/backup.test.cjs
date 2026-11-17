@@ -5,7 +5,7 @@ const {DatabaseSync}=require("node:sqlite");
 const {create,list,loadBackup,restore,recover,plan}=require("../../apps/control-plane/lib/backup.cjs");
 test("offline backup, checksum, pre-restore snapshot and rollback-safe restore",async()=>{
  const home=fs.mkdtempSync(path.join(os.tmpdir(),"vpn-backup-test-"));
- const opts={home,backups:path.join(home,"backups"),offline:true};
+ const opts={home,backups:path.join(home,"backups"),offline:true,__fixtureRestoreOnly:true};
  const root=path.join(home,".local/share/opencode");
  fs.mkdirSync(root,{recursive:true});
  const db=new DatabaseSync(path.join(root,"opencode.db"));
@@ -58,5 +58,18 @@ test("interrupted applying restore reverts original database from the recovery j
    assert.equal(recover(opts).status,"rolled_back");
    const verified=new DatabaseSync(path.join(root,"opencode.db"),{readOnly:true});
    assert.equal(verified.prepare("select value from item").get().value,"original");verified.close();
+ }finally{fs.rmSync(home,{recursive:true,force:true})}
+});
+
+test("restore is unavailable to production callers until coordinated writer safety",async()=>{
+ const home=fs.mkdtempSync(path.join(os.tmpdir(),"vpn-backup-guard-"));
+ const opts={home,backups:path.join(home,"backups"),offline:true};
+ const dir=path.join(home,".local/share/opencode");fs.mkdirSync(dir,{recursive:true});
+ const db=new DatabaseSync(path.join(dir,"opencode.db"));db.exec("create table item(value text)");db.close();
+ try{
+   const r=await create("v2",opts);
+   assert.equal(r.restorable,false);assert.equal(r.storageConsistency,"unverified");
+   assert.equal(plan(r.id,"v2",opts).restoreSupported,false);
+   await assert.rejects(restore(r.id,"v2",opts),/restore_disabled_pending_quiescence/);
  }finally{fs.rmSync(home,{recursive:true,force:true})}
 });
