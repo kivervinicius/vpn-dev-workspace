@@ -28,7 +28,7 @@ async function load(){
  text("oc-detail",state.components?.opencode?.detail);
  badge($("provider-status"),provider.stale?"unknown":provider.status==="accepted"?"ok":provider.status==="rejected"?"down":"unknown");
  text("provider-model",provider.model);
- text("provider-detail",provider.stale?"Sem resultado recente verificado":provider.reason);
+ text("provider-detail",provider.stale?"Sem resultado recente verificado":provider.reason+(provider.egressStable?" · IP "+provider.publicIp:" · IP não confirmado"));
  text("last-update",state.generatedAt?new Date(state.generatedAt).toLocaleString("pt-BR"):"Sem coleta");
  $("banner").textContent=state.stale?"Dados indisponíveis ou desatualizados. Verifique o observer e os containers.":"";
  mount("sources",table([["Coletor","Resultado","Falha"],...(state.sources||[]).map(s=>[s.name,s.status,s.error||"—"])]));

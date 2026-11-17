@@ -2,7 +2,7 @@
 const path=require("node:path");
 const fs=require("node:fs");
 const {spawn}=require("node:child_process");
-const {writeAtomic,output,isObject}=require("./util.cjs");
+const {writeAtomic,output,isObject,validIp,runJson}=require("./util.cjs");
 const {append}=require("./events.cjs");
 
 function modelValid(value){return typeof value==="string"&&/^[a-z0-9][a-z0-9._-]{0,63}\/[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/.test(value)}
@@ -74,6 +74,10 @@ async function runProbe(model,options={}){
   if(process.env.VPN_WORKSPACE_CONTAINER!=="1"&&!options.allowOutsideForTest)throw new Error("vpn_container_required");
   const binary=options.binary||process.env.OPENCODE_V2_BIN||path.join(process.env.HOME||"/home/developer",".opencode/bin/opencode");
   const runner=options.runner||execute;
+  const egressReader=options.egressReader|| (async()=>{
+    const v=await runJson(process.env.VPN_PROBE_VPN_STATUS_BIN||"vpn-status",["--json"],{timeoutMs:5000});
+    return v.exitCode===0 && validIp(v.data?.public_ip) ? v.data.public_ip : null;
+  });
   const version=await runner(binary,["--version"],3000);
   if(!version.lines.join(" ").match(/(?:^|[^0-9])2\.\d+\.\d+(?:[^0-9]|$)/)) {
     return {schemaVersion:1,status:"unverified",reason:"v2_required",model,providerAccepted:false};
@@ -85,18 +89,22 @@ async function runProbe(model,options={}){
   }
   // One command invocation only. The OpenCode client may internally retry;
   // this wrapper never retries and always uses a private, archived session.
+  const beforeIp=await egressReader();
   const response=await runner(binary,["run","--standalone","--archived","--format","json","--agent","plan","--model",model,
     "Responda apenas OK, sem ferramentas e sem acessar arquivos."],60000);
+  const afterIp=await egressReader();
+  const egressStable=Boolean(beforeIp && afterIp && beforeIp===afterIp);
   const classification=classify(response.lines,response.code,response.timeout);
   const result={schemaVersion:1,observedAt:new Date().toISOString(),model,
     status:classification.status,reason:classification.reason,providerAccepted:classification.status==="accepted",
+    publicIp:egressStable?beforeIp:null,egressStable,
     note:"A single explicit OpenCode run was attempted. This does not establish future free-tier eligibility."};
   if(!options.noPersistence){
     try{
       const stateDir=process.env.VPN_CONTROL_STATE_DIR||"/var/lib/vpn-control/observability";
       writeAtomic(path.join(stateDir,"provider-probe.json"),JSON.stringify(result)+"\n");
       append({type:result.status==="accepted"?"opencode.request.accepted":result.status==="rejected"?"opencode.request.rejected":"opencode.request.unverified",
-        source:"manual",reason:result.reason,verification:result.status==="accepted"?"provider_accepted":result.status==="rejected"?"provider_rejected":"unverified"});
+        source:"manual",reason:result.reason,afterIp:result.publicIp||undefined,verification:result.status==="accepted"?"provider_accepted":result.status==="rejected"?"provider_rejected":"unverified"});
     }catch{result.persistence="unavailable"}
   }
   return result;

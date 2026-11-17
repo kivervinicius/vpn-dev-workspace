@@ -16,9 +16,11 @@ test("probe refuses without explicit consent, then performs exactly one run",asy
   if(args[0]==="run"&&args[1]==="--help")return {lines:["--standalone --archived --format --model --agent"],code:0};
   return {lines:['{"type":"text","part":{"text":"OK"}}'],code:0};
  };
- await assert.rejects(runProbe("opencode/test-free",{runner,allowOutsideForTest:true,noPersistence:true}),/consent_required/);
- const result=await runProbe("opencode/test-free",{runner,confirm:true,allowOutsideForTest:true,noPersistence:true});
+ await assert.rejects(runProbe("opencode/test-free",{runner,allowOutsideForTest:true,noPersistence:true,egressReader:async()=> "198.51.100.30"}),/consent_required/);
+ const result=await runProbe("opencode/test-free",{runner,confirm:true,allowOutsideForTest:true,noPersistence:true,egressReader:async()=> "198.51.100.30"});
  assert.equal(result.providerAccepted,true);
+ assert.equal(result.egressStable,true);
+ assert.equal(result.publicIp,"198.51.100.30");
  assert.equal(calls.filter(args=>args[0]==="run"&&args[1]==="--standalone").length,1);
  assert.equal(calls.some(args=>args.includes("--auto")),false);
 });

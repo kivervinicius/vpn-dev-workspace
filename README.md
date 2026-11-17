@@ -546,3 +546,9 @@ Aceitação requer exit 0 mais parte de texto estruturada; erro estruturado
 reconhecido informa rejeição; falhas genéricas permanecem **unverified**.
 A API local mostra a última prova e a marca como desatualizada em 120 segundos,
 sem concluir que a quota foi restaurada permanentemente.
+
+O resultado inclui `publicIp` apenas quando o endereço público da VPN
+foi observado igual **antes e depois** da execução; caso contrário
+`egressStable=false` e não há atribuição segura da resposta a um IP específico.
+Os eventos de resultado preservam o IP confirmado, quando existir, permitindo
+correlacionar alterações de saída e respostas do provedor sem registrar prompts.
