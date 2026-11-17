@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Strict v2 OpenCode entrypoint for GUI/serve/supervisor.
+set -Eeuo pipefail
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  echo "Uso: opencode2-service [--check] | <args OpenCode>; requires v2.1.3 by default. Canary: OPENCODE_V2_ALLOW_UNVERIFIED=true." >&2
+  exit 0
+fi
+readonly BIN="${OPENCODE_V2_BIN:-${HOME:?HOME must be set}/.opencode/bin/opencode}"
+readonly EXPECTED="${OPENCODE_V2_EXPECTED_VERSION:-2.1.3}"
+readonly VPN_CHECK="${VPN_CHECK_BIN:-/usr/local/bin/vpn-check}"
+[[ "$BIN" == /* && -x "$BIN" ]] || { echo "opencode2-service: v2 binary not available: $BIN" >&2; exit 127; }
+actual="$("$BIN" --version 2>/dev/null)" || { echo "opencode2-service: failed to query version" >&2; exit 1; }
+if [[ "$actual" =~ (^|[^0-9])([0-9]+[.][0-9]+[.][0-9]+)([^0-9]|$) ]]; then
+  version="${BASH_REMATCH[2]}"
+else
+  echo "opencode2-service: unknown OpenCode version" >&2; exit 1
+fi
+[[ "$version" == 2.* ]] || { echo "opencode2-service: expected OpenCode v2; installed $version" >&2; exit 1; }
+if [[ "$version" != "$EXPECTED" ]]; then
+  case "${OPENCODE_V2_ALLOW_UNVERIFIED:-false}" in
+    true|1|yes) echo "opencode2-service: WARNING unverified v2=$version, tested baseline=$EXPECTED" >&2 ;;
+    *) echo "opencode2-service: v2=$version has not been homologated (tested: $EXPECTED); use isolated canary" >&2; exit 1 ;;
+  esac
+fi
+if [[ "${1:-}" == "--check" ]]; then
+  printf '{"version":"%s","tested":"%s","homologated":%s}\n' "$version" "$EXPECTED" "$([[ "$version" == "$EXPECTED" ]] && echo true || echo false)"
+  exit 0
+fi
+[[ -x "$VPN_CHECK" ]] || { echo "opencode2-service: vpn-check missing" >&2; exit 1; }
+"$VPN_CHECK" --only tunnel -q >/dev/null 2>&1 || {
+  echo "opencode2-service: VPN tunnel unhealthy, refusing to start" >&2; exit 1;
+}
+exec "$BIN" "$@"

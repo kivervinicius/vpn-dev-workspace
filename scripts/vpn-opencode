@@ -258,7 +258,7 @@ start_detached() {
   if [[ -n "${OPENCODE_SERVER_USER:-}" ]]; then env_args+=(-e OPENCODE_SERVER_USER); fi
   docker compose --profile vpn -f "${ROOT_DIR}/docker-compose.yml" exec -d \
     "${env_args[@]}" \
-    terminal opencode "$m" --port "$p" --hostname 0.0.0.0
+    terminal opencode2-service "$m" --port "$p" --hostname 0.0.0.0
 }
 
 case "$mode" in
@@ -355,12 +355,12 @@ case "$mode" in
       echo "OpenCode ${mode} pela VPN em http://127.0.0.1:${port} (fundo; pare com: vpn-opencode stop --port ${port})..."
       exec docker compose --profile vpn -f "${ROOT_DIR}/docker-compose.yml" exec -d \
         "${env_args[@]}" \
-        terminal opencode "$mode" --port "$port" --hostname 0.0.0.0
+        terminal opencode2-service "$mode" --port "$port" --hostname 0.0.0.0
     else
       echo "OpenCode ${mode} pela VPN em http://127.0.0.1:${port} (Ctrl+C para encerrar)..."
       exec docker compose --profile vpn -f "${ROOT_DIR}/docker-compose.yml" exec \
         "${env_args[@]}" \
-        terminal opencode "$mode" --port "$port" --hostname 0.0.0.0
+        terminal opencode2-service "$mode" --port "$port" --hostname 0.0.0.0
     fi
     ;;
 esac

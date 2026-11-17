@@ -803,7 +803,7 @@ function Invoke-OpenCode {
     } else {
         Write-Warning "sem arquivo de senha em $passwordPath; o painel ficará sem autenticação."
     }
-    $exec += @('terminal', 'opencode', $mode, '--port', [string]$port, '--hostname', '0.0.0.0')
+    $exec += @('terminal', 'opencode2-service', $mode, '--port', [string]$port, '--hostname', '0.0.0.0')
     & docker compose @($compose + $exec)
     exit $LASTEXITCODE
 }

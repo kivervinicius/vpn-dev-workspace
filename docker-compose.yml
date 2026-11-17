@@ -184,6 +184,7 @@ services:
       - ./scripts/vpn-opencode:/usr/local/bin/vpn-opencode:ro
       - ./scripts/vpn-control-lock.sh:/usr/local/bin/vpn-control-lock.sh:ro
       - ./scripts/opencode-limit-recover:/usr/local/bin/opencode-limit-recover:ro
+      - ./scripts/opencode2-service:/usr/local/bin/opencode2-service:ro
       # Senha do painel web do OpenCode (basic auth), quando existir arquivo.
       # Sem arquivo o painel abre sem senha: só use com HOST_BIND_ADDRESS=127.0.0.1.
       - ${OPENCODE_GUI_PASSWORD_FILE:-/dev/null}:/run/secrets/opencode_gui_password:ro
@@ -324,6 +325,7 @@ services:
       - ${SSH_AUTH_SOCK:-/dev/null}:/run/vpn-ssh-agent.sock:ro
       - ${RUN_USER_DIR:-/dev/null}:${RUN_USER_DIR:-/dev/null}:ro
       - ./scripts/opencode-supervisor:/usr/local/bin/opencode-supervisor:ro
+      - ./scripts/opencode2-service:/usr/local/bin/opencode2-service:ro
       - ./scripts/vpn-check:/usr/local/bin/vpn-check:ro
       - ./scripts/vpn-reconnect:/usr/local/bin/vpn-reconnect:ro
       - ./scripts/vpn-server-rotate:/usr/local/bin/vpn-server-rotate:ro

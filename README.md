@@ -577,3 +577,17 @@ Referências oficiais:
 - https://opencode.ai/changelog/v2.2.6
 - https://opencode.ai/changelog/v2.3.0
 - https://opencode.ai/docs/plugins/
+
+### OpenCode v2 estrito no GUI / serve / supervisor (canário opt-in)
+
+O serviço `opencode2-service` valida explicitamente que o binário é OpenCode
+**v2**, e por padrão exige a versão homologada **2.1.3**. Recusa fallback
+silencioso para v1 e versões diferentes sem autorização. Uma versão mais
+recente, como 2.3.0, só pode ser usada em homologação deliberada, com
+`OPENCODE_V2_ALLOW_UNVERIFIED=true`. Essa opção **não** homologa os hooks;
+use o runbook de regressão. Se o túnel estiver indisponível, o serviço não inicia.
+
+```bash
+opencode2-service --check
+OPENCODE_V2_ALLOW_UNVERIFIED=true opencode2-service --check  # apenas canário
+```
