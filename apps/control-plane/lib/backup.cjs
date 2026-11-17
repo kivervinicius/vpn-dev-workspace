@@ -84,7 +84,9 @@ async function create(scope,options={}) {
    writeAtomic(path.join(staging,"manifest.json"),JSON.stringify(manifest,null,2)+"\n");
    fs.renameSync(staging,final);
    exportIndex(ctx);
-   return {id,scope,createdAt:manifest.createdAt,files:manifest.files.length,verified:true};
+   return {id,scope,createdAt:manifest.createdAt,files:manifest.files.length,
+      verified:true,verifiedMeaning:"file_hashes_and_sqlite_integrity",
+      storageConsistency:"unverified",restorable:false};
  }catch(error){fs.rmSync(staging,{recursive:true,force:true});throw error}
 }
 function loadBackup(id,options={}) {
@@ -124,7 +126,7 @@ function plan(id,scope,options={}) {
  const c=context(options),target=source(scope,c.home);
  return {schemaVersion:1,id,scope,files:manifest.files.length,
    targetPresent:fs.existsSync(path.join(target,"opencode.db")),
-   requiresOffline:true,preRestoreBackup:true,rollbackAvailable:true,
+   requiresOffline:true,preRestoreBackup:true,rollbackAvailable:false,restoreSupported:false,
    warning:"This replaces the database and storage for the selected scope only."};
 }
 function recoveryFile(ctx){return path.join(ctx.root,"restore-journal.json")}
@@ -160,6 +162,8 @@ function recover(options={}) {
  return {status:"rolled_back",preRestoreId:j.preRestoreId};
 }
 async function restore(id,scope,options={}){
+ // Fixture-only until all OpenCode/Windows writers share a proven exclusive lock.
+ if(options.__fixtureRestoreOnly!==true)throw new Error("restore_disabled_pending_quiescence");
  const ctx=context(options);
  if(fs.existsSync(recoveryFile(ctx)))throw new Error("recovery_required");
  const {base}=loadBackup(id,options),target=source(scope,ctx.home);
@@ -207,7 +211,7 @@ function lockedRun(args,options={}){
 }
 async function main(argv){
  if(argv.includes("--help")||argv.includes("-h")||!argv.length){
-  process.stdout.write("Uso: vpn-backup create --scope v1|v2 --offline | list | verify --id ID | plan-restore --scope v1|v2 --id ID | restore --scope v1|v2 --id ID --offline | recover --offline\n");
+  process.stdout.write("Uso: vpn-backup create --scope v1|v2 --offline | list | verify --id ID | plan-restore --scope v1|v2 --id ID\nAviso: restore/recover bloqueados ate garantia de quiescence Windows/Linux. Integridade != consistencia de storage.\n");
   return;
  }
  const locked=argv[0]==="--locked";if(locked)argv.shift();
@@ -226,8 +230,8 @@ async function main(argv){
    case "list":result=list();break;
    case "verify":result={verified:true,id:loadBackup(args.id).manifest.id};break;
    case "plan-restore":result=plan(args.id,args.scope);break;
-   case "restore":result=await restore(args.id,args.scope,{offline:args.offline});break;
-   case "recover":if(!args.offline)throw new Error("offline_acknowledgement_required");result=recover();break;
+   case "restore":throw new Error("restore_disabled_pending_quiescence");
+   case "recover":throw new Error("recover_disabled_pending_quiescence");
    default:throw new Error("unknown_action");
  }
  output(result);

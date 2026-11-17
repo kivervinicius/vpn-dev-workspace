@@ -101,7 +101,7 @@ validate_nonnegative() {
 need curl
 need grep
 need jq
-need opencode
+need opencode2-service
 
 [[ "$MODE" == "serve" || "$MODE" == "web" ]] || { echo "Erro: OPENCODE_SUPERVISOR_MODE deve ser serve|web." >&2; exit 2; }
 [[ "$PORT" =~ ^[1-9][0-9]{0,4}$ && "$PORT" -le 65535 ]] || { echo "Erro: OPENCODE_GUI_PORT inválida: $PORT." >&2; exit 2; }
@@ -153,7 +153,7 @@ start_opencode() {
   fi
   log_offset=0
   echo "Iniciando OpenCode ${MODE} em 127.0.0.1:${PORT}..."
-  opencode "$MODE" --port "$PORT" --hostname 0.0.0.0 >>"$LOG_FILE" 2>&1 &
+  opencode2-service "$MODE" --port "$PORT" --hostname 0.0.0.0 >>"$LOG_FILE" 2>&1 &
   child_pid=$!
   printf '%s\n' "$child_pid" > "$PID_FILE"
 }
@@ -205,7 +205,7 @@ read_new_logs() {
 
 capture_resume_session() {
   local json id
-  json="$(opencode session list --format json -n 1 2>/dev/null || true)"
+  json="$(opencode2-service session list --format json -n 1 2>/dev/null || true)"
   id="$(printf '%s' "$json" | jq -r 'if type == "array" and length > 0 then .[0].id // empty else empty end' 2>/dev/null || true)"
   if [[ -n "$id" && "$id" != "null" ]]; then
     resume_session_id="$id"
@@ -227,7 +227,7 @@ verify_resume_session() {
   fi
   [[ -n "$target" ]] || return 0
 
-  json="$(opencode session list --format json -n 50 2>/dev/null || true)"
+  json="$(opencode2-service session list --format json -n 50 2>/dev/null || true)"
   if printf '%s' "$json" | jq -e --arg id "$target" 'any(.[]?; .id == $id)' >/dev/null 2>&1; then
     echo "Contexto preservado: sessão ${target} continua disponível após a recuperação."
     return 0

@@ -1,7 +1,19 @@
 import { spawn } from "node:child_process"
 import { classifyV2Error } from "./classify.js"
 
-const RECOVERABLE = new Set(["free_tier_limit", "rate_limit"])
+const RECOVERABLE = new Set(["free_tier_limit"])
+// A generic HTTP 429 is not proof of an IP-scoped free-tier limit.
+// Only an explicitly recognized OpenCode Free model can opt into that path.
+function freeOpenCodeModel(data) {
+  const model = data?.model
+  const provider = data?.providerID || data?.providerId || model?.providerID || model?.providerId
+  const id = data?.modelID || data?.modelId || model?.id || model?.modelID
+  return provider === "opencode" && typeof id === "string" && id.endsWith("-free")
+}
+function eligibleForRecovery(eventClass, data) {
+  return RECOVERABLE.has(eventClass) ||
+    (eventClass === "rate_limit" && freeOpenCodeModel(data))
+}
 
 function object(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -90,7 +102,10 @@ export function setupTuiPlugin(ctx) {
     try {
       let message = notification(eventClass)
       let variant = "info"
-      if (RECOVERABLE.has(eventClass)) {
+      if (eventClass === "rate_limit" && !eligibleForRecovery(eventClass,data)) {
+        message = "HTTP 429 sem vínculo confirmado ao modelo gratuito OpenCode; VPN preservada."
+      }
+      if (eligibleForRecovery(eventClass, data)) {
         try {
           const result = await runRecovery(eventClass)
           message = recoveryMessage(result)

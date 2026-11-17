@@ -1,5 +1,11 @@
 # VPN Dev Workspace
 
+> **Projeto comunitário — ambiente de desenvolvimento por VPN.** O objetivo
+> é diagnóstico, isolamento e recuperação verificável; não existe garantia
+> de uso ilimitado de modelos externos. Contribua: [Contributing](CONTRIBUTING.md),
+> [Compatibility](docs/compatibility.md), [Security](SECURITY.md).
+
+
 Ambiente local de desenvolvimento em Docker que força o tráfego do terminal por uma VPN operada pelo [Gluetun](https://github.com/qdm12/gluetun). O terminal compartilha a rede do serviço VPN; se o túnel falhar, o kill switch do Gluetun bloqueia a saída.
 
 > Use somente provedores, contas e redes para os quais você tem autorização. A manutenção automática existe para recuperar conectividade, não para ocultar atividade ou contornar políticas.
@@ -577,3 +583,17 @@ Referências oficiais:
 - https://opencode.ai/changelog/v2.2.6
 - https://opencode.ai/changelog/v2.3.0
 - https://opencode.ai/docs/plugins/
+
+### OpenCode v2 estrito no GUI / serve / supervisor (canário opt-in)
+
+O serviço `opencode2-service` valida explicitamente que o binário é OpenCode
+**v2**, e por padrão exige a versão homologada **2.1.3**. Recusa fallback
+silencioso para v1 e versões diferentes sem autorização. Uma versão mais
+recente, como 2.3.0, só pode ser usada em homologação deliberada, com
+`OPENCODE_V2_ALLOW_UNVERIFIED=true`. Essa opção **não** homologa os hooks;
+use o runbook de regressão. Se o túnel estiver indisponível, o serviço não inicia.
+
+```bash
+opencode2-service --check
+OPENCODE_V2_ALLOW_UNVERIFIED=true opencode2-service --check  # apenas canário
+```

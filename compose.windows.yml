@@ -44,6 +44,7 @@ services:
       - ./scripts/vpn-opencode:/usr/local/bin/vpn-opencode:ro
       - ./scripts/vpn-control-lock.sh:/usr/local/bin/vpn-control-lock.sh:ro
       - ./scripts/opencode-limit-recover:/usr/local/bin/opencode-limit-recover:ro
+      - ./scripts/opencode2-service:/usr/local/bin/opencode2-service:ro
       - vpn_control_state:/var/lib/vpn-control
       - ./scripts/vpn-hosts-import:/usr/local/bin/vpn-hosts-import:ro
       - ./scripts/vpn-hosts-apply:/usr/local/bin/vpn-hosts-apply:ro
@@ -85,6 +86,7 @@ services:
         source: ${WINDOWS_WORKSPACE_DIR:?WINDOWS_WORKSPACE_DIR is required}
         target: /workspace
       - ./scripts/opencode-supervisor:/usr/local/bin/opencode-supervisor:ro
+      - ./scripts/opencode2-service:/usr/local/bin/opencode2-service:ro
       - ./scripts/vpn-check:/usr/local/bin/vpn-check:ro
       - ./scripts/vpn-reconnect:/usr/local/bin/vpn-reconnect:ro
       - ./scripts/vpn-server-rotate:/usr/local/bin/vpn-server-rotate:ro
