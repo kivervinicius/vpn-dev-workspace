@@ -72,3 +72,13 @@ Comparar antes/depois só se mesma versão, modelo, credenciais autorizadas e co
 - https://opencode.ai/docs/plugins/
 - https://opencode.ai/changelog/v2.2.6
 - https://opencode.ai/changelog/v2.3.0
+
+## Política de 429 genérico (P0)
+
+HTTP 429 por si só não comprova limitação baseada em IP. A TUI só solicita
+recuperação automática em `free_tier_limit` estruturado ou `rate_limit`
+com `providerID=opencode` e `modelID` terminando em `-free`, quando
+esses metadados constarem do evento. Na ausência deles, registra/notifica
+sem alterar a VPN. Limites de crédito e conta jamais acionam rotação.
+A classificação precisa ser verificada em v2.1.3 e 2.3.0, pois eventos
+reais podem trazer os metadados em outros campos.

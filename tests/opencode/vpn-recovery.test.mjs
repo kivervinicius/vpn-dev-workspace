@@ -230,6 +230,30 @@ test("v2 retry hook vetoes only structured recognized errors and is disposed", a
   assert.equal(disposed, true)
 })
 
+
+test("v2 TUI does not rotate ambiguous HTTP 429; recognized OpenCode Free model may recover",async()=>{
+  const source=await import("../../opencode/v2/vpn-recovery/tui-core.js");
+  // The mock recovery binary is set up by the existing test helpers.
+  const oldBin=process.env.OPENCODE_LIMIT_RECOVER_BIN;
+  const fake=await import("node:fs/promises");
+  const tmp=await fake.mkdtemp((await import("node:path")).join((await import("node:os")).tmpdir(),"vpn-policy-"));
+  const bin=(await import("node:path")).join(tmp,"recover");
+  await fake.writeFile(bin,'#!/bin/sh\\nprintf \'{"status":"skipped","reason":"unit_test","before_ip":"","after_ip":"","target":""}\\n\'\\n', {mode:0o755});
+  process.env.OPENCODE_LIMIT_RECOVER_BIN=bin;
+  const toasts=[];let listener;
+  const dispose=source.setupTuiPlugin({data:{on:(_,cb)=>{listener=cb;return ()=>{}}},ui:{toast:{show:async(x)=>toasts.push(x)}}});
+  try{
+    await listener({data:{sessionID:"unknown",error:{statusCode:429}}});
+    assert.match(toasts[0].message,/429 sem vínculo confirmado/);
+    await listener({data:{sessionID:"known",providerID:"opencode",modelID:"deepseek-v4.1-flash-free",error:{statusCode:429}}});
+    assert.ok(toasts.some(x=>x.sessionID==="known"));
+  } finally {
+    dispose();if(oldBin===undefined)delete process.env.OPENCODE_LIMIT_RECOVER_BIN;
+    else process.env.OPENCODE_LIMIT_RECOVER_BIN=oldBin;
+    await fake.rm(tmp,{recursive:true,force:true});
+  }
+});
+
 test("v2 TUI triggers one recovery per in-flight session and never on account limits", async () => {
   const stub = recoveryStub("changed")
   try {
