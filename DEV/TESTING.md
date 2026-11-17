@@ -55,3 +55,11 @@
   `getent hosts`/`ssh-add -l` no terminal, OpenCode, stop/start e persistência
   de `/home/developer`; repetir o fluxo Bash dentro de WSL2 com
   `FIREWALL_SUBNETS` explícito.
+
+## Control Plane opt-in
+
+- Node 22+: `node --test tests/control/*.test.cjs` testa estado, eventos, protecao HTTP e snapshots SQLite.
+- A CI valida sintaxe das ferramentas Node separadamente de ShellCheck/bash -n.
+- Dev local: criar password no arquivo protegido e iniciar o perfil Compose `control` apenas com o perfil VPN ativo.
+- Gate manual: snapshot/restore com OpenCode parado (host e container), queda de energia simulada, leitura de IP e DNS, redaction, binding exclusivo loopback.
+- OpenCode 1.x nao deve ser tratado como compatibilidade com modelos gratuitos atuais; o comando `opencode-compat` mede apenas executavel e plugin, nao elegibilidade do provedor.

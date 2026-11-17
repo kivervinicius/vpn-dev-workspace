@@ -19,7 +19,7 @@ jobs:
         # (`.zsh` não é suportado pelo ShellCheck e não é bash).
         run: sudo apt-get update && sudo apt-get install --yes shellcheck socat zsh
       - name: Validate shell scripts
-        run: find scripts -maxdepth 1 -type f ! -name '*.ps1' ! -name '*.zsh' -print0 | xargs -0 shellcheck -S error && find scripts -maxdepth 1 -type f ! -name '*.ps1' ! -name '*.zsh' -exec bash -n {} + && sh -n scripts/vpn-entrypoint.sh && find scripts -maxdepth 1 -type f -name '*.zsh' -exec zsh -n {} + && git diff --check
+        run: find scripts -maxdepth 1 -type f ! -name '*.ps1' ! -name '*.zsh' ! -name 'vpn-state' ! -name 'vpn-events' ! -name 'vpn-observer' ! -name 'vpn-backup' ! -name 'vpn-control-ui' ! -name 'opencode-compat' -print0 | xargs -0 shellcheck -S error && find scripts -maxdepth 1 -type f ! -name '*.ps1' ! -name '*.zsh' ! -name 'vpn-state' ! -name 'vpn-events' ! -name 'vpn-observer' ! -name 'vpn-backup' ! -name 'vpn-control-ui' ! -name 'opencode-compat' -exec bash -n {} + && sh -n scripts/vpn-entrypoint.sh && find scripts -maxdepth 1 -type f -name '*.zsh' -exec zsh -n {} + && for script in scripts/vpn-state scripts/vpn-events scripts/vpn-observer scripts/vpn-backup scripts/vpn-control-ui scripts/opencode-compat; do node --check "$script"; done && find apps/control-plane -type f -name '*.cjs' -exec node --check {} \; && git diff --check
       - name: Run Linux scripts test suite
         run: ./tests/linux/test-scripts.sh
       - name: Test supervisor log classifier
