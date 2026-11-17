@@ -34,6 +34,8 @@ jobs:
           test "$(bash ./scripts/opencode-supervisor --classify 'FreeUsageLimitError: Free usage limit reached')" = "none"
           test "$(bash ./scripts/opencode-supervisor --classify 'Go limit reached: usage limit reached')" = "none"
           test "$(bash ./scripts/opencode-supervisor --classify 'CreditLimitExceeded: credit limit exceeded')" = "none"
+      - name: Compatibility contracts (simulated OpenCode 2.1.3 and 2.3.0)
+        run: node --test tests/control/compat.test.cjs tests/control/launcher.test.cjs tests/control/probe.test.cjs
       - name: Test OpenCode recovery plugins
         run: node --test tests/opencode/*.test.mjs
       - name: Test control-plane contracts, event journal, UI and backups

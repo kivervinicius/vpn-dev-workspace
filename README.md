@@ -1,5 +1,11 @@
 # VPN Dev Workspace
 
+> **Projeto comunitário — ambiente de desenvolvimento por VPN.** O objetivo
+> é diagnóstico, isolamento e recuperação verificável; não existe garantia
+> de uso ilimitado de modelos externos. Contribua: [Contributing](CONTRIBUTING.md),
+> [Compatibility](docs/compatibility.md), [Security](SECURITY.md).
+
+
 Ambiente local de desenvolvimento em Docker que força o tráfego do terminal por uma VPN operada pelo [Gluetun](https://github.com/qdm12/gluetun). O terminal compartilha a rede do serviço VPN; se o túnel falhar, o kill switch do Gluetun bloqueia a saída.
 
 > Use somente provedores, contas e redes para os quais você tem autorização. A manutenção automática existe para recuperar conectividade, não para ocultar atividade ou contornar políticas.
