@@ -1,6 +1,7 @@
 "use strict";
 const path=require("node:path");
 const fs=require("node:fs");
+const os=require("node:os");
 const {spawn}=require("node:child_process");
 const {writeAtomic,output,isObject,validIp,runJson}=require("./util.cjs");
 const {append}=require("./events.cjs");
@@ -51,11 +52,11 @@ function classify(lines,exitCode,timeout=false) {
   if(parsed===0)return {status:"unverified",reason:"unparseable_output"};
   return {status:"unverified",reason:"no_text_response"};
 }
-function execute(binary,args,timeoutMs=60000){
+function execute(binary,args,timeoutMs=60000,cwd){
   return new Promise(resolve=>{
     let finished=false,raw="",timedOut=false;
     let child;
-    try{child=spawn(binary,args,{shell:false,stdio:["ignore","pipe","ignore"],env:process.env})}
+    try{child=spawn(binary,args,{shell:false,stdio:["ignore","pipe","ignore"],env:process.env,cwd:cwd||process.cwd()})}
     catch{return resolve({code:null,lines:[],timeout:false})}
     const timer=setTimeout(()=>{timedOut=true;child.kill("SIGKILL")},timeoutMs);
     child.stdout.setEncoding("utf8");
@@ -90,8 +91,16 @@ async function runProbe(model,options={}){
   // One command invocation only. The OpenCode client may internally retry;
   // this wrapper never retries and always uses a private, archived session.
   const beforeIp=await egressReader();
-  const response=await runner(binary,["run","--standalone","--archived","--format","json","--agent","plan","--model",model,
-    "Responda apenas OK, sem ferramentas e sem acessar arquivos."],60000);
+  // Do not run the probe in a real project workspace: project plugins and
+  // repository context should not become part of the verification prompt.
+  const probeDirectory=fs.mkdtempSync(path.join(os.tmpdir(),"vpn-provider-probe-"));
+  let response;
+  try{
+    response=await runner(binary,["run","--standalone","--archived","--format","json","--agent","plan","--model",model,
+      "Responda apenas OK, sem ferramentas e sem acessar arquivos."],60000,probeDirectory);
+  }finally{
+    fs.rmSync(probeDirectory,{recursive:true,force:true});
+  }
   const afterIp=await egressReader();
   const egressStable=Boolean(beforeIp && afterIp && beforeIp===afterIp);
   const classification=classify(response.lines,response.code,response.timeout);

@@ -552,3 +552,5 @@ foi observado igual **antes e depois** da execução; caso contrário
 `egressStable=false` e não há atribuição segura da resposta a um IP específico.
 Os eventos de resultado preservam o IP confirmado, quando existir, permitindo
 correlacionar alterações de saída e respostas do provedor sem registrar prompts.
+
+O teste roda a CLI em um diretório temporário vazio, sem contexto do workspace, e remove esse diretório ao terminar. Configurações globais autorizadas do OpenCode ainda podem ser carregadas pelo cliente; não há aprovação automática de permissões.
