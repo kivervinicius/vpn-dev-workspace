@@ -82,8 +82,16 @@ async function runProbe(model,options={}){
     return v.exitCode===0 && validIp(v.data?.public_ip) ? v.data.public_ip : null;
   });
   const version=await runner(binary,["--version"],3000);
-  if(!version.lines.join(" ").match(/(?:^|[^0-9])2\.\d+\.\d+(?:[^0-9]|$)/)) {
+  const versionText=version.lines.join(" ");
+  const match=/(?:^|[^0-9])(\d+)\.(\d+)\.(\d+)(?:[^0-9]|$)/.exec(versionText);
+  if(version.code!==0||!match||Number(match[1])!==2) {
     return {schemaVersion:1,status:"unverified",reason:"v2_required",model,providerAccepted:false};
+  }
+  // Fail closed on known releases without --archived even if a mocked or
+  // incompatible CLI advertises the option. The flag alone is insufficient.
+  if(Number(match[2])<2 || (Number(match[2])===2 && Number(match[3])<6)) {
+    return {schemaVersion:1,status:"unverified",reason:"safe_archive_not_supported",
+      model,providerAccepted:false,minimumRelease:"2.2.6"};
   }
   const help=await runner(binary,["run","--help"],3000);
   const flags=help.lines.join(" ");

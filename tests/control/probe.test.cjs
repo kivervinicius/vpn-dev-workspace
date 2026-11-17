@@ -13,7 +13,7 @@ test("probe refuses without explicit consent, then performs exactly one run",asy
  let calls=[];
  const runner=async(_,args)=>{
   calls.push(args);
-  if(args[0]==="--version")return {lines:["2.1.3"],code:0};
+  if(args[0]==="--version")return {lines:["2.3.0"],code:0};
   if(args[0]==="run"&&args[1]==="--help")return {lines:["--standalone --archived --format --model --agent"],code:0};
   return {lines:['{"type":"text","part":{"text":"OK"}}'],code:0};
  };
@@ -41,4 +41,23 @@ test("v1 rejected before sending request",async()=>{
  let calls=[];
  const r=await runProbe("opencode/test-free",{confirm:true,allowOutsideForTest:true,noPersistence:true,runner:async(_,args)=>{calls.push(args);return {lines:["1.19.5"],code:0}}});
  assert.equal(r.reason,"v2_required");assert.equal(calls.length,1);
+});
+
+test("v2.1.3 refuses even when a CLI advertises --archived",async()=>{
+ let calls=0;
+ const runner=async(_,args)=>{
+  calls++;
+  if(args[0]==="--version")return {lines:["2.1.3"],code:0};
+  throw new Error("unsupported version must not invoke help or model");
+ };
+ const result=await runProbe("opencode/test-free",{runner,confirm:true,allowOutsideForTest:true,noPersistence:true});
+ assert.equal(result.reason,"safe_archive_not_supported");
+ assert.equal(calls,1);
+});
+test("v2.2.5 refuses before invoking model",async()=>{
+ let calls=0;
+ const runner=async()=>{calls++;return {lines:["2.2.5"],code:0}};
+ const result=await runProbe("opencode/test-free",{runner,confirm:true,allowOutsideForTest:true,noPersistence:true});
+ assert.equal(result.reason,"safe_archive_not_supported");
+ assert.equal(calls,1);
 });
