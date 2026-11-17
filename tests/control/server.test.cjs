@@ -15,7 +15,13 @@ test("server enforces password length and refuses unauthenticated requests",asyn
   assert.equal(response.status,401);
   const res=await fetch("http://127.0.0.1:"+port+"/api/v1/state",{headers:{Authorization:"Basic "+Buffer.from("control:this-is-a-long-secret").toString("base64")}});
   assert.equal(res.status,200);assert.equal((await res.json()).overall,"unknown");
-  const wrong=await fetch("http://127.0.0.1:"+port+"/api/v1/state",{headers:{Host:"attacker.test",Authorization:"Basic "+Buffer.from("control:this-is-a-long-secret").toString("base64")}});
-  assert.equal(wrong.status,403);
+  const http=require("node:http");
+  const status=await new Promise((resolve,reject)=>{
+    const request=http.request({hostname:"127.0.0.1",port,path:"/api/v1/state",method:"GET",
+      headers:{"Host":"attacker.test","Authorization":"Basic "+Buffer.from("control:this-is-a-long-secret").toString("base64")}},
+      response=>{response.resume();resolve(response.statusCode)});
+    request.on("error",reject);request.end();
+  });
+  assert.equal(status,403);
  }finally{await new Promise(resolve=>server.close(resolve))}
 });

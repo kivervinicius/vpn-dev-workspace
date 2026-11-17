@@ -40,7 +40,7 @@ async function diagnose(options={}) {
     const status=!installed?"missing":installed!==expected[name]?"incompatible":fileStatus;
     versions[name]={expected:expected[name],installed:installed||null,status,
       binaryPresent:fs.existsSync(d.binary),plugin:{status:fileStatus,checks,loaded:"unverified"},
-      behavior:{freeModelAcceptance:"unverified",requestAcceptance:"unverified"},evidence:"static"};
+      behavior:{freeModelAcceptance:name==="v1"?"unsupported_by_upstream":"unverified",requestAcceptance:"unverified"},evidence:"static"};
   }
   return {schemaVersion:1,generatedAt:new Date().toISOString(),versions,
     note:"Static compatibility only. Runtime provider access and plugin loading are not proven."};
