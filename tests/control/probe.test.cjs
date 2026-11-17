@@ -4,6 +4,7 @@ const {classify,runProbe}=require("../../apps/control-plane/lib/probe.cjs");
 test("provider acceptance requires structured nonempty text event and zero exit",()=>{
  assert.equal(classify(['{"type":"text","part":{"text":"OK"}}'],0).status,"accepted");
  assert.equal(classify(['{"type":"text","part":{"text":"OK"}}'],1).status,"unverified");
+ assert.equal(classify(['{"type":"text","part":{"text":"Quota exceeded"}}'],0).status,"unverified");
  assert.deepEqual(classify(['{"type":"error","error":{"name":"FreeUsageLimitError"}}'],1),{status:"rejected",reason:"free_tier_limit"});
  assert.equal(classify(['{"type":"error","error":{"message":"free_tier_limit"}}'],1).status,"unverified");
  assert.equal(classify(['{"type":"text","part":{"text":"OK"}}','{"type":"error","error":{}}'],0).status,"unverified");

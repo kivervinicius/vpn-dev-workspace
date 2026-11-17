@@ -33,20 +33,22 @@ function eventClass(raw) {
 }
 function classify(lines,exitCode,timeout=false) {
   if(timeout)return {status:"unverified",reason:"timeout"};
-  let gotText=false,gotError=false,detected=null,parsed=0;
+  let textParts=[],gotError=false,detected=null,parsed=0;
   for(const line of lines) {
     if(!line.trim())continue;
     let item;
     try{item=JSON.parse(line)}catch{continue}
     if(!isObject(item))continue;
     parsed++;
-    if(item.type==="text"&&isObject(item.part)&&typeof item.part.text==="string"&&item.part.text.trim())gotText=true;
+    if(item.type==="text"&&isObject(item.part)&&typeof item.part.text==="string")textParts.push(item.part.text);
     if(item.type==="error"||item.type==="session.error"||item.type==="session.execution.failed")gotError=true;
     const v=eventClass(item.error||item.properties?.error||item);
     if(v)detected=v;
   }
   if(detected)return {status:"rejected",reason:detected};
-  if(exitCode===0&&gotText&&!gotError)return {status:"accepted",reason:"text_response"};
+  const complete=textParts.join("").trim();
+  if(exitCode===0&&!gotError&&complete==="OK")return {status:"accepted",reason:"expected_response"};
+  if(exitCode===0&&!gotError&&complete)return {status:"unverified",reason:"unexpected_response"};
   if(gotError)return {status:"unverified",reason:"unclassified_error"};
   if(exitCode!==0)return {status:"unverified",reason:"command_failed"};
   if(parsed===0)return {status:"unverified",reason:"unparseable_output"};
