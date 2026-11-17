@@ -87,7 +87,13 @@ async function runProbe(model,options={}){
   }
   const help=await runner(binary,["run","--help"],3000);
   const flags=help.lines.join(" ");
-  if(!["--standalone","--archived","--format","--model"].every(f=>flags.includes(f))){
+  // --archived was introduced in v2.2.6. Without it a probe could create a
+  // visible session in the user's OpenCode home; fail closed rather than write.
+  if(!flags.includes("--archived")){
+    return {schemaVersion:1,status:"unverified",reason:"safe_archive_not_supported",
+      model,providerAccepted:false,minimumRelease:"2.2.6"};
+  }
+  if(!["--standalone","--format","--model","--agent"].every(f=>flags.includes(f))){
     return {schemaVersion:1,status:"unverified",reason:"unsupported_cli_options",model,providerAccepted:false};
   }
   // One command invocation only. The OpenCode client may internally retry;

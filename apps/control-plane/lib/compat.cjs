@@ -2,6 +2,11 @@
 const fs=require("node:fs"),path=require("node:path"),crypto=require("node:crypto");
 const {runJson,output,writeAtomic}=require("./util.cjs");
 const {spawn}=require("node:child_process");
+const TESTED_V2="2.1.3";
+const MIN_SAFE_PROBE_V2="2.2.6";
+function parseVersion(raw){const match=/^(\d+)\.(\d+)\.(\d+)$/.exec(String(raw||""));return match?match.slice(1).map(Number):null}
+function compareVersion(a,b){const x=parseVersion(a),y=parseVersion(b);if(!x||!y)return null;for(let i=0;i<3;i++){if(x[i]!==y[i])return x[i]>y[i]?1:-1}return 0}
+
 function fileHash(p){try{return crypto.createHash("sha256").update(fs.readFileSync(p)).digest("hex")}catch{return null}}
 function pluginFiles(name) {return name==="v1" ? ["vpn-recovery.js"] : ["package.json","classify.js","server-core.js","server.js","tui-core.js","tui.js"];}
 function versionFrom(p) {
@@ -26,6 +31,7 @@ async function diagnose(options={}) {
       installed:path.join(home,".config/opencode/plugins/vpn-recovery"),source:path.join(root,"opencode/v2/vpn-recovery")}
   };
   const versions={};
+  const warnings=[];
   for(const name of ["v1","v2"]) {
     const d=definitions[name];
     const pluginDir=name==="v1"?d.installed:d.installed;
@@ -37,13 +43,31 @@ async function diagnose(options={}) {
     });
     const installed=options.versionProbe?await options.versionProbe(d.binary,name):await versionFrom(d.binary);
     const fileStatus=checks.some(c=>!c.sourcePresent)?"unverified":checks.some(c=>!c.present)?"missing":checks.some(c=>!c.hashMatches)?"incompatible":"supported";
-    const status=!installed?"missing":installed!==expected[name]?"incompatible":fileStatus;
+    const sameMajor=installed&&parseVersion(installed)&&parseVersion(expected[name])&&parseVersion(installed)[0]===parseVersion(expected[name])[0];
+    const drift=installed&&installed!==expected[name];
+    const status=!installed?"missing":fileStatus==="missing"?"missing":fileStatus==="incompatible"?"incompatible":
+      drift?(sameMajor?"unverified":"incompatible"):fileStatus;
+    const expectedPluginPackage=name==="v2"?(()=>{
+      try {const json=JSON.parse(fs.readFileSync(path.join(d.installed,"package.json"),"utf8"));return json.dependencies?.["@opencode/plugin"]||null}
+      catch{return null}
+    })():null;
+    const safeProbeByRelease=name==="v2" && installed && compareVersion(installed,MIN_SAFE_PROBE_V2)!==null &&
+      compareVersion(installed,MIN_SAFE_PROBE_V2)>=0;
+    if(name==="v2"&&drift)warnings.push("v2_version_drift_revalidate_plugin_runtime");
+    if(name==="v2"&&drift&&expectedPluginPackage&&expectedPluginPackage!==installed)warnings.push("v2_plugin_dependency_version_differs");
+    if(name==="v2"&&!safeProbeByRelease)warnings.push("v2_probe_requires_archived_flag");
     versions[name]={expected:expected[name],installed:installed||null,status,
-      binaryPresent:fs.existsSync(d.binary),plugin:{status:fileStatus,checks,loaded:"unverified"},
+      installerAcceptsVersion:installed===expected[name],
+      binaryPresent:fs.existsSync(d.binary),
+      plugin:{status:fileStatus,checks,loaded:"unverified",packageDependency:expectedPluginPackage,
+        dependencyMatchesBinary:name==="v2"?expectedPluginPackage===installed:null},
+      verification:{testedVersion:expected[name],releaseSupportsArchivedProbe:Boolean(safeProbeByRelease),
+        archivedProbeMinVersion:name==="v2"?MIN_SAFE_PROBE_V2:null,
+        runtimeHooks:"unverified",realProviderAccess:"unverified"},
       behavior:{freeModelAcceptance:name==="v1"?"unsupported_by_upstream":"unverified",requestAcceptance:"unverified"},evidence:"static"};
   }
   return {schemaVersion:1,generatedAt:new Date().toISOString(),versions,
-    note:"Static compatibility only. Runtime provider access and plugin loading are not proven."};
+    warnings,note:"Static compatibility only. Runtime provider access and plugin loading are not proven."};
 }
 async function main(argv){
   if(argv.includes("--help")||argv.includes("-h")){process.stdout.write("Uso: opencode-compat --json (verificacao estatica sem alteracoes)\n");return}
@@ -58,4 +82,4 @@ async function main(argv){
   }
   output(report);
 }
-module.exports={diagnose,main,pluginFiles,versionFrom};
+module.exports={diagnose,main,pluginFiles,versionFrom,compareVersion,parseVersion};

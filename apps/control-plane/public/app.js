@@ -33,7 +33,7 @@ async function load(){
  $("banner").textContent=state.stale?"Dados indisponíveis ou desatualizados. Verifique o observer e os containers.":"";
  mount("sources",table([["Coletor","Resultado","Falha"],...(state.sources||[]).map(s=>[s.name,s.status,s.error||"—"])]));
  const versions=compat.versions||{};
- mount("compat-result",compat.stale?"Relatório não disponível ou desatualizado. Execute opencode-compat --json no ambiente correspondente e publique apenas o resultado sanitizado.":table([["Versão","Instalada","Esperada","Plugin"],...Object.entries(versions).map(([key,v])=>[key,v.installed,v.expected,v.plugin?.status])]));
+ mount("compat-result",compat.stale?"Relatório não disponível ou desatualizado. Execute opencode-compat --json no ambiente correspondente e publique apenas o resultado sanitizado.":table([["Versão","Instalada","Testada","Status","Plugin","Hooks runtime"],...Object.entries(versions).map(([key,v])=>[key,v.installed,v.expected,v.status,v.plugin?.status,v.verification?.runtimeHooks||"unverified"])]));
  mount("events-result",table([["Data","Evento","Origem","Verificação"],...(events.events||[]).map(e=>[e.occurredAt,e.type,e.source,e.verification])]));
  mount("backups-result",backups.stale?"Índice de backups ainda não publicado.":table([["ID","Escopo","Data"],...(backups.backups||[]).map(b=>[b.id,b.scope,b.createdAt])]));
  }catch{

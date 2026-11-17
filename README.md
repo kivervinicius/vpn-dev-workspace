@@ -554,3 +554,26 @@ Os eventos de resultado preservam o IP confirmado, quando existir, permitindo
 correlacionar alterações de saída e respostas do provedor sem registrar prompts.
 
 O teste roda a CLI em um diretório temporário vazio, sem contexto do workspace, e remove esse diretório ao terminar. Configurações globais autorizadas do OpenCode ainda podem ser carregadas pelo cliente; não há aprovação automática de permissões.
+
+### Matriz de compatibilidade v2 após atualização (2026-11)
+
+O suporte demonstrado com recuperação E2E usa **OpenCode v2.1.3**. O instalador
+`opencode-vpn-install` valida essa versão exata. Clientes mais novos (por
+exemplo `2.3.0`) **não** são declarados quebrados automaticamente: o
+`opencode-compat --json` devolve `unverified`, sinaliza divergência da
+versão testada e mantém `plugin.loaded=unverified` até um teste de runtime.
+O manifesto do plugin declara `@opencode/plugin=2.1.3`; uma atualização de
+cliente sem homologação do plugin pode afetar os hooks de recuperação.
+
+O probe conservador do PR exige o parâmetro `--archived`, introduzido em
+**OpenCode v2.2.6**. No v2.1.3 o comando retorna
+`safe_archive_not_supported` **antes de enviar uma requisição**: isso é uma
+restrição deliberada para não criar sessões visíveis na home do usuário.
+Para medir o comportamento em v2.3.0, primeiro homologar os hooks com
+E2E sintético (sem consumo real), depois executar a verificação real opt-in,
+com limites de chamadas e registro de IP antes/depois.
+
+Referências oficiais:
+- https://opencode.ai/changelog/v2.2.6
+- https://opencode.ai/changelog/v2.3.0
+- https://opencode.ai/docs/plugins/
