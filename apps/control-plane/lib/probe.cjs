@@ -54,11 +54,11 @@ function classify(lines,exitCode,timeout=false) {
   if(parsed===0)return {status:"unverified",reason:"unparseable_output"};
   return {status:"unverified",reason:"no_text_response"};
 }
-function execute(binary,args,timeoutMs=60000,cwd){
+function execute(binary,args,timeoutMs=60000,cwd,env){
   return new Promise(resolve=>{
     let finished=false,raw="",timedOut=false;
     let child;
-    try{child=spawn(binary,args,{shell:false,stdio:["ignore","pipe","ignore"],env:process.env,cwd:cwd||process.cwd()})}
+    try{child=spawn(binary,args,{shell:false,stdio:["ignore","pipe","ignore"],env:env||process.env,cwd:cwd||process.cwd()})}
     catch{return resolve({code:null,lines:[],timeout:false})}
     const timer=setTimeout(()=>{timedOut=true;child.kill("SIGKILL")},timeoutMs);
     child.stdout.setEncoding("utf8");
@@ -70,6 +70,40 @@ function execute(binary,args,timeoutMs=60000,cwd){
       resolve({code,lines:raw.split(/\r?\n/).slice(0,128),timeout:timedOut});
     });
   });
+}
+
+const TMPFS_LINUX_MAGIC=0x01021994;
+function isolatedSession(options={}){
+  const root=options.tmpRoot||process.env.VPN_PROBE_TMPFS_ROOT||"/dev/shm";
+  // A probe may need a copy of auth.json. Never stage provider credentials on
+  // disk-backed /tmp by default, particularly on Windows Docker Desktop.
+  if(!options.allowOutsideForTest){
+    let stat;
+    try {stat=fs.statfsSync(root)}catch {throw new Error("probe_tmpfs_missing")}
+    if(stat.type!==TMPFS_LINUX_MAGIC)throw new Error("probe_tmpfs_required");
+  }
+  const directory=fs.mkdtempSync(path.join(root,"vpn-provider-probe-"));
+  fs.chmodSync(directory,0o700);
+  try{
+    const dataHome=path.join(directory,"data"),configHome=path.join(directory,"config");
+    const cacheHome=path.join(directory,"cache"),stateHome=path.join(directory,"state");
+    for(const p of [dataHome,configHome,cacheHome,stateHome])fs.mkdirSync(p,{recursive:true,mode:0o700});
+    const env={...process.env,HOME:directory,XDG_DATA_HOME:dataHome,
+      XDG_CONFIG_HOME:configHome,XDG_CACHE_HOME:cacheHome,XDG_STATE_HOME:stateHome,
+      OPENCODE_CONFIG_DIR:path.join(configHome,"opencode")};
+    // Inherited dynamic configuration could load plugins or reference the real home.
+    delete env.OPENCODE_CONFIG_CONTENT;
+    const origin=path.join(process.env.XDG_DATA_HOME||path.join(process.env.HOME||os.homedir(),".local/share"),"opencode","auth.json");
+    if(fs.existsSync(origin)){
+      const st=fs.statSync(origin);
+      if(!st.isFile()||st.size>1024*1024)throw new Error("unsupported_auth_file");
+      const dst=path.join(dataHome,"opencode","auth.json");
+      fs.mkdirSync(path.dirname(dst),{recursive:true,mode:0o700});
+      fs.copyFileSync(origin,dst,fs.constants.COPYFILE_EXCL);
+      fs.chmodSync(dst,0o600);
+    }
+    return {directory,env};
+  }catch(error){fs.rmSync(directory,{recursive:true,force:true});throw error}
 }
 async function runProbe(model,options={}){
   if(!modelValid(model))throw new Error("invalid_model");
@@ -101,20 +135,22 @@ async function runProbe(model,options={}){
   const beforeIp=await egressReader();
   // Do not run the probe in a real project workspace: project plugins and
   // repository context should not become part of the verification prompt.
-  const probeDirectory=fs.mkdtempSync(path.join(os.tmpdir(),"vpn-provider-probe-"));
+  let sandbox;
+  try{sandbox=isolatedSession(options)}
+  catch(error){return {schemaVersion:1,status:"unverified",reason:error.message,model,providerAccepted:false}}
   let response;
   try{
     response=await runner(binary,["run","--standalone","--archived","--format","json","--agent","plan","--model",model,
-      "Responda apenas OK, sem ferramentas e sem acessar arquivos."],60000,probeDirectory);
+      "Responda apenas OK, sem ferramentas e sem acessar arquivos."],60000,sandbox.directory,sandbox.env);
   }finally{
-    fs.rmSync(probeDirectory,{recursive:true,force:true});
+    fs.rmSync(sandbox.directory,{recursive:true,force:true});
   }
   const afterIp=await egressReader();
   const egressStable=Boolean(beforeIp && afterIp && beforeIp===afterIp);
   const classification=classify(response.lines,response.code,response.timeout);
   const result={schemaVersion:1,observedAt:new Date().toISOString(),model,
     status:classification.status,reason:classification.reason,providerAccepted:classification.status==="accepted",
-    publicIp:egressStable?beforeIp:null,egressStable,
+    publicIp:egressStable?beforeIp:null,egressStable,isolatedSession:true,
     note:"A single explicit OpenCode run was attempted. This does not establish future free-tier eligibility."};
   if(!options.noPersistence){
     try{
@@ -128,10 +164,10 @@ async function runProbe(model,options={}){
 }
 async function main(argv){
  if(argv.includes("--help")||argv.includes("-h")) {
-  process.stdout.write("Uso: vpn-provider-probe --model provider/model --confirm (uma execucao OpenCode v2; consome franquia e cria sessao arquivada; nunca rotaciona VPN)\n");return;
+  process.stdout.write("Uso: vpn-provider-probe --model provider/model --confirm (OpenCode v2.2.6+; sessao isolada via tmpfs; auth.json copiado temporariamente em RAM e apagado; consome franquia; nao rotaciona VPN)\n");return;
  }
  if(argv.length!==3||argv[0]!=="--model"||argv[2]!=="--confirm")throw new Error("invalid_args");
  output(await runProbe(argv[1],{confirm:true}));
 }
 if(require.main===module)main(process.argv.slice(2)).catch(e=>{process.stderr.write("vpn-provider-probe: "+e.message+"\n");process.exitCode=2});
-module.exports={modelValid,classify,runProbe,main,eventClass};
+module.exports={modelValid,classify,runProbe,main,eventClass,isolatedSession,execute};
