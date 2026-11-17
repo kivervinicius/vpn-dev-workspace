@@ -1,0 +1,26 @@
+name: Feature request
+description: Propose a maintainable improvement for community users
+title: "feat: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Developer problem and proposed outcome
+      description: Describe what fails today and what should become easier.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Proposed architecture and alternatives
+      description: Favor existing Gluetun, scripts and Node standard library when possible.
+    validations:
+      required: true
+  - type: textarea
+    id: quality
+    attributes:
+      label: Tests, security and compatibility considerations
+      placeholder: "Ubuntu / Windows, v1/v2, failure paths, rollback, secrets"
+    validations:
+      required: true

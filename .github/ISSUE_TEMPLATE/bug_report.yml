@@ -1,0 +1,56 @@
+name: Bug report
+description: Report an OpenCode/VPN regression without exposing private data
+title: "bug: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never include auth.json, opencode.db, session IDs, tokens, prompts,
+        full internal paths, internal domains, public IPs or raw logs.
+  - type: input
+    id: os
+    attributes:
+      label: Operating system and Docker/Compose version
+      placeholder: "Ubuntu 24.04 / Docker Compose v2; or Windows 11 + Docker Desktop"
+    validations:
+      required: true
+  - type: input
+    id: client
+    attributes:
+      label: OpenCode version and channel
+      placeholder: "v2.1.3, TUI / v2.3.0, Desktop / serve / headless"
+    validations:
+      required: true
+  - type: input
+    id: profile
+    attributes:
+      label: VPN profile and expected egress
+      placeholder: "nordvpn-openvpn (no server name/IP required)"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Use synthetic provider errors where possible. Do not post credentials.
+      placeholder: "1. Start VPN... 2. Run ... 3. Observe..."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected versus observed behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: evidence
+    attributes:
+      label: Evidence level
+      options:
+        - Unit/mocked only
+        - Local synthetic HTTP provider + real VPN
+        - Real OpenCode binary without provider calls
+        - Authorized real-provider call (redacted summary only)
+    validations:
+      required: true
