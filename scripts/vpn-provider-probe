@@ -1,0 +1,8 @@
+#!/usr/bin/env node
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
+ process.stdout.write("Uso: vpn-provider-probe --model provider/model --confirm (uma requisição autorizada, sem rotação)\n");
+ process.exit(0);
+}
+const path=require("node:path");
+const mod=process.env.VPN_CONTROL_MODULE_DIR||path.resolve(__dirname,"../apps/control-plane/lib");
+require(path.join(mod,"probe.cjs")).main(process.argv.slice(2)).catch(e=>{process.stderr.write("vpn-provider-probe: "+e.message+"\n");process.exitCode=2});

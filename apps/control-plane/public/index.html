@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark"><title>VPN Dev Workspace | Control</title>
+<link rel="stylesheet" href="/app.css"><script src="/app.js" defer></script></head>
+<body><div class="layout"><aside class="sidebar"><div class="brand"><span class="brand-icon">V</span><span>VPN <b>CONTROL</b></span></div>
+<nav aria-label="Navegação"><a href="#overview" class="active">Visão geral</a><a href="#compatibility">Compatibilidade</a><a href="#events">Eventos</a><a href="#backups">Backups</a></nav>
+<div class="sidebar-footer">Workspace local · Somente leitura</div></aside>
+<main class="main"><header class="top"><div><p class="eyebrow">VPN DEV WORKSPACE</p><h1>Centro de operações</h1><p class="lead">Saúde da rede, OpenCode e histórico — sem modificar suas sessões.</p></div>
+<div class="top-actions"><span id="last-update">Sem coleta</span><button type="button" id="refresh">Atualizar</button></div></header>
+<div id="banner" role="status" aria-live="polite"></div>
+<section id="overview" class="section"><div class="section-title"><h2>Visão geral</h2><span id="overall" class="status unknown">Desconhecido</span></div>
+<div class="cards"><article class="card"><div class="card-head">Túnel VPN <span id="vpn-status" class="status unknown">—</span></div><strong id="vpn-provider">—</strong><small id="vpn-type">Aguardando diagnóstico</small></article>
+<article class="card"><div class="card-head">IP de saída <span class="subtle">Egress</span></div><strong id="vpn-ip">—</strong><small id="vpn-location">Não verificado</small></article>
+<article class="card"><div class="card-head">OpenCode <span id="oc-status" class="status unknown">—</span></div><strong id="oc-port">—</strong><small id="oc-detail">Aguardando diagnóstico</small></article>
+<article class="card"><div class="card-head">Provedor de IA <span id="provider-status" class="status unknown">Não verificado</span></div><strong id="provider-model">—</strong><small id="provider-detail">Sem requisição explícita verificada.</small></article></div>
+<div class="panel"><h3>Origem das verificações</h3><div id="sources" class="tablebox">Ainda sem dados</div></div></section>
+<section id="compatibility" class="section"><h2>Compatibilidade OpenCode</h2><p class="explain">O diagnóstico estático identifica versões e hashes; não comprova um limite remoto ou que o plugin esteja carregado.</p><div id="compat-result" class="panel">Sem relatório publicado.</div></section>
+<section id="events" class="section"><h2>Histórico de rede e falhas</h2><p class="explain">IP alterado e resposta de modelo aceita são resultados diferentes.</p><div class="panel"><div id="events-result" class="tablebox">Sem eventos registrados.</div></div></section>
+<section id="backups" class="section"><h2>Backups</h2><p class="explain">Restaurações não são executadas pelo navegador. Use a CLI com verificação e rollback.</p><div id="backups-result" class="panel">Sem índice de backup disponível.</div></section>
+<footer>VPN Dev Workspace · Interface local · Nenhuma operação de rede é iniciada por esta página.</footer></main></div></body></html>

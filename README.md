@@ -497,3 +497,83 @@ OpenCode em `DEV/RUNBOOKS/`).
 ```bash
 ./scripts/vpn-switch stop
 ```
+
+
+## Control Plane (opt-in, em desenvolvimento)
+
+A branch `feat/control-plane-observability-v1` introduz ferramentas read-only:
+`vpn-state --json`, `opencode-compat --json`, `vpn-events list` e `vpn-backup`.
+
+- O painel é um serviço local sem acesso à home, workspace, Docker socket ou segredos do OpenCode.
+- O observer roda no namespace VPN, agrega sinais sem executar rotação e grava snapshots sanitizados no volume `vpn_control_state`.
+- Para habilitar a UI, crie `.secrets/control_ui_password` com senha aleatória de pelo menos 16 caracteres (modo `0600`), configure `CONTROL_UI_PASSWORD_FILE` no `.env` e use o mesmo arquivo de perfil de VPN que foi iniciado:
+
+```bash
+# Exemplo apenas se o perfil ativo for nordvpn-openvpn:
+docker compose -f docker-compose.yml -f profiles/nordvpn-openvpn.yml --profile vpn --profile control up -d vpn-control-observer vpn-control-ui
+# Acesse http://127.0.0.1:10003 e autentique com usuario 'control'.
+```
+
+Depois de iniciar o ambiente, gere a matriz de compatibilidade pelo container
+(usa somente binários e arquivos locais; sem chamadas a modelos):
+
+```bash
+docker compose -f docker-compose.yml -f profiles/nordvpn-openvpn.yml exec terminal opencode-compat --json --publish
+```
+
+`vpn-backup` e `opencode-compat` também ficam disponíveis no terminal Linux e
+no container Windows, preservando o contrato dos comandos existentes. A
+publicação de compatibilidade armazena apenas versões e resultados de hash
+sanitizados no volume de controle, para a UI ler sem acesso à home.
+
+O painel **falha fechado** se `HOST_BIND_ADDRESS` for diferente de loopback. O modo control não é iniciado pelo `vpn-switch` por padrão. GETs não executam reconexão. A UI utiliza HTML/CSS/JS estático, sem dependências externas, para manter superfície de ataque e manutenção pequenas.
+
+Backups: a CLI `vpn-backup create --scope v2 --offline` exige que todos os escritores do OpenCode (inclusive host) tenham sido encerrados antes da operação; `--offline` é confirmação do operador, e não prova de ausência de processos em outros namespaces. `vpn-backup verify --id ID` verifica hashes e `PRAGMA integrity_check`; `plan-restore` é read-only; `restore ... --offline` cria snapshot pre-restore e journal para `recover --offline`. `auth.json` não é copiado. Os backups devem ser exportados para fora do volume Docker quando relevantes; a CLI não garante por si só persistência em outro host.
+
+**Limitação importante:** as mudanças de IP demonstram somente egress diferente; não comprovam recuperação de franquia de um provedor de IA. O journal distingue eventos de rede de aceitação real de requisição. A observação remota depende de evidência do provedor e não é automatizada neste MVP.
+
+
+### Prova experimental de resposta do provedor (manual)
+
+O comando `vpn-provider-probe --model provider/model --confirm` roda **uma invocação**
+do OpenCode v2 dentro do container e registra um resultado sanitizado. Ele exige
+consentimento explícito porque **consome uma requisição** e cria uma sessão
+arquivada (não apaga nem renumera sessões). A invocação é `--standalone --archived
+--format json --agent plan`; sem `--auto`, sem replay e sem rotação de IP.
+
+O wrapper não repete a execução; o próprio OpenCode pode fazer retries internos.
+Aceitação requer exit 0 mais parte de texto estruturada; erro estruturado
+reconhecido informa rejeição; falhas genéricas permanecem **unverified**.
+A API local mostra a última prova e a marca como desatualizada em 120 segundos,
+sem concluir que a quota foi restaurada permanentemente.
+
+O resultado inclui `publicIp` apenas quando o endereço público da VPN
+foi observado igual **antes e depois** da execução; caso contrário
+`egressStable=false` e não há atribuição segura da resposta a um IP específico.
+Os eventos de resultado preservam o IP confirmado, quando existir, permitindo
+correlacionar alterações de saída e respostas do provedor sem registrar prompts.
+
+O teste roda a CLI em um diretório temporário vazio, sem contexto do workspace, e remove esse diretório ao terminar. Configurações globais autorizadas do OpenCode ainda podem ser carregadas pelo cliente; não há aprovação automática de permissões.
+
+### Matriz de compatibilidade v2 após atualização (2026-11)
+
+O suporte demonstrado com recuperação E2E usa **OpenCode v2.1.3**. O instalador
+`opencode-vpn-install` valida essa versão exata. Clientes mais novos (por
+exemplo `2.3.0`) **não** são declarados quebrados automaticamente: o
+`opencode-compat --json` devolve `unverified`, sinaliza divergência da
+versão testada e mantém `plugin.loaded=unverified` até um teste de runtime.
+O manifesto do plugin declara `@opencode/plugin=2.1.3`; uma atualização de
+cliente sem homologação do plugin pode afetar os hooks de recuperação.
+
+O probe conservador do PR exige o parâmetro `--archived`, introduzido em
+**OpenCode v2.2.6**. No v2.1.3 o comando retorna
+`safe_archive_not_supported` **antes de enviar uma requisição**: isso é uma
+restrição deliberada para não criar sessões visíveis na home do usuário.
+Para medir o comportamento em v2.3.0, primeiro homologar os hooks com
+E2E sintético (sem consumo real), depois executar a verificação real opt-in,
+com limites de chamadas e registro de IP antes/depois.
+
+Referências oficiais:
+- https://opencode.ai/changelog/v2.2.6
+- https://opencode.ai/changelog/v2.3.0
+- https://opencode.ai/docs/plugins/

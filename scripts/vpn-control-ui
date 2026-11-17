@@ -1,0 +1,8 @@
+#!/usr/bin/env node
+const path=require("node:path");
+const mod=process.env.VPN_CONTROL_MODULE_DIR || path.resolve(__dirname,"../apps/control-plane/lib");
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
+  process.stdout.write("Uso: vpn-control-ui [--help] (servidor local somente leitura)\n");
+  process.exit(0);
+}
+require(path.join(mod,"server.cjs")).main();

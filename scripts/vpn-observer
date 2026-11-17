@@ -1,0 +1,8 @@
+#!/usr/bin/env node
+const path=require("node:path");
+const mod=process.env.VPN_CONTROL_MODULE_DIR || path.resolve(__dirname,"../apps/control-plane/lib");
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
+  process.stdout.write("Uso: vpn-observer [--help] (coleta read-only continua, sem mutacoes de VPN)\n");
+  process.exit(0);
+}
+require(path.join(mod,"observer.cjs")).main().catch(()=>{process.stderr.write("vpn-observer: unexpected failure\n");process.exitCode=1});
