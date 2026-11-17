@@ -35,6 +35,7 @@ services:
       - ./scripts/opencode-compat:/usr/local/bin/opencode-compat:ro
       - ./scripts/vpn-events:/usr/local/bin/vpn-events:ro
       - ./scripts/vpn-backup:/usr/local/bin/vpn-backup:ro
+      - ./scripts/vpn-provider-probe:/usr/local/bin/vpn-provider-probe:ro
       - ./scripts/vpn-status:/usr/local/bin/vpn-status:ro
       - ./scripts/vpn-reconnect:/usr/local/bin/vpn-reconnect:ro
       - ./scripts/vpn-check:/usr/local/bin/vpn-check:ro

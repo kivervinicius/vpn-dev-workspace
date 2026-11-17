@@ -18,14 +18,17 @@ async function get(path){const r=await fetch(path,{credentials:"same-origin",cac
 async function load(){
  $("refresh").disabled=true;
  try{
- const [state,compat,events,backups]=await Promise.all([
- get("/api/v1/state"),get("/api/v1/compatibility"),get("/api/v1/events?limit=100"),get("/api/v1/backups")]);
+ const [state,compat,events,backups,provider]=await Promise.all([
+ get("/api/v1/state"),get("/api/v1/compatibility"),get("/api/v1/events?limit=100"),get("/api/v1/backups"),get("/api/v1/provider-probe")]);
  badge($("overall"),state.overall);badge($("vpn-status"),state.components?.vpn?.status);
  badge($("oc-status"),state.components?.opencode?.status);
  text("vpn-provider",state.components?.vpn?.provider);text("vpn-type",state.components?.vpn?.type);
  text("vpn-ip",state.components?.vpn?.publicIp);text("vpn-location",state.components?.vpn?.location);
  text("oc-port",state.components?.opencode?.port==null?"—":"Porta "+state.components.opencode.port);
  text("oc-detail",state.components?.opencode?.detail);
+ badge($("provider-status"),provider.stale?"unknown":provider.status==="accepted"?"ok":provider.status==="rejected"?"down":"unknown");
+ text("provider-model",provider.model);
+ text("provider-detail",provider.stale?"Sem resultado recente verificado":provider.reason);
  text("last-update",state.generatedAt?new Date(state.generatedAt).toLocaleString("pt-BR"):"Sem coleta");
  $("banner").textContent=state.stale?"Dados indisponíveis ou desatualizados. Verifique o observer e os containers.":"";
  mount("sources",table([["Coletor","Resultado","Falha"],...(state.sources||[]).map(s=>[s.name,s.status,s.error||"—"])]));

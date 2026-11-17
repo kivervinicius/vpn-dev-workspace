@@ -531,3 +531,18 @@ O painel **falha fechado** se `HOST_BIND_ADDRESS` for diferente de loopback. O m
 Backups: a CLI `vpn-backup create --scope v2 --offline` exige que todos os escritores do OpenCode (inclusive host) tenham sido encerrados antes da operação; `--offline` é confirmação do operador, e não prova de ausência de processos em outros namespaces. `vpn-backup verify --id ID` verifica hashes e `PRAGMA integrity_check`; `plan-restore` é read-only; `restore ... --offline` cria snapshot pre-restore e journal para `recover --offline`. `auth.json` não é copiado. Os backups devem ser exportados para fora do volume Docker quando relevantes; a CLI não garante por si só persistência em outro host.
 
 **Limitação importante:** as mudanças de IP demonstram somente egress diferente; não comprovam recuperação de franquia de um provedor de IA. O journal distingue eventos de rede de aceitação real de requisição. A observação remota depende de evidência do provedor e não é automatizada neste MVP.
+
+
+### Prova experimental de resposta do provedor (manual)
+
+O comando `vpn-provider-probe --model provider/model --confirm` roda **uma invocação**
+do OpenCode v2 dentro do container e registra um resultado sanitizado. Ele exige
+consentimento explícito porque **consome uma requisição** e cria uma sessão
+arquivada (não apaga nem renumera sessões). A invocação é `--standalone --archived
+--format json --agent plan`; sem `--auto`, sem replay e sem rotação de IP.
+
+O wrapper não repete a execução; o próprio OpenCode pode fazer retries internos.
+Aceitação requer exit 0 mais parte de texto estruturada; erro estruturado
+reconhecido informa rejeição; falhas genéricas permanecem **unverified**.
+A API local mostra a última prova e a marca como desatualizada em 120 segundos,
+sem concluir que a quota foi restaurada permanentemente.

@@ -57,6 +57,10 @@ function createServer(options={}){
     try{return send(200,{schemaVersion:1,events:read({limit:Number(raw)})})}
     catch{return send(503,{error:"journal_unavailable"})}
   }
+  if(url.pathname==="/api/v1/provider-probe") {
+    const v=readJson(path.join(root,"provider-probe.json"));
+    return send(200,v?{...v,stale:stale({generatedAt:v.observedAt})}:{schemaVersion:1,status:"unverified",stale:true,reason:"probe_not_run"});
+  }
   if(url.pathname==="/api/v1/backups"){
     const v=readJson(path.join(root,"backups.json"));
     return send(200,v?{...v,stale:stale(v)}:{schemaVersion:1,backups:[],stale:true,reason:"backup_index_missing"});
