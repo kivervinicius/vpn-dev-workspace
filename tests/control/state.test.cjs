@@ -21,3 +21,24 @@ test("collector does not call mutate commands",async()=>{
  assert.equal(calls.length,3);assert.deepEqual(calls.map(x=>x[0]).sort(),["c","o","s"]);
  assert.equal(value.components.llm.status,"unknown");
 });
+
+test("failed non-DNS tunnel check degrades overall even when DNS and OpenCode look healthy",()=>{
+ const v=collectFrom({status:ok({vpn:"running",public_ip:"198.51.100.10"}),
+  check:fail({healthy:false,checks:[{name:"DNS",ok:true},{name:"Gluetun tunnel",ok:false}]}),
+  opencode:ok({status:"ok",port:10001})});
+ assert.equal(v.overall,"degraded");
+ assert.equal(v.components.network.status,"degraded");
+ assert.equal(v.components.network.dns,"ok");
+ assert.deepEqual(v.checks,[{name:"Gluetun tunnel",ok:false}]);
+});
+test("healthy false with empty checks is not treated as success",()=>{
+ const v=collectFrom({status:ok({vpn:"running"}),
+  check:fail({healthy:false,checks:[]}),opencode:ok({status:"ok"})});
+ assert.equal(v.overall,"degraded");
+ assert.equal(v.components.network.status,"degraded");
+});
+test("failed source without trustworthy check payload is unknown, not healthy",()=>{
+ const v=collectFrom({status:ok({vpn:"running"}),
+  check:fail({healthy:true,checks:[{name:"DNS",ok:true}]}),opencode:ok({status:"ok"})});
+ assert.equal(v.sources.find(s=>s.name==="vpn-check").status,"degraded");
+});

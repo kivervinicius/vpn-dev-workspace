@@ -14,10 +14,12 @@ function collectFrom(results, now = () => new Date()) {
   const a = isObject(app.data) ? app.data : {};
   const vpn = s.vpn === "running" ? "ok" : (typeof s.vpn === "string" && s.vpn !== "desconhecido" ? "down" : "unknown");
   const hasChecks = typeof c.healthy === "boolean" && Array.isArray(c.checks);
+  // DNS is a separate diagnostic; it must not stand in for tunnel health.
   const dns = hasChecks ? (c.checks.some(x => x && x.ok === false && /dns|resolv/i.test(String(x.name))) ? "degraded" : c.healthy ? "ok" : "unknown") : "unknown";
+  const checksStatus = hasChecks ? (check.exitCode === 0 && c.healthy && c.checks.every(x => x && x.ok === true) ? "ok" : "degraded") : "unknown";
   const openCode = a.status === "ok" ? "ok" : a.status === "down" ? "down" : a.status === "quota" ? "degraded" : "unknown";
   const failures = hasChecks ? c.checks.filter(x => x && x.ok === false).map(x => ({name:String(x.name).slice(0,100),ok:false})) : [];
-  const known = [vpn,dns,openCode].filter(x=>x!=="unknown");
+  const known = [vpn,checksStatus,dns,openCode].filter(x=>x!=="unknown");
   const overall = vpn === "down" ? "down" : !known.length ? "unknown" :
     known.some(x=>x==="down"||x==="degraded") ? "degraded" : "ok";
   const sources = ["status","check","opencode"].map(name=>({
@@ -27,7 +29,7 @@ function collectFrom(results, now = () => new Date()) {
   return {
     schemaVersion:1, generatedAt:now().toISOString(), overall,
     components:{
-      network:{status:dns,dns},
+      network:{status:checksStatus,dns},
       vpn:{status:vpn,provider:typeof s.provider==="string" ? s.provider : null,
         type:typeof s.type==="string" ? s.type : null,
         publicIp:typeof s.public_ip==="string" && s.public_ip ? s.public_ip : null,
