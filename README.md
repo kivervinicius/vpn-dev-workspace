@@ -514,6 +514,18 @@ docker compose -f docker-compose.yml -f profiles/nordvpn-openvpn.yml --profile v
 # Acesse http://127.0.0.1:10003 e autentique com usuario 'control'.
 ```
 
+Depois de iniciar o ambiente, gere a matriz de compatibilidade pelo container
+(usa somente binários e arquivos locais; sem chamadas a modelos):
+
+```bash
+docker compose -f docker-compose.yml -f profiles/nordvpn-openvpn.yml exec terminal opencode-compat --json --publish
+```
+
+`vpn-backup` e `opencode-compat` também ficam disponíveis no terminal Linux e
+no container Windows, preservando o contrato dos comandos existentes. A
+publicação de compatibilidade armazena apenas versões e resultados de hash
+sanitizados no volume de controle, para a UI ler sem acesso à home.
+
 O painel **falha fechado** se `HOST_BIND_ADDRESS` for diferente de loopback. O modo control não é iniciado pelo `vpn-switch` por padrão. GETs não executam reconexão. A UI utiliza HTML/CSS/JS estático, sem dependências externas, para manter superfície de ataque e manutenção pequenas.
 
 Backups: a CLI `vpn-backup create --scope v2 --offline` exige que todos os escritores do OpenCode (inclusive host) tenham sido encerrados antes da operação; `--offline` é confirmação do operador, e não prova de ausência de processos em outros namespaces. `vpn-backup verify --id ID` verifica hashes e `PRAGMA integrity_check`; `plan-restore` é read-only; `restore ... --offline` cria snapshot pre-restore e journal para `recover --offline`. `auth.json` não é copiado. Os backups devem ser exportados para fora do volume Docker quando relevantes; a CLI não garante por si só persistência em outro host.

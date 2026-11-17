@@ -1,6 +1,6 @@
 "use strict";
 const fs=require("node:fs"),path=require("node:path"),crypto=require("node:crypto");
-const {runJson,output}=require("./util.cjs");
+const {runJson,output,writeAtomic}=require("./util.cjs");
 const {spawn}=require("node:child_process");
 function fileHash(p){try{return crypto.createHash("sha256").update(fs.readFileSync(p)).digest("hex")}catch{return null}}
 function pluginFiles(name) {return name==="v1" ? ["vpn-recovery.js"] : ["package.json","classify.js","server-core.js","server.js","tui-core.js","tui.js"];}
@@ -17,7 +17,7 @@ function versionFrom(p) {
 }
 async function diagnose(options={}) {
   const home=options.home||process.env.HOME||"";
-  const root=options.root||path.resolve(__dirname,"../../..");
+  const root=options.root||process.env.VPN_CONTROL_REPO_ROOT||path.resolve(__dirname,"../../..");
   const expected={v1:"1.19.5",v2:"2.1.3"};
   const definitions={
     v1:{binary:process.env.OPENCODE_V1_BIN||path.join(home,".opencode-v1/bin/opencode"),
@@ -47,7 +47,15 @@ async function diagnose(options={}) {
 }
 async function main(argv){
   if(argv.includes("--help")||argv.includes("-h")){process.stdout.write("Uso: opencode-compat --json (verificacao estatica sem alteracoes)\n");return}
-  if(argv.length && (argv.length!==1||argv[0]!=="--json")){process.exitCode=2;process.stderr.write("Argumentos invalidos\n");return}
-  output(await diagnose());
+  const publish=argv.includes("--publish");
+  const flags=argv.filter(x=>x!=="--publish");
+  if(flags.length && (flags.length!==1||flags[0]!=="--json")){process.exitCode=2;process.stderr.write("Argumentos invalidos\n");return}
+  const report=await diagnose();
+  if(publish) {
+    const dir=process.env.VPN_CONTROL_STATE_DIR;
+    if(!dir)throw new Error("VPN_CONTROL_STATE_DIR is required for --publish");
+    writeAtomic(path.join(dir,"compatibility.json"),JSON.stringify(report)+"\n");
+  }
+  output(report);
 }
 module.exports={diagnose,main,pluginFiles,versionFrom};

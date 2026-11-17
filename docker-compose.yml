@@ -145,6 +145,11 @@ services:
       VPN_ROTATE_STATE_FILE: /var/lib/vpn-control/vpn-rotate.index
       # Hosts locais mapeados (opt-in): o vpn-check valida cada nome=ip.
       LOCAL_HOSTS: ${LOCAL_HOSTS:-}
+      # Control Plane: scripts instalados via bind read-only, sem alterar comandos existentes.
+      VPN_CONTROL_MODULE_DIR: /opt/vpn-control/lib
+      VPN_CONTROL_REPO_ROOT: /opt/vpn-control-sources
+      VPN_CONTROL_STATE_DIR: /var/lib/vpn-control/observability
+      VPN_BACKUP_INDEX_FILE: /var/lib/vpn-control/observability/backups.json
       # Observabilidade do OpenCode (opt-in; só sonda, nunca reinicia aqui).
       OPENCODE_GUI_PORT: ${OPENCODE_GUI_PORT:-10001}
       OPENCODE_QUOTA_PATTERNS: ${OPENCODE_QUOTA_PATTERNS:-}
@@ -164,6 +169,12 @@ services:
       # Agente SSH e sessão do usuário do host (keyring/dbus), quando existirem.
       - ${SSH_AUTH_SOCK:-/dev/null}:/run/vpn-ssh-agent.sock:ro
       - ${RUN_USER_DIR:-/dev/null}:${RUN_USER_DIR:-/dev/null}:ro
+      - ./apps/control-plane:/opt/vpn-control:ro
+      - ./opencode:/opt/vpn-control-sources/opencode:ro
+      - ./scripts/vpn-state:/usr/local/bin/vpn-state:ro
+      - ./scripts/opencode-compat:/usr/local/bin/opencode-compat:ro
+      - ./scripts/vpn-events:/usr/local/bin/vpn-events:ro
+      - ./scripts/vpn-backup:/usr/local/bin/vpn-backup:ro
       - ./scripts/vpn-status:/usr/local/bin/vpn-status:ro
       - ./scripts/vpn-reconnect:/usr/local/bin/vpn-reconnect:ro
       - ./scripts/vpn-check:/usr/local/bin/vpn-check:ro
