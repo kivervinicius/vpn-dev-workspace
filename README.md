@@ -497,3 +497,25 @@ OpenCode em `DEV/RUNBOOKS/`).
 ```bash
 ./scripts/vpn-switch stop
 ```
+
+
+## Control Plane (opt-in, em desenvolvimento)
+
+A branch `feat/control-plane-observability-v1` introduz ferramentas read-only:
+`vpn-state --json`, `opencode-compat --json`, `vpn-events list` e `vpn-backup`.
+
+- O painel é um serviço local sem acesso à home, workspace, Docker socket ou segredos do OpenCode.
+- O observer roda no namespace VPN, agrega sinais sem executar rotação e grava snapshots sanitizados no volume `vpn_control_state`.
+- Para habilitar a UI, crie `.secrets/control_ui_password` com senha aleatória de pelo menos 16 caracteres (modo `0600`), configure `CONTROL_UI_PASSWORD_FILE` no `.env` e use o mesmo arquivo de perfil de VPN que foi iniciado:
+
+```bash
+# Exemplo apenas se o perfil ativo for nordvpn-openvpn:
+docker compose -f docker-compose.yml -f profiles/nordvpn-openvpn.yml --profile vpn --profile control up -d vpn-control-observer vpn-control-ui
+# Acesse http://127.0.0.1:10003 e autentique com usuario 'control'.
+```
+
+O painel **falha fechado** se `HOST_BIND_ADDRESS` for diferente de loopback. O modo control não é iniciado pelo `vpn-switch` por padrão. GETs não executam reconexão. A UI utiliza HTML/CSS/JS estático, sem dependências externas, para manter superfície de ataque e manutenção pequenas.
+
+Backups: a CLI `vpn-backup create --scope v2 --offline` exige que todos os escritores do OpenCode (inclusive host) tenham sido encerrados antes da operação; `--offline` é confirmação do operador, e não prova de ausência de processos em outros namespaces. `vpn-backup verify --id ID` verifica hashes e `PRAGMA integrity_check`; `plan-restore` é read-only; `restore ... --offline` cria snapshot pre-restore e journal para `recover --offline`. `auth.json` não é copiado. Os backups devem ser exportados para fora do volume Docker quando relevantes; a CLI não garante por si só persistência em outro host.
+
+**Limitação importante:** as mudanças de IP demonstram somente egress diferente; não comprovam recuperação de franquia de um provedor de IA. O journal distingue eventos de rede de aceitação real de requisição. A observação remota depende de evidência do provedor e não é automatizada neste MVP.

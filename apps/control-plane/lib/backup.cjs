@@ -133,6 +133,12 @@ function recover(options={}) {
  if(!fs.existsSync(journalPath))return {status:"clean"};
  const j=JSON.parse(fs.readFileSync(journalPath,"utf8"));
  if(j.schemaVersion!==1 || !["v1","v2"].includes(j.scope) || !idValid(j.backupId) || !idValid(j.preRestoreId))throw new Error("invalid_journal");
+ if(j.phase==="committed"){
+   fs.rmSync(path.join(ctx.root,".undo-"+j.backupId),{recursive:true,force:true});
+   fs.rmSync(j.staging,{recursive:true,force:true});
+   fs.unlinkSync(journalPath);
+   return {status:"committed",preRestoreId:j.preRestoreId};
+ }
  const target=source(j.scope,ctx.home);
  if(path.resolve(j.target)!==path.resolve(target))throw new Error("journal_target_mismatch");
  const undo=path.join(ctx.root,".undo-"+j.backupId);
@@ -178,12 +184,16 @@ async function restore(id,scope,options={}){
    fs.renameSync(path.join(staged,"opencode.db"),path.join(target,"opencode.db"));
    if(fs.existsSync(path.join(staged,"storage")))fs.renameSync(path.join(staged,"storage"),path.join(target,"storage"));
    checkDb(path.join(target,"opencode.db"));
+   j.phase="committed";writeAtomic(recoveryFile(ctx),JSON.stringify(j));
    fs.rmSync(undo,{recursive:true,force:true});
    fs.rmSync(staged,{recursive:true,force:true});
    fs.unlinkSync(recoveryFile(ctx));
    return {status:"restored",backupId:id,preRestoreId:before.id};
  }catch(error){
-   try{recover(options)}catch{throw new Error("restore_failed_recovery_required")}
+   try{
+     const outcome=recover(options);
+     if(outcome.status==="committed")return {status:"restored",backupId:id,preRestoreId:before.id};
+   }catch{throw new Error("restore_failed_recovery_required")}
    throw error;
  }
 }

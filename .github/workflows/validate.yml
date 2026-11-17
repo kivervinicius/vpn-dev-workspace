@@ -36,6 +36,8 @@ jobs:
           test "$(bash ./scripts/opencode-supervisor --classify 'CreditLimitExceeded: credit limit exceeded')" = "none"
       - name: Test OpenCode recovery plugins
         run: node --test tests/opencode/*.test.mjs
+      - name: Test control-plane contracts, event journal, UI and backups
+        run: node --test tests/control/*.test.cjs
       - name: Validate documentation
         run: ./scripts/verify-docs
       - name: Validate Compose profiles

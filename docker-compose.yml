@@ -333,6 +333,65 @@ services:
       start_period: 1m
     restart: unless-stopped
 
+  # Plano de controle local: serviços explicitamente opt-in.
+  # A UI não recebe HOME, agente SSH, workspace, socket Docker nem API key da VPN.
+  vpn-control-observer:
+    profiles: ["control"]
+    build: .
+    network_mode: "service:vpn"
+    init: true
+    command: ["node", "/opt/vpn-control/lib/observer.cjs"]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      VPN_CONTROL_MODULE_DIR: /opt/vpn-control/lib
+      VPN_CONTROL_STATE_DIR: /var/lib/vpn-control/observability
+      VPN_EVENTS_FILE: /var/lib/vpn-control/events/events.ndjson
+      GLUETUN_API_KEY_FILE: /run/secrets/gluetun_api_key
+      OPENCODE_GUI_PORT: ${OPENCODE_GUI_PORT:-10001}
+      VPN_CONTROL_INTERVAL_SECONDS: ${VPN_CONTROL_INTERVAL_SECONDS:-30}
+    volumes:
+      - ./apps/control-plane:/opt/vpn-control:ro
+      - ./scripts/vpn-status:/usr/local/bin/vpn-status:ro
+      - ./scripts/vpn-check:/usr/local/bin/vpn-check:ro
+      - ./scripts/vpn-opencode:/usr/local/bin/vpn-opencode:ro
+      - vpn_control_state:/var/lib/vpn-control
+    depends_on:
+      vpn:
+        condition: service_healthy
+    secrets:
+      - gluetun_api_key
+    restart: unless-stopped
+
+  vpn-control-ui:
+    profiles: ["control"]
+    build: .
+    network_mode: "service:vpn"
+    init: true
+    command: ["node", "/opt/vpn-control/lib/server.cjs"]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      CONTROL_UI_PORT: ${CONTROL_UI_PORT:-10003}
+      HOST_BIND_ADDRESS: ${HOST_BIND_ADDRESS:-127.0.0.1}
+      CONTROL_UI_PASSWORD_FILE: /run/secrets/control_ui_password
+      VPN_CONTROL_STATE_DIR: /var/lib/vpn-control/observability
+      VPN_EVENTS_FILE: /var/lib/vpn-control/events/events.ndjson
+    volumes:
+      - ./apps/control-plane:/opt/vpn-control:ro
+      - vpn_control_state:/var/lib/vpn-control:ro
+      - ${CONTROL_UI_PASSWORD_FILE:-/dev/null}:/run/secrets/control_ui_password:ro
+    depends_on:
+      vpn:
+        condition: service_healthy
+    restart: unless-stopped
+
 secrets:
   gluetun_api_key:
     file: ${GLUETUN_API_KEY_FILE:?GLUETUN_API_KEY_FILE is required}

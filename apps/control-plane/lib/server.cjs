@@ -73,8 +73,10 @@ function createServer(options={}){
 function main(){
  const password=fs.readFileSync(passwordFile,"utf8").replace(/[\r\n]+$/,"");
  if(!Number.isInteger(port)||port<1||port>65535)throw new Error("invalid_port");
+ const bind=process.env.HOST_BIND_ADDRESS||"127.0.0.1";
+ if(!["127.0.0.1","localhost","::1"].includes(bind))throw new Error("local_only_bind_required");
  const server=createServer({password});
  server.listen(port,"0.0.0.0",()=>process.stdout.write("VPN Control UI: listening on internal port "+port+"\n"));
 }
 if(require.main===module){try{main()}catch(e){process.stderr.write("vpn-control-ui: "+e.message+"\n");process.exitCode=1;}}
-module.exports={createServer,loadState,stale,safeEqual};
+module.exports={createServer,loadState,stale,safeEqual,main};
