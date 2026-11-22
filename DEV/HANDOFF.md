@@ -1,6 +1,17 @@
 # Active Handoff
 
+A reintegração Linux está implementada e validada; esta árvore consolida a entrega para a release 1.2.0. O E2E local do Docker está registrado abaixo.
+
 Updated: 2026-11-22
+
+## E2E local Docker — 2026-11-22
+
+A última verificação local confirmou Compose ativo no checkout principal com
+NordVPN OpenVPN. VPN, DNS, IP público e host interno passaram 6/6. OpenCode
+v1.19.6 e v2.3.2 responderam no terminal. O servidor Desktop/Web passou HTTP
+200 autenticado durante teste temporário e foi encerrado. Ver
+[VERIFY.md](VERIFY.md) para evidências. O endpoint Desktop/Web ficou desligado
+ao final, conforme estava antes do teste.
 
 ## Current state
 

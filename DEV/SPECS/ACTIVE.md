@@ -1,5 +1,7 @@
 # Active Spec - vpn-dev-workspace
 
+A próxima entrega segue o [Plano de reintegração](PLAN-REINTEGRACAO.md), com triagem dos dois stashes e primeiro lote de diagnóstico VPN.
+
 ## Goal
 
 - Oferecer um terminal VPN que funcione como extensão direta do host, preservando home, workspace, ferramentas e referências absolutas, com Zsh, recuperação automática autorizada, diagnóstico, dashboard de saúde, acesso opcional à rede interna do host e GUI do OpenCode pelo túnel — com scripts robustos (sem hangs, falhas claras) e documentação que não descola do código.
@@ -13,6 +15,14 @@
   validation remains deferred until a Windows host is available; complete it
   before claiming the Windows runtime path validated. It is not a prerequisite
   for initial Linux use.
+
+## Reintegração Linux e release 1.2.0
+
+O conjunto reintegrado está validado no Linux e preparado para distribuição
+como release 1.2.0. O escopo inclui sync interativo v1/v2, alternativas
+manuais de modelo e mounts do observador. E2E local da VPN e endpoint
+Desktop/Web está em `DEV/VERIFY.md`. Validação real do SQLite no Docker
+Desktop continua pendente em Windows.
 
 ## Current delivery state (2026-11-22)
 

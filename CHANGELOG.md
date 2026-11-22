@@ -7,6 +7,13 @@
 - Harden Linux and Windows launchers, VPN recovery, Docker Compose profiles and secret handling.
 - Validate the Linux and Windows command-line paths in CI, including Docker image builds and security scans.
 
+## 1.2.0 — 2026-11-22
+
+- Preserve interactive input through OpenCode v1/v2 session synchronization.
+- Add manual model alternatives to v2 limit notifications.
+- Mount observer dependencies individually and validate the control profile in every Compose configuration.
+- Complete Linux E2E verification for VPN checks and authenticated OpenCode Desktop/Web access.
+
 ## Unreleased
 
 - Prevent false healthy aggregate when the tunnel or a critical check failed.

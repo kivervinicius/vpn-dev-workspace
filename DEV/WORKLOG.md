@@ -1,5 +1,16 @@
 # Worklog
 
+## 2026-11-22 – E2E na instalação Docker local
+
+Conferido que a stack ativa usa o checkout principal e o perfil NordVPN
+OpenVPN. VPN, DNS, IP público e host interno passaram 6/6. Os CLIs OpenCode
+v1/v2 e status do sync responderam. O endpoint Desktop/Web foi iniciado pelo
+launcher oficial, validado com Basic Auth HTTP 200 e encerrado após o teste.
+A solução base permaneceu ativa e saudável.
+
+
+Reavaliado o plano com os dois stashes. Registrados os lotes, a política de recuperação e o primeiro ponto de retomada em `SPECS/PLAN-REINTEGRACAO.md`.
+
 ## 2026-11-22 - Cutover do release candidate 1.1.0
 
 - Changed: `master` foi promovido por fast-forward ao commit `3671a785` após a

@@ -39,7 +39,7 @@ run_with_session_sync() {
   else
     echo "OpenCode session sync is unavailable; starting with the requested arguments." >&2
   fi
-  "$bin" "${launch_args[@]}" &
+  "$bin" "${launch_args[@]}" <&0 &
   child_pid=$!
   trap 'kill -INT "$child_pid" 2>/dev/null || true' INT
   trap 'kill -TERM "$child_pid" 2>/dev/null || true' TERM

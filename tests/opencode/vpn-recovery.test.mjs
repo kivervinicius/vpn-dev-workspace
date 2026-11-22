@@ -200,3 +200,31 @@ test("the policy is notification-only for provider quota classes", () => {
     reason: "unclassified",
   })
 })
+
+test("v2 TUI suggests available alternatives and gives a manual command on catalog failure", async () => {
+  let listener
+  const toasts = []
+  const current = { providerID: "local", id: "current" }
+  const alternate = { providerID: "local", modelID: "alternate", id: "local/alternate" }
+  let unavailable = false
+  setupTuiPlugin({
+    location: "test-location",
+    data: {
+      on: (_, callback) => { listener = callback },
+      location: { model: { list: (location) => {
+        assert.equal(location, "test-location")
+        if (unavailable) throw new Error("catalog unavailable")
+        return [{ ...current, modelID: current.id }, alternate, alternate,
+          { providerID: "local", modelID: "disabled", enabled: false }]
+      } } },
+    },
+    ui: { toast: { show: async (toast) => toasts.push(toast) } },
+  })
+  await listener({ data: { sessionID: "suggest", model: current, error: { type: "provider.rate-limit", retryAfterMs: 120_000 } } })
+  assert.match(toasts[0].message, /~2min/)
+  assert.match(toasts[0].message, /local\/alternate\.$/)
+  assert.doesNotMatch(toasts[0].message, /local\/(current|disabled)/)
+  unavailable = true
+  await listener({ data: { sessionID: "fallback", model: current, error: { type: "provider.rate-limit" } } })
+  assert.match(toasts[1].message, /opencode2 models/)
+})

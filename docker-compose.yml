@@ -404,6 +404,8 @@ services:
       VPN_CONTROL_INTERVAL_SECONDS: ${VPN_CONTROL_INTERVAL_SECONDS:-30}
     volumes:
       - ./apps/control-plane:/opt/vpn-control:ro
+      - ./scripts/dotenv-read.sh:/usr/local/bin/dotenv-read.sh:ro
+      - ./scripts/vpn-control-api.sh:/usr/local/bin/vpn-control-api.sh:ro
       - ./scripts/vpn-status:/usr/local/bin/vpn-status:ro
       - ./scripts/vpn-check:/usr/local/bin/vpn-check:ro
       - ./scripts/vpn-opencode:/usr/local/bin/vpn-opencode:ro

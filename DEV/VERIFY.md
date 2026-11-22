@@ -1,4 +1,28 @@
+## E2E local Docker — 2026-11-22
+
+- Compose ativo no checkout principal `/projetos/vpn-dev-workspace`, perfil
+  `nordvpn-openvpn`. Terminal, Gluetun e auto-reconnect estavam ativos.
+  Gluetun e auto-reconnect saudáveis.
+- `vpn-check --json` dentro do terminal: **6/6**, incluindo túnel, IP público,
+  DNS e host interno. `vpn-status --json` confirmou NordVPN/OpenVPN e IP
+  público. `vpn-top --json` consultou estado detalhado da API Gluetun.
+- No container ativo, `opencode1 --version` retornou **1.19.6**,
+  `opencode2 --version` **2.3.2** e os dois comandos
+  `opencode-session-sync status` retornaram `ok`.
+- Trajeto Desktop/Web testado temporariamente pelo script oficial:
+  `vpn-opencode serve --detach`, check `ok` na porta 10001 e requisição
+  HTTP com Basic Auth retornou **200**. O processo foi encerrado com
+  `vpn-opencode stop`, e a porta voltou ao estado fechado.
+- As sessões de CLI foram verificadas em modo status, que informa o caminho
+  dos bancos locais ativos. Não foi feita transferência de dados de usuário nem
+  requisição a provedor.
+- Resultado: a solução base VPN está ativa. O servidor Desktop/Web é opcional
+  e estava desligado antes do teste. E2E do container, túnel, API e endpoint
+  autenticado passou. A porta 10001 ficou fechada ao final.
+
 # Verify
+
+Revisão documental: comparadas as referências Git e confirmados três helpers idênticos na 1.1.0. Os critérios de execução estão em `SPECS/PLAN-REINTEGRACAO.md`.
 
 ## Latest Verification - 2026-11-22 (main checkout release cutover)
 

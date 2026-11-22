@@ -1,5 +1,7 @@
 # Current Context
 
+A reintegração Linux foi consolidada na preparação da release 1.2.0. Consulte o [handoff](HANDOFF.md) e o [plano](SPECS/PLAN-REINTEGRACAO.md).
+
 ## State
 
 - Project: `vpn-dev-workspace`

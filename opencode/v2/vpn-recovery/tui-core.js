@@ -16,10 +16,41 @@ function notification(eventClass, retryAfterSeconds) {
       return retryAfterSeconds === undefined
         ? "Limite gratuito do Zen detectado; a VPN não foi alterada nem haverá repetição automática. Consulte o status do provider."
         : "Limite gratuito do Zen detectado; a VPN não foi alterada nem haverá repetição automática. Tente novamente após ~" + humanizeSeconds(retryAfterSeconds) + "."
-    case "rate_limit": return "Limite de requisições detectado; a VPN não foi alterada e o turno não será repetido automaticamente."
+    case "rate_limit": {
+      const message = "Limite de requisições detectado; a VPN não foi alterada e o turno não será repetido automaticamente."
+      return retryAfterSeconds === undefined
+        ? message
+        : message + " Tente novamente após ~" + humanizeSeconds(retryAfterSeconds) + "."
+    }
     case "account_limit": return "Limite da conta detectado; a VPN não foi alterada."
     case "credit_limit": return "Limite de crédito detectado; a VPN não foi alterada."
     default: return "Limite do provider detectado; a VPN não foi alterada."
+  }
+}
+
+function suggestedModels(catalog, current) {
+  if (!Array.isArray(catalog)) return []
+  const choices = new Set()
+  for (const model of catalog) {
+    if (model?.enabled === false || !model?.providerID || !model?.modelID) continue
+    if (typeof model.providerID !== "string" || typeof model.modelID !== "string") continue
+    if (model.providerID === current?.providerID && model.modelID === (current.modelID ?? current.id)) continue
+    choices.add(`${model.providerID}/${model.modelID}`)
+    if (choices.size === 3) break
+  }
+  return [...choices]
+}
+
+function modelHint(ctx, data) {
+  const manualHint = " Consulte `opencode2 models` no terminal VPN para escolher outro modelo."
+  try {
+    const catalog = ctx.data.location?.model?.list(ctx.location)
+    const choices = suggestedModels(catalog, data.model)
+    return choices.length
+      ? ` Escolha manualmente um modelo no OpenCode: ${choices.join(", ")}.`
+      : manualHint
+  } catch {
+    return manualHint
   }
 }
 
@@ -43,7 +74,7 @@ export function setupTuiPlugin(ctx) {
       await ctx.ui.toast.show({
         sessionID,
         title: "VPN recovery",
-        message: notification(eventClass, extractRetryAfterSeconds(data.error)),
+        message: notification(eventClass, extractRetryAfterSeconds(data.error)) + modelHint(ctx, data),
         variant: "info",
         duration: 8000,
       })

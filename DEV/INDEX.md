@@ -1,5 +1,7 @@
 # DEV Index
 
+Plano da próxima entrega: [reintegração do trabalho preservado](SPECS/PLAN-REINTEGRACAO.md).
+
 | Path | Purpose |
 |---|---|
 | `README.md` | Visão principal, instalação, configuração e operação do projeto |
