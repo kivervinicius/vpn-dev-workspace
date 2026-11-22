@@ -227,7 +227,7 @@ function Validate-PortRange {
         $proxyPort = [int]$proxyPortText
         if ($proxyPort -lt $bounds[0] -or $proxyPort -gt $bounds[1]) { Fail "VPN_HTTP_PROXY_PORT ($proxyPort) fora de VPN_PORT_RANGE ($range)." 2 }
         $parsedBind = $null
-        $isLoopback = $bindAddress -in @('localhost', '::1') -or ([Net.IPAddress]::TryParse($bindAddress, [ref]$parsedBind) -and $parsedBind.IsLoopback)
+        $isLoopback = $bindAddress -in @('localhost', '::1') -or ([Net.IPAddress]::TryParse($bindAddress, [ref]$parsedBind) -and [Net.IPAddress]::IsLoopback($parsedBind))
         if (-not $isLoopback) {
             $proxyUser = Get-ConfigValue 'VPN_HTTP_PROXY_USER'
             $proxyPassword = Get-ConfigValue 'VPN_HTTP_PROXY_PASSWORD_FILE'
