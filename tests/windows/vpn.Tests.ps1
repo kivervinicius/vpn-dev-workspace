@@ -11,20 +11,33 @@ BeforeAll {
     @'
 @echo off
 echo %*>>"%MOCK_DOCKER_LOG%"
-if "%~1"=="compose" if "%~2"=="version" echo %MOCK_COMPOSE_VERSION%
-if not defined MOCK_DOCKER_EXIT_CODE set MOCK_DOCKER_EXIT_CODE=0
-exit /b %MOCK_DOCKER_EXIT_CODE%
+if /I "%~1"=="compose" if /I "%~2"=="version" (
+  echo %MOCK_COMPOSE_VERSION%
+  exit /b 0
+)
+if /I "%~1"=="compose" if /I "%~2"=="exec" (
+  if not defined MOCK_DOCKER_EXEC_EXIT_CODE set MOCK_DOCKER_EXEC_EXIT_CODE=0
+  exit /b %MOCK_DOCKER_EXEC_EXIT_CODE%
+)
+exit /b 0
 '@ | Set-Content -LiteralPath (Join-Path $script:MockBin 'docker.cmd') -Encoding ASCII
     $script:OldPath = $env:Path
     $env:Path = $script:MockBin + ';' + $env:Path
     $env:MOCK_DOCKER_LOG = $script:MockLog
     $env:MOCK_COMPOSE_VERSION = 'v2.24.4'
-    $env:MOCK_DOCKER_EXIT_CODE = '0'
+    $env:MOCK_DOCKER_EXEC_EXIT_CODE = '0'
 
     function Invoke-VpnTest {
         param([string[]]$Arguments)
         $output = @(& $script:PowerShellExecutable -NoProfile -ExecutionPolicy Bypass -File $script:VpnScript @Arguments 2>&1)
         [pscustomobject]@{ Code = $LASTEXITCODE; Output = ($output -join "`n") }
+    }
+
+    function Get-FreeTcpPort {
+        $listener = [System.Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+        $listener.Start()
+        try { return [int]$listener.LocalEndpoint.Port }
+        finally { $listener.Stop() }
     }
 }
 
@@ -146,7 +159,7 @@ ESCAPED="line\nnext \"quoted\""
         $oldRange = $env:VPN_PORT_RANGE
         $oldProxy = $env:VPN_HTTP_PROXY
         $env:HOST_BIND_ADDRESS = '127.0.0.1'
-        $env:VPN_PORT_RANGE = '39999'
+        $env:VPN_PORT_RANGE = [string](Get-FreeTcpPort)
         $env:VPN_HTTP_PROXY = 'off'
         $oldWorkspace = $env:WORKSPACE_DIR
         $env:WORKSPACE_DIR = Join-Path $script:TempRoot 'workspace-inexistente'
@@ -176,7 +189,7 @@ ESCAPED="line\nnext \"quoted\""
         # Caminho inexistente (nao vazio): Get-ConfigValue no Windows nao
         # distingue env vazio de ausente, mas caminho ruim cai no mesmo erro.
         $env:OPENCODE_GUI_PASSWORD_FILE = Join-Path $script:TempRoot 'senha-inexistente'
-        $env:VPN_PORT_RANGE = '39999'
+        $env:VPN_PORT_RANGE = [string](Get-FreeTcpPort)
         $env:VPN_HTTP_PROXY = 'off'
         try {
             $result = Invoke-VpnTest @('start', 'nordvpn-openvpn')
@@ -205,7 +218,7 @@ ESCAPED="line\nnext \"quoted\""
         $oldWorkspace = $env:WORKSPACE_DIR
         $env:HOST_BIND_ADDRESS = '192.168.50.10'
         $env:OPENCODE_GUI_PASSWORD_FILE = $pwFile
-        $env:VPN_PORT_RANGE = '39999'
+        $env:VPN_PORT_RANGE = [string](Get-FreeTcpPort)
         $env:VPN_HTTP_PROXY = 'off'
         # WORKSPACE_DIR inexistente ancora o resultado: chega na mesma trava
         # do teste acima, provando que a checagem de senha do painel passou.
@@ -238,9 +251,10 @@ ESCAPED="line\nnext \"quoted\""
         $env:XKIRO_API_KEY_FILE = ''
         $env:HOST_BIND_ADDRESS = '192.168.50.10'
         $env:OPENCODE_GUI_PASSWORD_FILE = $guiPassword
-        $env:VPN_PORT_RANGE = '39999'
+        $proxyTestPort = Get-FreeTcpPort
+        $env:VPN_PORT_RANGE = [string]$proxyTestPort
         $env:VPN_HTTP_PROXY = 'on'
-        $env:VPN_HTTP_PROXY_PORT = '39999'
+        $env:VPN_HTTP_PROXY_PORT = [string]$proxyTestPort
         $env:VPN_HTTP_PROXY_USER = ''
         $env:VPN_HTTP_PROXY_PASSWORD_FILE = Join-Path $script:TempRoot 'proxy-password-missing'
         try {
@@ -284,14 +298,14 @@ ESCAPED="line\nnext \"quoted\""
 
     It 'nao aplica staging anterior quando o push do container falha' {
         $oldHomeDir = $env:HOST_HOME_DIR
-        $oldDockerCode = $env:MOCK_DOCKER_EXIT_CODE
+        $oldDockerCode = $env:MOCK_DOCKER_EXEC_EXIT_CODE
         $syncOut = Join-Path $script:ProjectRoot '.vpn\sync\out'
         $hostShare = Join-Path $script:TempRoot '.local\share\opencode'
         New-Item -ItemType Directory -Path $syncOut, $hostShare -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $syncOut 'opencode.db') -Value 'stale-staging' -Encoding ASCII
         Set-Content -LiteralPath (Join-Path $hostShare 'opencode.db') -Value 'host-before' -Encoding ASCII
         $env:HOST_HOME_DIR = $script:TempRoot
-        $env:MOCK_DOCKER_EXIT_CODE = '23'
+        $env:MOCK_DOCKER_EXEC_EXIT_CODE = '23'
         try {
             $result = Invoke-VpnTest @('sessions-sync', '--push')
             $result.Code | Should -Be 1
@@ -299,7 +313,7 @@ ESCAPED="line\nnext \"quoted\""
             Get-Content -LiteralPath (Join-Path $hostShare 'opencode.db') -Raw | Should -Match 'host-before'
             Test-Path -LiteralPath (Join-Path $hostShare 'opencode.db.bak') | Should -BeFalse
         } finally {
-            $env:MOCK_DOCKER_EXIT_CODE = $oldDockerCode
+            if ($null -eq $oldDockerCode) { Remove-Item Env:MOCK_DOCKER_EXEC_EXIT_CODE -ErrorAction SilentlyContinue } else { $env:MOCK_DOCKER_EXEC_EXIT_CODE = $oldDockerCode }
             if ($null -eq $oldHomeDir) { Remove-Item Env:HOST_HOME_DIR -ErrorAction SilentlyContinue } else { $env:HOST_HOME_DIR = $oldHomeDir }
             Remove-Item -LiteralPath (Join-Path $script:ProjectRoot '.vpn\sync') -Recurse -Force -ErrorAction SilentlyContinue
         }
