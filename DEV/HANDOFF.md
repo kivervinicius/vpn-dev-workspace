@@ -8,8 +8,9 @@ The Linux-first delivery and audit of the approved OpenCode v1/v2 integration
 plan are complete in isolated worktree `/tmp/vpn-v1v2-integration`, branch
 `integration/vpn-unified-1.1.0`. The original dirty workspace
 `/projetos/vpn-dev-workspace` has not been modified. The existing Docker Compose
-project now runs the integration worktree; Windows validation is a future
-platform step and does not block initial Linux use.
+project now runs the integration worktree. The branch is pushed to `origin` at
+`ae93bda`; the latest GitHub Actions run passed all four jobs. Real Docker
+Desktop SQLite staging remains a Windows-host check.
 
 ## Implemented
 
@@ -43,20 +44,24 @@ platform step and does not block initial Linux use.
   `vpn-auto-reconnect` are healthy, `vpn-check` reports 6/6 checks and no
   failures, and the container reports OpenCode v1 1.19.6, v2 2.3.2, Node 22.
 - Old images are retained under `vpn-v1v2-integration:rollback-*-before-1.1.0-20261122`.
-- Pester is unavailable in this Linux environment.
+- GitHub Actions run `44993923190` passed `validate`, `validate-windows-cli`,
+  `secret-scan`, and `supply-chain`; the Windows job passed all 16 Pester tests.
+- Pester is unavailable in this Linux environment; Windows tests ran on the
+  hosted Windows runner. The live Docker Desktop SQLite staging path remains
+  unverified.
 
 ## Future Windows validation
 
-- When a Windows host is available, run Pester and real SQLite staging checks
-  with Docker Desktop. This is required to claim the Windows path validated,
-  but is not a prerequisite for the Linux-first initial use.
+- When a Windows host is available, run real SQLite staging checks with Docker
+  Desktop. This is required to claim the Windows path validated, but is not a
+  prerequisite for the Linux-first initial use.
 - The live Desktop App reconnect remains untested.
 
 ## Delivery constraints
 
-- The maestro authorized a commit and push of this integration branch after
-  local build and runtime verification. Do not merge or publish an image to a
-  registry without a separate request. Keep the original dirty workspace files
-  unchanged.
+- The maestro authorized and the agent completed the commit and push of this
+  integration branch after local build and runtime verification. Do not merge
+  or publish an image to a registry without a separate request. Keep the
+  original dirty workspace files unchanged.
 - Detailed evidence: `VERIFY.md`; chronological record: `WORKLOG.md`;
   task contract: `SPECS/ACTIVE.md`.

@@ -9,10 +9,10 @@
 - Linux-first: the initial Linux workflow is the delivery target for this task.
   Passing Linux, Node, Compose, documentation, syntax, and image-build checks is
   sufficient for initial Linux use.
-- Windows support remains implemented, but Pester and real Docker Desktop
-  SQLite staging validation are deferred until a Windows host is available.
-  Complete those checks before claiming the Windows path validated; they are
-  not a prerequisite for initial Linux use.
+- The hosted Windows Pester suite has passed. Real Docker Desktop SQLite staging
+  validation remains deferred until a Windows host is available; complete it
+  before claiming the Windows runtime path validated. It is not a prerequisite
+  for initial Linux use.
 
 ## In Scope
 
@@ -89,18 +89,20 @@
 - Run `node --test tests/opencode/*.test.mjs tests/control/*.test.cjs`, the Linux shell suite, `verify-docs`, `verify-compose`, shell/Node syntax checks, and `git diff --check` after changes.
 - Exercise v1/v2 CLI transfer only with synthetic sessions and isolated temporary data homes; never access an active user database during test runs.
 - Linux-first gate: run Linux/Node tests, documentation and Compose validation, syntax checks, `git diff --check`, and Docker build. This gate is sufficient for initial Linux use.
-- Windows validation gate: run Pester and verify real Docker Desktop SQLite mounts/staging when a Windows host is available; complete it before claiming Windows support validated.
+- Windows validation gate: Pester passed in GitHub Actions; verify real Docker
+  Desktop SQLite mounts/staging when a Windows host is available before
+  claiming Windows support validated.
 - Do not make provider requests to validate notification-only policy. Any real provider probe requires explicit user authorization because it consumes a request.
 
 ## Status
 
 - State: cross-version session sync, provider status-only policy, and truthful
   Windows staging status are implemented. The Linux-first gate passed in the
-  isolated integration worktree, and the updated Linux stack is running with
-  all six VPN checks healthy. Deferred Windows validation does not block initial
-  Linux use. See `HANDOFF.md` and `VERIFY.md` for evidence and limits.
-- Pending: commit/push the integration branch (authorized by the maestro) and
-  review CI checks; Pester and real Docker Desktop SQLite staging remain future
-  Windows-host validation. No merge or registry image publication was requested.
+  isolated integration worktree, the updated Linux stack is running with all
+  six VPN checks healthy, and GitHub Actions run `44993923190` passed on commit
+  `ae93bda`, including Windows Pester 16/16. See `HANDOFF.md` and `VERIFY.md`.
+- Pending: real Docker Desktop SQLite staging and live Desktop App reconnect.
+  The integration branch was committed and pushed with authorization. No merge
+  or registry image publication was requested.
 - Owner: Codex
 - Last updated: 2026-11-22

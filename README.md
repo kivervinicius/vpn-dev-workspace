@@ -319,10 +319,9 @@ O helper `vpn-opencode` roda o OpenCode dentro do container (tráfego de LLM 100
 - Launchers e plugins globais: `./scripts/opencode-vpn-install` instala `opencode1` (v1, dados isolados em `~/.opencode-v1`), `opencode2` (v2, home compartilhada), o helper de sync e os plugins de status do provider. O launcher exige túnel saudável. Guia completo em `DEV/RUNBOOKS/opencode-v1-v2.md`.
 - Sessões entre clientes v1/v2: os launchers sincronizam as cinco sessões recentes do workspace por native JSON export/import e uma ledger de IDs. `--session <id>` explícito também sincroniza sessões antigas. A conversão preserva texto, raciocínio e resultados de ferramentas concluídas; recusa anexos, ferramentas em execução e partes desconhecidas. É uma cópia verificada, sem replay de prompt ou ferramentas.
 - No Windows, `vpn-opencode-wrapper` mantém a sincronização do banco v2 entre o host e o container separada da conversão v1/v2. `vpn.ps1 sessions-sync --push` reporta falhas e não aplica staging antigo quando o push falha.
-- Validação por plataforma: o gate Linux-first está concluído. O fluxo Windows
-  ainda precisa de `Invoke-Pester -Path tests/windows` e staging SQLite real no
-  Docker Desktop. Essa validação futura não bloqueia o uso inicial em Linux,
-  mas deve passar antes de declarar o caminho Windows validado.
+- Validação por plataforma: gates Linux e Pester no runner Windows do GitHub
+  Actions passaram. A integração real do SQLite com Docker Desktop ainda exige
+  validação em um host Windows antes de declarar o caminho Windows validado.
 - Sonda no `vpn-auto-reconnect` (`OPENCODE_AUTOCHECK=true`) continua apenas observacional; a responsabilidade de recuperar o OpenCode fica centralizada no `opencode-supervisor`.
 - Senha (basic auth, usuário `opencode`): arquivo `OPENCODE_GUI_PASSWORD_FILE` (padrão `.secrets/opencode_gui_password`). Sem o arquivo, o painel abre sem senha — apenas para uso local; com `HOST_BIND_ADDRESS` em LAN, `vpn-switch`/`vpn.ps1` exigem o arquivo não vazio e recusam subir sem ele.
 - O estado é compartilhado com o CLI: o mesmo `$HOME` e os mesmos projetos são usados por `opencode` no terminal e pela GUI.

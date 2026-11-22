@@ -1,6 +1,6 @@
 # Verify
 
-## Latest Verification - 2026-11-22 (Linux-first integration audit)
+## Latest Verification - 2026-11-22 (integration release and CI)
 
 ### Passed
 
@@ -26,16 +26,22 @@
   OpenCode v1 **1.19.6**, v2 **2.3.2**, Node **22.17.0**.
 - Rollback image tags preserve all three previous images:
   `vpn-v1v2-integration:rollback-*-before-1.1.0-20261122`.
+- GitHub Actions run [`44993923190`](https://github.com/kivervinicius/vpn-dev-workspace/actions/runs/44993923190)
+  for commit `ae93bda` passed all four jobs: Linux validation and both Docker
+  builds, Windows Pester (**16/16**), Gitleaks, and Trivy supply-chain scan.
+- The Windows CI run exposed and verified the fix for the LAN proxy loopback
+  check in `scripts/vpn.ps1`; the proxy validation and staging-failure tests
+  pass on the hosted Windows runner.
 
 ### Platform boundary
 
-- Pester is unavailable in this Linux environment. PowerShell syntax parses
-  successfully, but Windows Pester and real Docker Desktop SQLite staging
-  remain future Windows-host validation. They do not block initial Linux use.
+- Pester is unavailable in this Linux environment; the Windows Pester suite
+  passed in GitHub Actions. Real Docker Desktop SQLite staging still requires a
+  Windows host before claiming the Windows runtime path validated.
 - No live Desktop App reconnect or provider request was performed.
 - No OpenCode provider request or active user database access was performed.
-  The original dirty workspace files remain untouched. Commit/push of the
-  integration branch is the remaining release step.
+  The original dirty workspace files remain untouched. Branch
+  `integration/vpn-unified-1.1.0` is committed and pushed through `ae93bda`.
 
 ## Historical Verification - 2026-11-20 (remote restaurado, fetch e inspeção das branches remotas)
 

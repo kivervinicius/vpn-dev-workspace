@@ -1,5 +1,19 @@
 # Worklog
 
+## 2026-11-22 - Integration branch pushed and CI passed
+
+- Changed: committed the integration as `bf0696e`, then corrected Windows test
+  fixtures and the LAN proxy loopback check in follow-up commits through
+  `ae93bda`; pushed `integration/vpn-unified-1.1.0` to `origin`.
+- Why: finish the authorized release path and fix issues found by the hosted
+  Windows CI before calling the branch verified.
+- Verified: GitHub Actions run `44993923190` passed all four jobs. Linux
+  validation and image builds passed; Windows Pester passed **16/16**;
+  Gitleaks and Trivy passed. The original Linux tests, builds, and live VPN
+  health checks are recorded above and in `VERIFY.md`.
+- Next: real Docker Desktop SQLite staging and live Desktop App reconnect need
+  a Windows host. No merge or image registry publication was requested.
+
 ## 2026-11-22 - Repeated Linux gate, image build, and local deployment
 
 - Changed: corrected the Linux HTTP fixture so each forked `socat` connection
@@ -12,8 +26,8 @@
   parser, Gitleaks (232 commits, no findings), both Docker builds and Gluetun Go
   tests. Runtime VPN checks **6/6**, Gluetun/auto-reconnect healthy; OpenCode
   v1/v2 **1.19.6/2.3.2**, Node **22.17.0**.
-- Next: commit and push `integration/vpn-unified-1.1.0`, monitor CI. Windows
-  Pester and real Docker Desktop SQLite staging remain future platform checks.
+- Follow-up: the integration branch was committed, pushed, and passed CI; the
+  remaining platform check is real Docker Desktop SQLite staging on Windows.
 
 ## 2026-11-22 - Linux-first audit completed
 
