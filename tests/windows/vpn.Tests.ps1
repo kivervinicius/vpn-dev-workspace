@@ -15,9 +15,9 @@ if /I "%~1"=="compose" if /I "%~2"=="version" (
   echo %MOCK_COMPOSE_VERSION%
   exit /b 0
 )
-if /I "%~1"=="compose" if /I "%~2"=="exec" (
-  if not defined MOCK_DOCKER_EXEC_EXIT_CODE set MOCK_DOCKER_EXEC_EXIT_CODE=0
-  exit /b %MOCK_DOCKER_EXEC_EXIT_CODE%
+if /I "%~1"=="compose" if not "%MOCK_DOCKER_EXEC_EXIT_CODE%"=="0" (
+  echo %*| findstr /I /C:" exec " >nul
+  if not errorlevel 1 exit /b %MOCK_DOCKER_EXEC_EXIT_CODE%
 )
 exit /b 0
 '@ | Set-Content -LiteralPath (Join-Path $script:MockBin 'docker.cmd') -Encoding ASCII
@@ -34,10 +34,15 @@ exit /b 0
     }
 
     function Get-FreeTcpPort {
-        $listener = [System.Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
-        $listener.Start()
-        try { return [int]$listener.LocalEndpoint.Port }
-        finally { $listener.Stop() }
+        for ($attempt = 0; $attempt -lt 5; $attempt++) {
+            $listener = [System.Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+            $listener.Start()
+            try { $port = [int]$listener.LocalEndpoint.Port }
+            finally { $listener.Stop() }
+            $listeners = [System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners()
+            if (@($listeners | Where-Object { $_.Port -eq $port }).Count -eq 0) { return $port }
+        }
+        throw 'Could not find a free TCP port for the Windows validation test.'
     }
 }
 
@@ -259,7 +264,7 @@ ESCAPED="line\nnext \"quoted\""
         $env:VPN_HTTP_PROXY_PASSWORD_FILE = Join-Path $script:TempRoot 'proxy-password-missing'
         try {
             $result = Invoke-VpnTest @('start', 'nordvpn-openvpn')
-            $result.Code | Should -Be 2
+            $result.Code | Should -Be 2 -Because "vpn.ps1 output: $($result.Output)"
             $result.Output | Should -Match 'proxy HTTP exposto na LAN exige VPN_HTTP_PROXY_USER e VPN_HTTP_PROXY_PASSWORD_FILE'
         } finally {
             foreach ($name in $names) {
