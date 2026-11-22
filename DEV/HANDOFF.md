@@ -31,6 +31,18 @@ branch because it contains ignored `.hosts.local.gen` and
 `.vpn-control-lock/operation.lock` files. It is inactive; the running Compose
 project mounts the main checkout.
 
+## Confirmar a versão instalada
+
+- `git rev-parse '1.1.0^{commit}'` identifica o commit exato do release; `master`
+  está alguns commits à frente somente por atualizações de documentação DEV.
+- Compare os IDs de `docker image inspect vpn-dev-workspace-terminal:1.1.0
+  --format '{{.Id}}'` e `docker inspect vpn-dev-workspace-terminal-1
+  --format '{{.Image}} {{index .Config.Labels "com.docker.compose.project.working_dir"}}'`.
+  Os IDs devem coincidir e o caminho exibido deve ser o checkout principal.
+- `docker exec vpn-dev-workspace-terminal-1 vpn-check --json` confirma a saúde
+  da versão em execução; `gh release view 1.1.0` ou o link acima confirma a
+  publicação no GitHub.
+
 ## Implemented
 
 - Cross-version sessions use native JSON export/import, schema conversion,
