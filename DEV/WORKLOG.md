@@ -1,5 +1,12 @@
 # Worklog
 
+## 2026-11-22 – Release 1.2.0
+
+Versioned and published the Linux reintegration as tag/release 1.2.0 at
+`2210100`. All four CI jobs passed. Built local terminal and Gluetun image
+tags. The existing Docker runtime was left on its current installation.
+
+
 ## 2026-11-22 – E2E na instalação Docker local
 
 Conferido que a stack ativa usa o checkout principal e o perfil NordVPN

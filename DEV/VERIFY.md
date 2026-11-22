@@ -1,3 +1,15 @@
+## Release 1.2.0
+
+- Commit `2210100ecc99f2d8cb097a86839538d36fbce10e` was pushed to `master`,
+  tagged `1.2.0` and published on GitHub.
+- CI run `45032833141` passed Linux validation, Windows PowerShell tests,
+  supply-chain scan and secret scan.
+- Local terminal image `vpn-dev-workspace-terminal:1.2.0` and Gluetun image
+  `vpn-dev-workspace-gluetun:1.2.0` were built successfully. No image was
+  pushed to a registry.
+- The running Docker stack remains the already active installation. No
+  redeploy was included in the release.
+
 ## E2E local Docker — 2026-11-22
 
 - Compose ativo no checkout principal `/projetos/vpn-dev-workspace`, perfil

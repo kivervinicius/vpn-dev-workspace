@@ -15,6 +15,15 @@ ao final, conforme estava antes do teste.
 
 ## Current state
 
+Release 1.2.0 is published: annotated Git tag and GitHub Release
+[VPN Dev Workspace 1.2.0](https://github.com/kivervinicius/vpn-dev-workspace/releases/tag/1.2.0)
+point to commit `2210100ecc99f2d8cb097a86839538d36fbce10e` on `master`.
+GitHub Actions run
+[45032833141](https://github.com/kivervinicius/vpn-dev-workspace/actions/runs/45032833141)
+passed all four jobs for this exact commit. Local terminal and Gluetun images
+were built and tagged `:1.2.0`. The running Compose stack remains on the
+previous local installation and was not redeployed.
+
 Release 1.1.0 is published: annotated Git tag `1.1.0` and GitHub Release
 [VPN Dev Workspace 1.1.0](https://github.com/kivervinicius/vpn-dev-workspace/releases/tag/1.1.0)
 both point to commit `3671a78506ee826ba84dbd72d98b697e3ce81862`

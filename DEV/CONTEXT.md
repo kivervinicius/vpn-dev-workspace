@@ -7,8 +7,7 @@ A reintegração Linux foi consolidada na preparação da release 1.2.0. Consult
 - Project: `vpn-dev-workspace`
 - Active handoff: `HANDOFF.md`
 - Active spec: `SPECS/ACTIVE.md`
-- Release 1.1.0 candidate is checked out on `master` at `3671a785`; the exact
-  commit passed all four GitHub Actions jobs. See `HANDOFF.md` for release and
+- Release 1.2.0 is published from commit `2210100`; all four GitHub Actions jobs passed. The active Docker runtime is the existing installation and was not redeployed. See `HANDOFF.md` for release and
   recovery state.
 - The `vpn-dev-workspace` Compose project runs from this main checkout at
   `/projetos/vpn-dev-workspace`; Gluetun and auto-reconnect are healthy, and

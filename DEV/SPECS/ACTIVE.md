@@ -18,8 +18,8 @@ A próxima entrega segue o [Plano de reintegração](PLAN-REINTEGRACAO.md), com 
 
 ## Reintegração Linux e release 1.2.0
 
-O conjunto reintegrado está validado no Linux e preparado para distribuição
-como release 1.2.0. O escopo inclui sync interativo v1/v2, alternativas
+O conjunto reintegrado está validado no Linux e publicado como release 1.2.0
+no commit `2210100`. O escopo inclui sync interativo v1/v2, alternativas
 manuais de modelo e mounts do observador. E2E local da VPN e endpoint
 Desktop/Web está em `DEV/VERIFY.md`. Validação real do SQLite no Docker
 Desktop continua pendente em Windows.
