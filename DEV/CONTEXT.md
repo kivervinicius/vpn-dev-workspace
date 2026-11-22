@@ -5,11 +5,15 @@
 - Project: `vpn-dev-workspace`
 - Active handoff: `HANDOFF.md`
 - Active spec: `SPECS/ACTIVE.md`
-- Linux-first integration validation is complete in
-  `/tmp/vpn-v1v2-integration`. Windows Pester and real Docker Desktop SQLite
-  staging are future platform validation and do not block initial Linux use.
-- The `vpn-dev-workspace` Compose project currently runs images built from that
-  integration worktree; rollback image tags are recorded in `HANDOFF.md`.
+- Release 1.1.0 candidate is checked out on `master` at `3671a785`; the exact
+  commit passed all four GitHub Actions jobs. See `HANDOFF.md` for release and
+  recovery state.
+- The `vpn-dev-workspace` Compose project runs from this main checkout at
+  `/projetos/vpn-dev-workspace`; Gluetun and auto-reconnect are healthy, and
+  host and container `vpn-check` passed. Local image aliases use `:1.1.0`;
+  rollback tags and preserved workspace changes are recorded in `HANDOFF.md`.
+- Windows Pester passed in CI. Real Docker Desktop SQLite staging still
+  requires a Windows host before claiming that runtime path validated.
 - Update this file when commands, architecture, environment, risks, or active decisions change.
 
 ## Commands
@@ -31,7 +35,7 @@
 
 ## Constraints And Risks
 
-- O remote `origin` aponta para `https://github.com/kivervinicius/vpn-dev-workspace.git` (repo público). SSH não funciona neste host (`Permission denied (publickey)`); push exigiria token HTTPS ou chave registrada. `master` local e `origin/master` divergem 38/38 por conta da rewrite de privacidade — `origin/master` ainda contém IPs/hostnames reais que o local redigiu; não force-push sem decisão explícita.
+- O remote `origin` aponta para `https://github.com/kivervinicius/vpn-dev-workspace.git` (repo público). A promoção autorizada da 1.1.0 foi fast-forward para `master`; o antigo `master` local e as alterações de trabalho permanecem preservados conforme registrado em `HANDOFF.md`.
 - O Gluetun é a única superfície de rede publicada. A faixa TCP padrão é `10000-10010` (estreita; `10001` painel, `10002` proxy) e o bind padrão é local; bind em LAN exige `OPENCODE_GUI_PASSWORD_FILE`.
 - A recuperação automática usa a API autenticada do Gluetun e não recebe o socket Docker.
 - Todos os serviços possuem o perfil Compose interno `vpn`, selecionado pelo `vpn-switch`; isso impede a inicialização do Gluetun sem os segredos do provedor.

@@ -1,6 +1,6 @@
 # Verify
 
-## Latest Verification - 2026-11-22 (integration release and CI)
+## Latest Verification - 2026-11-22 (main checkout release cutover)
 
 ### Passed
 
@@ -20,15 +20,17 @@
 - v1 1.19.6 ↔ v2 2.3.2 native CLI transfer was exercised earlier in this task
   with synthetic sessions and isolated temporary data homes. No active user
   database or provider request was used.
-- Runtime: `vpn-switch nordvpn-openvpn` recreated the existing Compose stack;
+- Runtime: `vpn-switch nordvpn-openvpn` recreated the existing Compose stack
+  from `/projetos/vpn-dev-workspace`;
   VPN and auto-reconnect healthchecks are healthy; `vpn-check --json` reports
   `healthy=true`, `fails=0`, and all 6 checks passing. Container CLI versions:
   OpenCode v1 **1.19.6**, v2 **2.3.2**, Node **22.17.0**.
 - Rollback image tags preserve all three previous images:
-  `vpn-v1v2-integration:rollback-*-before-1.1.0-20261122`.
-- GitHub Actions run [`44993923190`](https://github.com/kivervinicius/vpn-dev-workspace/actions/runs/44993923190)
-  for commit `ae93bda` passed all four jobs: Linux validation and both Docker
-  builds, Windows Pester (**16/16**), Gitleaks, and Trivy supply-chain scan.
+  `vpn-v1v2-integration:rollback-*-before-1.1.0-20261122`. Current local
+  images are tagged `vpn-dev-workspace-*:1.1.0`.
+- GitHub Actions run [`45024958928`](https://github.com/kivervinicius/vpn-dev-workspace/actions/runs/45024958928)
+  for exact commit `3671a785` passed `validate`, `validate-windows-cli`,
+  `supply-chain`, and `secret-scan` (including Windows Pester **16/16**).
 - The Windows CI run exposed and verified the fix for the LAN proxy loopback
   check in `scripts/vpn.ps1`; the proxy validation and staging-failure tests
   pass on the hosted Windows runner.
@@ -40,8 +42,12 @@
   Windows host before claiming the Windows runtime path validated.
 - No live Desktop App reconnect or provider request was performed.
 - No OpenCode provider request or active user database access was performed.
-  The original dirty workspace files remain untouched. Branch
-  `integration/vpn-unified-1.1.0` is committed and pushed through `ae93bda`.
+  The previous dirty tree is preserved in stash
+  `377397b7f6731230749e3d806bcdeecd40d0f825`; former local master is preserved
+  by `archive/master-before-1.1.0-357a33d`.
+- Tag `1.1.0` and the GitHub Release
+  [VPN Dev Workspace 1.1.0](https://github.com/kivervinicius/vpn-dev-workspace/releases/tag/1.1.0)
+  both target commit `3671a78506ee826ba84dbd72d98b697e3ce81862` on `master`.
 
 ## Historical Verification - 2026-11-20 (remote restaurado, fetch e inspeção das branches remotas)
 

@@ -14,6 +14,18 @@
   before claiming the Windows runtime path validated. It is not a prerequisite
   for initial Linux use.
 
+## Current delivery state (2026-11-22)
+
+- Release candidate 1.1.0: commit `3671a78506ee826ba84dbd72d98b697e3ce81862`
+  on `master`, published as Git tag and GitHub Release `1.1.0`, with all four
+  GitHub Actions jobs passing for that commit.
+- The local Compose runtime was switched to the main checkout and passed
+  `vpn-check` in both host and terminal contexts. Release metadata:
+  https://github.com/kivervinicius/vpn-dev-workspace/releases/tag/1.1.0
+- The prior dirty `feat/vpn-unified-ia` work remains in stash
+  `377397b7f6731230749e3d806bcdeecd40d0f825`; the former local master has an
+  archive ref. Recovery and rollback details are in `HANDOFF.md`.
+
 ## In Scope
 
 - Documentação, imagem Docker, Compose, scripts de operação, CI e memória DEV.

@@ -4,13 +4,27 @@ Updated: 2026-11-22
 
 ## Current state
 
-The Linux-first delivery and audit of the approved OpenCode v1/v2 integration
-plan are complete in isolated worktree `/tmp/vpn-v1v2-integration`, branch
-`integration/vpn-unified-1.1.0`. The original dirty workspace
-`/projetos/vpn-dev-workspace` has not been modified. The existing Docker Compose
-project now runs the integration worktree. The branch is pushed to `origin` at
-`ae93bda`; the latest GitHub Actions run passed all four jobs. Real Docker
-Desktop SQLite staging remains a Windows-host check.
+Release 1.1.0 is published: annotated Git tag `1.1.0` and GitHub Release
+[VPN Dev Workspace 1.1.0](https://github.com/kivervinicius/vpn-dev-workspace/releases/tag/1.1.0)
+both point to commit `3671a78506ee826ba84dbd72d98b697e3ce81862`
+(`docs(release): prepare 1.1.0 changelog`) on local and remote `master`.
+GitHub Actions run
+[`45024958928`](https://github.com/kivervinicius/vpn-dev-workspace/actions/runs/45024958928)
+passed all four jobs for this exact commit.
+
+The existing Compose project has been recreated from the main checkout
+`/projetos/vpn-dev-workspace`, not the temporary integration worktree. The
+terminal, VPN and auto-reconnect services are up; Gluetun and auto-reconnect
+are healthy; `vpn-check` passed 6/6 in the terminal and 5/5 on the host. The
+container bind-mounts the main checkout, and the persistent state volume was
+retained.
+
+Previous local work is recoverable: stash
+`377397b7f6731230749e3d806bcdeecd40d0f825` contains the dirty and untracked
+`feat/vpn-unified-ia` work; `archive/master-before-1.1.0-357a33d` preserves the
+old local master. Three old Docker images remain tagged
+`vpn-v1v2-integration:rollback-*-before-1.1.0-20261122`. Current local images
+also have `:1.1.0` tags; no image was published to a registry.
 
 ## Implemented
 
@@ -40,12 +54,16 @@ Desktop SQLite staging remains a Windows-host check.
 - Actual v1/v2 native CLI transfer was exercised earlier in this task with
   synthetic sessions and isolated temporary data homes; no active user DB or
   real provider request was used.
-- Runtime deployment through `vpn-switch nordvpn-openvpn` passed: Gluetun and
-  `vpn-auto-reconnect` are healthy, `vpn-check` reports 6/6 checks and no
-  failures, and the container reports OpenCode v1 1.19.6, v2 2.3.2, Node 22.
-- Old images are retained under `vpn-v1v2-integration:rollback-*-before-1.1.0-20261122`.
-- GitHub Actions run `44993923190` passed `validate`, `validate-windows-cli`,
-  `secret-scan`, and `supply-chain`; the Windows job passed all 16 Pester tests.
+- Runtime deployment through `vpn-switch nordvpn-openvpn` passed from the main
+  checkout: Gluetun and `vpn-auto-reconnect` are healthy, `vpn-check` reports
+  6/6 checks in the terminal and 5/5 on the host, and the container reports
+  OpenCode v1 1.19.6, v2 2.3.2, Node 22.17.0. Compose project working
+  directory and workspace mount both point to `/projetos/vpn-dev-workspace`.
+- Previous images are retained under
+  `vpn-v1v2-integration:rollback-*-before-1.1.0-20261122`; current images have
+  local `vpn-dev-workspace-*:1.1.0` aliases.
+- GitHub Actions run `45024958928` for exact commit `3671a785` passed
+  `validate`, `validate-windows-cli`, `supply-chain`, and `secret-scan`.
 - Pester is unavailable in this Linux environment; Windows tests ran on the
   hosted Windows runner. The live Docker Desktop SQLite staging path remains
   unverified.
@@ -59,9 +77,7 @@ Desktop SQLite staging remains a Windows-host check.
 
 ## Delivery constraints
 
-- The maestro authorized and the agent completed the commit and push of this
-  integration branch after local build and runtime verification. Do not merge
-  or publish an image to a registry without a separate request. Keep the
-  original dirty workspace files unchanged.
+- The maestro authorized the 1.1.0 GitHub release and local runtime cutover.
+  Do not publish a container image to a registry; none is part of this release.
 - Detailed evidence: `VERIFY.md`; chronological record: `WORKLOG.md`;
   task contract: `SPECS/ACTIVE.md`.

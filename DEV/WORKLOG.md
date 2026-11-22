@@ -1,5 +1,23 @@
 # Worklog
 
+## 2026-11-22 - Cutover do release candidate 1.1.0
+
+- Changed: `master` foi promovido por fast-forward ao commit `3671a785` após a
+  CI verde; Compose foi recriado da pasta principal; imagens locais receberam
+  aliases `:1.1.0`; rollback das imagens antigas e alterações locais foram
+  preservados. Handoff, contexto, spec e verificação DEV foram alinhados.
+- Why: instalar e tornar rastreável a versão preparada para publicação sem
+  perder o trabalho local anterior.
+- Verified: GitHub Actions `45024958928` passou nos quatro jobs; Gluetun e
+  auto-reconnect saudáveis; `vpn-check` 6/6 dentro do terminal e 5/5 no host;
+  Compose monta `/projetos/vpn-dev-workspace`; OpenCode 1.19.6/2.3.2 e Node
+  22.17.0 presentes.
+- Recovery: stash `377397b7f6731230749e3d806bcdeecd40d0f825`; branch archive
+  `archive/master-before-1.1.0-357a33d`; três tags de rollback listadas no
+  `HANDOFF.md`.
+- Released: tag anotada `1.1.0` e GitHub Release publicados no commit
+  `3671a785`; link permanente registrado em `HANDOFF.md`.
+
 ## 2026-11-22 - Integration branch pushed and CI passed
 
 - Changed: committed the integration as `bf0696e`, then corrected Windows test
