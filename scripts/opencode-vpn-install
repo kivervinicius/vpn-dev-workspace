@@ -2,8 +2,12 @@
 # Install the VPN-routed host launchers after validating the installed clients.
 set -Eeuo pipefail
 
-readonly EXPECTED_V1_VERSION=1.19.5
-readonly EXPECTED_V2_VERSION=2.1.3
+readonly EXPECTED_V1_VERSION=1.19.6
+# O installer aceita qualquer v2 >= baseline mínimo homologado (o --archived do
+# probe só existe a partir de 2.2.6). O pin recomendado continua em
+# OPENCODE_V2_EXPECTED_VERSION.
+readonly MIN_V2_VERSION=2.2.6
+readonly EXPECTED_V2_VERSION=2.3.2
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly INSTALL_DIR="${HOME:?HOME must be set}/.local/bin"
 readonly V1_BIN="${OPENCODE_V1_BIN:-${HOME}/.opencode-v1/bin/opencode}"
@@ -26,8 +30,8 @@ usage() {
   cat <<'EOF'
 Usage: opencode-vpn-install [--help]
 
-Validate OpenCode v1/v2 versions, then install VPN-routed launchers and the
-vpn-recovery plugins in their separate global config homes.
+Validate OpenCode v1/v2 versions, then install VPN-routed launchers, the
+cross-version session sync helper, and provider-status plugins.
 Existing targets are backed up before replacement.
 EOF
 }
@@ -42,6 +46,12 @@ esac
 for source in opencode1 opencode2; do
   [[ -f "$SCRIPT_DIR/$source" && -r "$SCRIPT_DIR/$source" ]] || fail "launcher source is missing: $SCRIPT_DIR/$source"
 done
+for source in opencode-session-sync opencode-session-sync.mjs; do
+  [[ -f "$SCRIPT_DIR/$source" && -r "$SCRIPT_DIR/$source" ]] || fail "session sync source is missing: $SCRIPT_DIR/$source"
+done
+command -v node >/dev/null 2>&1 || fail 'Node.js is required to install cross-version session sync.'
+node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 20 ? 0 : 1)' || \
+  fail 'Node.js 20 or newer is required for cross-version session sync.'
 [[ -f "$V1_PLUGIN_SOURCE" && -r "$V1_PLUGIN_SOURCE" ]] || fail "v1 plugin source is missing: $V1_PLUGIN_SOURCE"
 [[ -d "$V2_PLUGIN_SOURCE" && -r "$V2_PLUGIN_SOURCE/package.json" ]] || fail "v2 plugin package is missing: $V2_PLUGIN_SOURCE"
 
@@ -54,8 +64,30 @@ read_version() {
   printf '%s\n' "$result"
 }
 
+# Aceita qualquer v2 >= baseline mínimo. O instalador não pode quebrar só
+# porque o auto-update diário instalou uma versão mais nova.
+read_v2_version() {
+  local path="$1" result major minor patch
+  [[ -x "$path" ]] || fail "v2 binary is missing or not executable: $path"
+  result="$("$path" --version 2>&1)" || fail "v2 --version failed; no files were changed."
+  if [[ "$result" =~ (^|[^0-9])([0-9]+)[.]([0-9]+)[.]([0-9]+)([^0-9]|$) ]]; then
+    major="${BASH_REMATCH[2]}"; minor="${BASH_REMATCH[3]}"; patch="${BASH_REMATCH[4]}"
+  else
+    fail "v2 version could not be parsed; no files were changed."
+  fi
+  [[ "$major" == "2" ]] || fail "v2 major mismatch (installed $major.$minor.$patch); no files were changed."
+  if ((10#$minor < 10#${MIN_V2_VERSION%.*} || (10#$minor == 10#${MIN_V2_VERSION%.*} && 10#$patch < 10#${MIN_V2_VERSION#*.}))); then
+    fail "v2=$major.$minor.$patch is below the minimum baseline=$MIN_V2_VERSION; no files were changed."
+  fi
+  if ((10#$minor != 10#${EXPECTED_V2_VERSION%.*} || 10#$patch != 10#${EXPECTED_V2_VERSION#*.})); then
+    printf 'opencode-vpn-install: WARNING v2=%s.%s.%s differs from the tested baseline=%s\n' \
+      "$major" "$minor" "$patch" "$EXPECTED_V2_VERSION" >&2
+  fi
+  printf '%s\n' "$result"
+}
+
 v1_version="$(read_version v1 "$V1_BIN" "$EXPECTED_V1_VERSION")" || exit
-v2_version="$(read_version v2 "$V2_BIN" "$EXPECTED_V2_VERSION")" || exit
+v2_version="$(read_v2_version "$V2_BIN")" || exit
 
 # Validate every source and client version before touching user files.
 mkdir -p -- "$INSTALL_DIR" || fail "cannot create install directory: $INSTALL_DIR"
@@ -76,6 +108,8 @@ readonly V1_PLUGIN_BACKUP_DIR="${V1_HOME}/.config/opencode/plugin-backups/${back
 readonly V2_PLUGIN_BACKUP_DIR="${V2_CONFIG_HOME}/plugin-backups/${backup_stamp}"
 backup_target "$INSTALL_DIR/opencode1"
 backup_target "$INSTALL_DIR/opencode2"
+backup_target "$INSTALL_DIR/opencode-session-sync"
+backup_target "$INSTALL_DIR/opencode-session-sync.mjs"
 backup_target "$V1_OLD_PLUGIN" "$V1_PLUGIN_BACKUP_DIR"
 backup_target "$V1_NEW_PLUGIN" "$V1_PLUGIN_BACKUP_DIR"
 backup_target "$V2_OLD_PLUGIN" "$V2_PLUGIN_BACKUP_DIR"
@@ -86,16 +120,20 @@ cleanup() { rm -rf -- "$stage_dir"; }
 trap cleanup EXIT
 install -m 0755 -- "$SCRIPT_DIR/opencode1" "$stage_dir/opencode1" || fail 'could not stage opencode1.'
 install -m 0755 -- "$SCRIPT_DIR/opencode2" "$stage_dir/opencode2" || fail 'could not stage opencode2.'
+install -m 0755 -- "$SCRIPT_DIR/opencode-session-sync" "$stage_dir/opencode-session-sync" || fail 'could not stage session sync launcher.'
+install -m 0644 -- "$SCRIPT_DIR/opencode-session-sync.mjs" "$stage_dir/opencode-session-sync.mjs" || fail 'could not stage session sync module.'
 install -m 0644 -- "$V1_PLUGIN_SOURCE" "$stage_dir/vpn-recovery.js" || fail 'could not stage v1 plugin.'
 cp -a -- "$V2_PLUGIN_SOURCE" "$stage_dir/vpn-recovery" || fail 'could not stage v2 plugin.'
 
 mkdir -p -- "$V1_PLUGIN_DIR" "$V2_PLUGIN_DIR" || fail 'could not create OpenCode plugin directories.'
 mv -f -- "$stage_dir/opencode1" "$INSTALL_DIR/opencode1" || fail 'could not install opencode1.'
 mv -f -- "$stage_dir/opencode2" "$INSTALL_DIR/opencode2" || fail 'could not install opencode2.'
+mv -f -- "$stage_dir/opencode-session-sync" "$INSTALL_DIR/opencode-session-sync" || fail 'could not install session sync launcher.'
+mv -f -- "$stage_dir/opencode-session-sync.mjs" "$INSTALL_DIR/opencode-session-sync.mjs" || fail 'could not install session sync module.'
 rm -rf -- "$V1_OLD_PLUGIN"
 mv -f -- "$stage_dir/vpn-recovery.js" "$V1_NEW_PLUGIN" || fail 'could not install v1 plugin.'
 rm -rf -- "$V2_OLD_PLUGIN"
 rm -rf -- "$V2_NEW_PLUGIN"
 mv -T -- "$stage_dir/vpn-recovery" "$V2_NEW_PLUGIN" || fail 'could not install v2 plugin.'
-printf 'Installed VPN-routed launchers and recovery plugins (v1 %s; v2 %s).\n' \
+printf 'Installed VPN-routed launchers and provider-status plugins (v1 %s; v2 %s).\n' \
   "$v1_version" "$v2_version"

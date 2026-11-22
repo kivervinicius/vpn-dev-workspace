@@ -1,5 +1,97 @@
 # Worklog
 
+## 2026-11-22 - Repeated Linux gate, image build, and local deployment
+
+- Changed: corrected the Linux HTTP fixture so each forked `socat` connection
+  gets an independent response; rebuilt and deployed terminal, auto-reconnect,
+  and Gluetun images to the existing Compose project.
+- Why: eliminate a test race where the TCP probe could consume the HTTP fixture
+  response, then run the requested Linux release path without losing rollback.
+- Verified: Node **37/37**, Linux **60/60 in three consecutive runs**,
+  `verify-docs`, `verify-compose` (8 profiles), ShellCheck, syntax, PowerShell
+  parser, Gitleaks (232 commits, no findings), both Docker builds and Gluetun Go
+  tests. Runtime VPN checks **6/6**, Gluetun/auto-reconnect healthy; OpenCode
+  v1/v2 **1.19.6/2.3.2**, Node **22.17.0**.
+- Next: commit and push `integration/vpn-unified-1.1.0`, monitor CI. Windows
+  Pester and real Docker Desktop SQLite staging remain future platform checks.
+
+## 2026-11-22 - Linux-first audit completed
+
+- Changed: marked the isolated OpenCode v1/v2 integration as Linux-first and
+  recorded Windows Pester plus real Docker Desktop SQLite staging as future
+  platform validation.
+- Why: complete the approved Linux delivery without making a Windows host a
+  prerequisite for initial Linux use.
+- Verified: Node **37/37**, Linux scripts **60/60**, `verify-docs`, all eight
+  Compose profiles, Bash/sh/zsh/Node/PowerShell syntax, `git diff --check`,
+  ShellCheck `-S error` in Ubuntu 24.04, and Docker build passed. No provider
+  request or active database was used.
+- Next: run Pester and real SQLite staging checks on Docker Desktop when a
+  Windows host is available. No commit, push, merge, or deploy was performed.
+
+## 2026-11-22 - OpenCode v1/v2 session sync and provider status-only policy
+
+- Why: implemented the approved integration plan while preserving the original
+  dirty workspace and avoiding provider requests or automatic prompt/tool
+  replay.
+- Changed: added native JSON session export/import conversion between v1/v2,
+  recent-workspace sync, explicit old-session selection, linked IDs, safe
+  ledger/locking, verification, and pending outcomes for unsafe transcripts.
+  Provider quota/auth/rate-limit handling is notification-only; the network
+  supervisor verifies the exact saved session and prints a manual resume
+  command. Windows SQLite staging failures now return nonzero and cannot apply
+  old staging. Updated v1/v2 baseline docs and pinned the Docker fallback to v1
+  1.19.6 using release asset hashes.
+- Verified: Node suites **37/37**, Linux shell suite **60/60**, `verify-docs`,
+  `verify-compose` (8 profiles), shell/Node syntax, PowerShell parse,
+  `git diff --check`, ShellCheck in an ephemeral Ubuntu 24.04 container, and an
+  amd64 Docker image build passed. The build verified the v1 1.19.6 archive
+  checksum. Actual native CLI transfer with synthetic data in isolated
+  temporary homes was exercised earlier in this task. Pester is unavailable
+  on this Linux host.
+- Limits: no live provider request, real Desktop App reconnect, Windows
+  Docker Desktop runtime, commit, push, merge, or deploy. The original dirty
+  workspace was not modified. Details: `VERIFY.md` and `HANDOFF.md`.
+
+## 2026-11-21 - Avaliação crítica da rotação de IP OpenCode e elaboração do plano de release
+
+- Why: solicitação do maestro para avaliar criticamente a viabilidade de burlar o OpenCode com rotação de IP da NordVPN, auditar todas as branches abertas e traçar plano de unificação para release autônoma.
+- Changed: criado plano técnico e arquitetural detalhado em `DEV/SPECS/PLAN-AUTONOMOUS-RELEASE.md` separando fatos técnicos (cota per-account vs rate-limit per-ip, afunilamento de servidores NordVPN BR), triagem de branches obsoletas e plano em 4 fases para automação e release estável.
+- Verified: suite Node 26/26 verde; diagnosticada a causa da falha do Teste 22 na suíte Linux (descompasso entre a expectativa do teste e a diretiva de rotação de free-tier de 20/nov); artefato de avaliação gerado. Nenhum commit ou push realizado.
+
+## 2026-11-20 - Remote restaurado, fetch das branches remotas e divergência de histórico
+
+- Why: o repositório local estava **sem remote nenhum** (o `git-filter-repo` da reescrita de privacidade removeu `origin`). Sem `origin` não havia como "baixar mudanças remotas". `git@github.com:kivervinicius/vpn-dev-workspace.git` retorna `Permission denied (publickey)` neste host (a chave `~/.ssh/id_ed25519` não é a do GitHub); o repositório é público, então o remote foi restaurado por HTTPS.
+- Changed: `git remote add origin https://github.com/kivervinicius/vpn-dev-workspace.git` + `git fetch --all --prune` (6 branches + 8 refs de PR). Criadas as branches locais de tracking `fix/p0-control-plane-safety` e `feat/control-plane-observability-v1`. Worktrees de inspeção: `/projetos/vpn-dev-workspace-p0` (em `fix/p0-control-plane-safety`) e `/projetos/vpn-dev-workspace-obs` (em `feat/control-plane-observability-v1`).
+- Changed (documentação): `DEV/HANDOFF.md`, `DEV/VERIFY.md` e `DEV/CONTEXT.md` atualizados com o estado do remote, a divergência e a pendência de integração. Nenhum commit e nenhum push.
+- Estado do histórico: `master` local (`357a33d`) e `origin/master` (`8fcace9`) divergem **38/38** — é a mesma rewrite de privacidade, com subjects idênticos e SHAs diferentes. O diff `master → origin/master` tem 20 arquivos e **só** linhas de IP/hostname redigido (`PRIVATE_IP_REDACTED` ↔ `192.168.x`, `internal.example` ↔ `omega.local`); `origin/master` ainda carrega os valores reais.
+- Novas branches remotas (não existem localmente): `fix/p0-control-plane-safety` (22 commits, `apps/control-plane` completo: state/observer/probe/backup/events/compat + `tests/control`, `SECURITY.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, issue/PR templates, `docs/COMMUNITY_ROADMAP.md`) e `feat/control-plane-observability-v1` (17 commits, base do PR #7). PR #8 = p0 → observability; PR #7 = observability → master. CI: p0 **verde**; observability com `validate` **failure**.
+- Divergência local × p0: as 12 alterações locais ainda não commitadas tocam 12 dos 47 arquivos da cadeia p0 (`.env.example`, `README.md`, `docker-compose.yml`, `compose.windows.yml`, `DEV/BACKLOG.md`, `DEV/TESTING.md`, `.github/workflows/validate.yml`, `scripts/vpn-opencode`, `scripts/vpn.ps1`, `scripts/opencode-supervisor`, `opencode/v2/vpn-recovery/tui-core.js`, `tests/opencode/vpn-recovery.test.mjs`) e são **diferentes** do p0 em todos eles — o local implementa a política "cota free-tier é por conta" (TUI v2 só notifica, com countdown do `Retry-After`; sem `extractRetryAfterSeconds` no p0) enquanto o p0 implementa o opposite (`free_tier_limit` rotaciona, `rate_limit` exige modelo `-free` do provider `opencode`).
+- Verified: cherry-pick de `e9db38b^..c525639` (cadeia p0) sobre `master` local em worktree temporário → **aplica sem conflito** (47 arquivos staged, nenhum unmerged). Worktree p0: `tests/linux/test-scripts.sh` **45/45**, `node --test tests/control/*.test.cjs` **22/22**, `node --test tests/opencode/*.test.mjs` **9/9**. Worktree observability: `tests/control` **20/21** — falha real: `state.test.cjs` espera `components.network.dns === "ok"`, mas `apps/control-plane/lib/state.cjs` (regra de `e0ad850`) deriva `dns` de `c.healthy` e devolve `"unknown"` quando um check não-DNS falha; o p0 corrige isso em `35ec06b` (dns derivado dos checks DNS). Mesmo `validate` vermelho no CI do branch observability.
+- Pending (decisão do maestro): como integrar. Nenhuma integração foi executada — `master` continua em `357a33d` com as 52 alterações locais intactas.
+
+## 2026-11-05 - Cota free-tier por conta + caminho do host + rotação com revert
+
+- Why: OpenCode "sempre bloqueado pela VPN". Diagnóstico fechou a causa: cota free-tier do Zen é **por conta/dispositivo** desde out/2026 — `HTTP 429` (`FreeUsageLimitError`) com o mesmo `Retry-After` (~24600 s) no IP residencial e em IPs de datacenter da VPN; rotação real em 2026-11-03 não renovou a cota. Não é regressão do repo.
+- Changed (Fase 1): `free_tier_limit` não rotaciona mais — `RECOVERABLE` v1/v2 = só `rate_limit`; TUI v2 notifica com contagem regressiva (`extractRetryAfterSeconds` em `classify.js`; HTTP-date ignorado, cap 86400); helper sai cedo com `free_tier_not_rotatable` (sem consumir cooldown/orçamento); `--retry-after <s>` grava `cooldown_until` (skip `cooldown_retry_after` veta retry no v2); circuit breaker (2 falhas consecutivas sem IP novo → `circuit_open`; sucesso zera; reabre quando `last_failure` envelhece além da janela de 3600 s).
+- Changed (Fase 2): `vpn-control-api.sh` ganhou `vpn_control_is_container`/`vpn_control_default_url`/`vpn_control_default_key_file` (host → `127.0.0.1:${VPN_CONTROL_PORT:-18000}`, container → `127.0.0.1:8000`; segredo com fallback `<repo>/.secrets`); `vpn-check/status/top/reconnect/server-rotate` usam os defaults; `vpn-control-lock.sh` reescrito com candidatos graváveis (explícito falha alto; `<repo>/.vpn-control-lock` = mesmo bind mount do `/run/vpn-control-lock` do container; `vpn_control_state_file()` com fallback `<repo>/.vpn-control-state/`).
+- Changed (Fase 3): `vpn-server-rotate` com snapshot/revert da seleção anterior (PUT falha, reconnect falha ou túnel insaudável → restaura + reconecta best-effort + exit 1); `--random` escolhe dentro de `VPN_SERVER_HOSTNAMES` (preserva a lista no runtime — antes limpava os hostnames do Gluetun até o recreate).
+- Changed (Fase 4): escape `OPENCODE_ALLOW_HOST=1` em `opencode1`/`opencode2` (aviso em stderr; binários via `OPENCODE_HOST_V1_BIN`/`OPENCODE_HOST_BIN`); `docker-compose.yml` publica `127.0.0.1:${VPN_CONTROL_PORT:-18000}:8000`; `.env.example` documenta `VPN_CONTROL_PORT`/`VPN_CONTROL_BIND` e a política nova; `verify-compose` trava o default de `VPN_CONTROL_PORT` (compose ↔ .env.example).
+- Tests: novos casos Linux (free-tier skip, `--retry-after` gravado/válido, circuit abre/fecha/zera, rotate `--random` preserva hostnames, revert por reconnect falho e por túnel insaudável, defaults host/container, lock por `VPN_CONTROL_LOCK_DIR` + falha alto, escape nos launchers); node cases (free-tier não rotaciona v1/v2, `--retry-after 120` repassado, headers/HTTP-date, `cooldown_retry_after`, TUI countdown, escape). Flaky 20/32 corrigidos: causa era vazamento de `VPN_WORKSPACE_CONTAINER=1` do ambiente do harness; testes agora fixam a variável vazia nas invocações host-branch e o caso negativo do escape usa PATH sem docker.
+- Verified: Linux suite **57/57 em 5 execuções consecutivas**, `node --test` **14/14**, `verify-docs` OK, `verify-compose` OK (8 perfis com a nova porta), `bash -n`/`node --check` limpos. README, runbooks (`troubleshooting-vpn`, `opencode-desktop-vpn`, `opencode-v1-v2`) e `.env.example` alinhados à política nova.
+- Pending: ~~a publicação da porta 18000 exige recreate da stack~~ **Feito 2026-11-05 com autorização do maestro**: `./scripts/vpn-switch nordvpn-openvpn` recriou a stack; `vpn-status`/`vpn-check`/`vpn-top` validados no host via `127.0.0.1:18000` (IP público `189.1.168.16`, hostnames `br71..br98` restaurados, túnel saudável 5/5). Corrigido em sequência: `vpn_api_curl` ignorava o `API_KEY_FILE` resolvido (default próprio quebrava o host) e o formato `{{.Service}}` do `vpn-top` (inválido no `docker ps`; agora `{{.Names}}`). Nenhum commit/push.
+
+## 2026-11-03 - Hardening, recovery flow and public-history rewrite
+
+- Changed: `vpn-switch` now locks every VPN mutation and Make targets route through it; LAN proxy requires auth; API/basic-auth secrets use curl stdin config; Gluetun auth is generated in tmpfs; `.env` parsers handle quoting/comments/duplicates; exact OpenCode `web|serve` stop matcher replaces the broad process regex. Shared v1/v2 plugin configs are inert outside the VPN container (`VPN_WORKSPACE_CONTAINER=1`); plugins were reinstalled in the running VPN terminal.
+- Changed: recovery helper verifies VPN running, valid public IP and healthy tunnel before cooldown/budget checks; unready startup leaves state untouched. v1 validates and replays one supported user message after changed IP or a healthy cooldown; v2 server hook controls a single retry and TUI only notifies. Docs, `.env.example`, drift guards, Windows checklist and CI Gluetun build were aligned.
+- Changed: `opencode2` no longer overrides the Compose-isolated `XDG_STATE_HOME` with the host value; this prevents host/container OpenCode service registration from sharing `service.json`. A launcher regression case asserts the VPN container state wins.
+- Changed: both host launchers now delegate to their installed in-container launcher and inherit Compose `HOME`/XDG values. This also avoids failures when the host shell uses a profile-specific home path.
+- Verified: Linux suite **51/51**, `verify-docs`, `verify-compose` (8 profiles), shell syntax, and `git diff --check` passed. Both installed launchers match the source; v1 **1.19.5**, v2 **2.1.3**, and tunnel health passed inside the container. Already running OpenCode processes need to be closed and reopened to pick up the corrected environment; no real provider request was made.
+- Privacy: user chose public repository plus rewritten history. All local refs were scrubbed and Gitleaks passed; GitHub was not updated. `git-filter-repo` removed the configured remote, which must be restored before the rewritten refs can be published. `secrets.zip` remains quarantined outside the repository. The first history rewrite reset tracked local changes; they were reconstructed, but byte-identical restoration is not guaranteed.
+- Verified: OpenCode tests **13/13**, Linux tests **51/51**, `verify-docs`, `verify-compose` (8 profiles), `git diff --check`, Gitleaks clean, PowerShell syntax and dotenv smoke passed. Local `vpn-switch nordvpn-openvpn` rebuilt/recreated the stack; `vpn-check` reported healthy with 6/6 checks. Plugins were reinstalled in the terminal; tunnel-only health and `opencode2 --version` passed. Pester is unavailable locally.
+- Next: restore the Git remote and force-push rewritten refs when ready; run Pester on Windows CI. No commit or push was created.
+
 ## 2026-10-30 - Docs da regra LAN do painel + guarda de VPN_PORT_RANGE
 
 - Changed: `DEV/DECISIONS.md`, `README.md` e `DEV/RUNBOOKS/opencode-desktop-vpn.md` agora registram que bind em LAN exige `OPENCODE_GUI_PASSWORD_FILE` não vazio (`vpn-switch`/`vpn.ps1` recusam subir sem ele); `scripts/verify-compose` ganhou checagem estática de que o default de `VPN_PORT_RANGE` bate entre `docker-compose.yml` e `.env.example` (sem Docker, antes dos perfis). Revisão de docs fechou o BACKLOG #4 (sem `secrets/` rastreado; `secrets.zip`/`.secrets/` ignorados) e alinhou a contagem da suíte (45/45) em `CONTEXT`/`SPECS`.
@@ -22,7 +114,7 @@
 ## 2026-10-30 - End-to-end recovery in OpenCode v1/v2
 
 - Changed: deployed the structured free-tier/HTTP 429 recovery plugins and helper to the active VPN terminal; installer keeps plugin backups outside OpenCode plugin-discovery directories. Account/credit limits remain excluded; prompts are never replayed.
-- Verified: OpenCode **1.19.5/2.1.3**; adapter tests **8/8**, Linux suite **43/43**, docs, Compose and shell syntax passed. Local synthetic HTTP 429 triggered a real rotation in v1 (`189.1.170.10` → `189.1.170.177`, br71) and v2 (`189.1.170.177` → `189.1.168.12`, br72). Helper state confirmed each before/after IP; final `vpn-check` passed **6/6**. v2 plugin discovery included `vpn-recovery`.
+- Verified: OpenCode **1.19.5/2.1.3**; adapter tests **8/8**, Linux suite **43/43**, docs, Compose and shell syntax passed. Local synthetic HTTP 429 triggered a real rotation in v1 (`PUBLIC_IP_REDACTED` → `PUBLIC_IP_REDACTED`, br71) and v2 (`PUBLIC_IP_REDACTED` → `PUBLIC_IP_REDACTED`, br72). Helper state confirmed each before/after IP; final `vpn-check` passed **6/6**. v2 plugin discovery included `vpn-recovery`.
 - Limits: provider requests were restricted to the local mock; no real quota was used. Egress IP change does not guarantee quota reset. The existing managed service was left untouched; v2 E2E used `--standalone` because its default port was occupied.
 
 
@@ -36,7 +128,7 @@ Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for 
 ## 2026-10-23 - Free tier × IP descoberto (limite por IP, não por conta)
 
 - Changed: `VPN_ROTATE_SERVERS=true` reativado no `.env` e `.env.example`; docs atualizadas.
-- Why: descoberto que o limite free tier v2 é **por IP** (janela ~200 req/5h), não por conta/modelo. Host (IP residencial `168.205.49.98`) → todos 9 modelos QUOTA; VPN (IP `189.1.168.17`) → 9/9 modelos OK. A rotação de IP (`VPN_ROTATE_SERVERS=true`) **volta a ter valor** — rotacionar IP renova a janela de 5h.
+- Why: descoberto que o limite free tier v2 é **por IP** (janela ~200 req/5h), não por conta/modelo. Host (IP residencial `PUBLIC_IP_REDACTED`) → todos 9 modelos QUOTA; VPN (IP `PUBLIC_IP_REDACTED`) → 9/9 modelos OK. A rotação de IP (`VPN_ROTATE_SERVERS=true`) **volta a ter valor** — rotacionar IP renova a janela de 5h.
 - Verified: matriz 9 modelos free v2: Host = todos QUOTA; VPN = 9/9 OK. `VPN_ROTATE_SERVERS=true` reativado no `.env` e documentado. `opencode-free` (v1) funciona no host; VPN usa v2 free.
 - Next context: usar VPN para free tier v2; host usa `opencode-free` (v1). Monitorar log por "abusive traffic" (nova trava por ASN).
 
@@ -84,8 +176,8 @@ Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for 
 - Changed: `vpn-server-rotate` ganhou `--countries "Brazil,Argentina,Chile"` (PUT em `provider.server_selection.countries` com `hostnames: []`); `--to` e `--countries` são mutuamente exclusivos; `.env.example`/README/CONTEXT documentam multi-país e a precedência de `VPN_SERVER_HOSTNAMES`. `OPENCODE_FREE_TIER_ROTATE` passou a `false` por padrão (Compose + supervisor) e o `opencode-limit-watch` agora respeita a flag (antes rotacionava sempre no `free_tier_limit`); `.env` local fixado em `false`.
 - Why: desde out/2026 o gateway do OpenCode bloqueia faixas de datacenter/VPN por ASN e a rotação por IP deixou de renovar a franquia free; além disso, o watcher ignorava `OPENCODE_FREE_TIER_ROTATE` e continuava rotacionando.
 - Verified: suíte Linux 55/55 (novos casos `--countries` e `no-rotate`), `verify-docs`, `verify-compose`, `bash -n`.
-- Runtime: `--countries "Argentina"` não completou o handshake OpenVPN (IPs 103.50.33.x sem resposta) e a re-seleção aleatória no Brasil também falhou; restaurar `VPN_SERVER_HOSTNAMES` (br71…) voltou a conectar (IP `189.1.168.6`). Em rede restritiva, fixe hostnames alcançáveis em vez de confiar em servidor aleatório.
-- Teste de países (Gluetun temporário, 1 tentativa): Chile, Colômbia, Peru, México, EUA e Espanha deram timeout; Portugal e Canadá deram `auth-failure` (provável rate limit após várias tentativas); Argentina timeout. TCP 443 também pendurou e porta custom 1231 é rejeitada para NordVPN. Só o range fixo `br71…`/`189.1.168.x` conectou; lista fixa restaurada (IP `189.1.168.17`).
+- Runtime: `--countries "Argentina"` não completou o handshake OpenVPN (IPs 103.50.33.x sem resposta) e a re-seleção aleatória no Brasil também falhou; restaurar `VPN_SERVER_HOSTNAMES` (br71…) voltou a conectar (IP `PUBLIC_IP_REDACTED`). Em rede restritiva, fixe hostnames alcançáveis em vez de confiar em servidor aleatório.
+- Teste de países (Gluetun temporário, 1 tentativa): Chile, Colômbia, Peru, México, EUA e Espanha deram timeout; Portugal e Canadá deram `auth-failure` (provável rate limit após várias tentativas); Argentina timeout. TCP 443 também pendurou e porta custom 1231 é rejeitada para NordVPN. Só o range fixo `br71…`/`189.1.168.x` conectou; lista fixa restaurada (IP `PUBLIC_IP_REDACTED`).
 - Next context: recriar `terminal`/`opencode-supervisor` para aplicar `OPENCODE_FREE_TIER_ROTATE=false`; para multi-país persistente usar `VPN_COUNTRY=Brazil,Argentina,...` + `VPN_SERVER_HOSTNAMES=` + `vpn-switch`.
 
 ## 2026-10-22 - Isolamento host x container do OpenCode + compactação do DB
@@ -98,9 +190,9 @@ Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for 
 
 ## 2026-10-22 - Stack VPN recriada do zero (nova versão) + auditoria de contenção do OpenCode v2
 
-- Changed: `./scripts/vpn-switch nordvpn-openvpn` no host: `down` completo do projeto + `up -d --build --force-recreate`; imagem do `terminal` reconstruída e os 3 containers recriados; o `terminal` passou a subir o `opencode-limit-watch` pelo comando do Compose; `LOCAL_HOSTS` (`gitlab.omega`) reaplicado.
+- Changed: `./scripts/vpn-switch nordvpn-openvpn` no host: `down` completo do projeto + `up -d --build --force-recreate`; imagem do `terminal` reconstruída e os 3 containers recriados; o `terminal` passou a subir o `opencode-limit-watch` pelo comando do Compose; `LOCAL_HOSTS` (`gitlab.internal.example`) reaplicado.
 - Why: pedido do maestro para pausar todo o VPN atual e subir uma nova versão; junto, auditar se o OpenCode v2 roda inteiramente no container.
-- Verified: `vpn-1`/`vpn-auto-reconnect-1` healthy e `terminal` Up; `vpn-check` 6/6 ok; `vpn-status` running; IP público do container `189.1.170.12` (São Paulo) via NordVPN; host segue em `168.205.49.98`.
+- Verified: `vpn-1`/`vpn-auto-reconnect-1` healthy e `terminal` Up; `vpn-check` 6/6 ok; `vpn-status` running; IP público do container `PUBLIC_IP_REDACTED` (São Paulo) via NordVPN; host segue em `PUBLIC_IP_REDACTED`.
 - Auditoria: há duas instâncias possíveis do OpenCode v2 — a do host (`opencode --yolo` na sessão ptyxis, fora do túnel) e a do container `terminal` (dentro do túnel). Nesta execução a sessão ativa ficou no host; o container recriado subiu só com o watcher. Para 100% do tráfego no túnel, usar `vpn-opencode`/terminal e encerrar a instância do host.
 - Next context: se o objetivo for conter todo o OpenCode, fechar `opencode --yolo` do host e abrir pelo `terminal`; o Desktop/Web usa `vpn-opencode serve`.
 
@@ -115,7 +207,7 @@ Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for 
 
 - Changed: nenhuma alteracao no codigo do projeto. Restauracao de ambiente da maquina: store do Docker Desktop estava corrompido (containerd bbolt panic) e foi resetado; engine religado pelo CLI oficial (`docker desktop start`), dados redirecionados para `D:\Docker\vm-data` (junction em `%LOCALAPPDATA%\Docker\vm-data`), memoria do VM reduzida para 3GB; stack religada com `.\scripts\vpn.ps1 start custom-openvpn`.
 - Why: `docker ps` respondia 500/engine parado e o terminal VPN nao subia (a entrada XKIRO ficou com runtime pendente por isso).
-- Verified: pull do gluetun + build das duas imagens + os 3 containers de pe (`vpn-1` e `vpn-auto-reconnect-1` healthy); `vpn-status` no container: `VPN: running`, `IP publico: 189.1.170.11 (Sao Paulo, Brazil)`; `docker exec` como `developer` OK; engine 29.8.2 estavel sob o ciclo completo (pull+build+run).
+- Verified: pull do gluetun + build das duas imagens + os 3 containers de pe (`vpn-1` e `vpn-auto-reconnect-1` healthy); `vpn-status` no container: `VPN: running`, `IP publico: PUBLIC_IP_REDACTED (Sao Paulo, Brazil)`; `docker exec` como `developer` OK; engine 29.8.2 estavel sob o ciclo completo (pull+build+run).
 - Next context: runtime do `XKIRO_API_KEY` no container agora desbloqueado (rodar a TUI com `xkiro/meta/muse-spark-1.3-contributor:free`). Conversas do container ficaram pendentes de push no host (OpenCode do host ativo durante o start): fechar e rodar `.\scripts\vpn.ps1 sessions-sync --push`.
 
 ## 2026-10-17 - XKIRO_API_KEY no container (erro do Console em modelos free)
@@ -203,7 +295,7 @@ Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for 
 - Fix: fallback mantido (sem `WORKSPACE_DIR`, `/workspace` = raiz do repo); `Test-Path` falha cedo se o caminho nao existir. `.env` local: `WORKSPACE_DIR=C:\Users\kiver\dev`. Docker Desktop ja compartilhava `C:\Users\kiver` (sem mudanca de file sharing).
 - Verified: container recriado; `/workspace` = `C:\Users\kiver\dev` (arquivo criado no container apareceu no host e vice-versa); OpenCode 2.0.28 persistiu (volume `vpn_windows_home`).
 - Nota: mudanca em codigo rastreado (`scripts/vpn.ps1`, `.env.example`) a pedido do usuario; commit fica para o usuario.
-- Rebuild completo validado (2026-10-16): `vpn.ps1 stop` -> `docker compose build --no-cache --pull` (env dummy de interpolacao: `WINDOWS_WORKSPACE_DIR=C:\Users\kiver\dev`, bridge port/token fake) -> `vpn.ps1 start custom-openvpn`. Resultado: imagens `terminal` e `vpn-auto-reconnect` reconstruidas de raiz; `vpn-check` 6/6; IP 189.1.170.11; `/workspace` = pasta dev; OpenCode 2.0.28 (volume) + fallback 1.18.31 (imagem nova); ponte SSH e `ssh -T git@github.com` = "Hi kivervinicius!".
+- Rebuild completo validado (2026-10-16): `vpn.ps1 stop` -> `docker compose build --no-cache --pull` (env dummy de interpolacao: `WINDOWS_WORKSPACE_DIR=C:\Users\kiver\dev`, bridge port/token fake) -> `vpn.ps1 start custom-openvpn`. Resultado: imagens `terminal` e `vpn-auto-reconnect` reconstruidas de raiz; `vpn-check` 6/6; IP PUBLIC_IP_REDACTED; `/workspace` = pasta dev; OpenCode 2.0.28 (volume) + fallback 1.18.31 (imagem nova); ponte SSH e `ssh -T git@github.com` = "Hi kivervinicius!".
 - Incidente no rebuild: o primeiro `start` falhou com "Tempo limite iniciando a ponte SSH" - o build --no-cache consumiu CPU/disco e o cold start do PowerShell da ponte (>5s) estourou o wait de 5s do `Start-SshAgentBridge`. Com a maquina ociosa o mesmo start passou. Se recorrer: rodar `vpn.ps1 start` de novo.
 - Ajuste (2026-10-16): `WORKSPACE_DIR` no `.env` trocado de `C:\Users\kiver\dev` (pasta vazia criada na instalacao) para `C:\Dev` (pasta real do usuario, contem `appce-monorepo`). `C:\Dev` adicionado ao File Sharing do Docker Desktop (`settings-store.json` + `settings.json`, backups `.bak-20261016-*`) - o Desktop em execucao NAO recarrega o file sharing em runtime: foi necessario fechar (`Stop-Process 'Docker Desktop'`) e reabrir o app antes do start. Validado: `/workspace` lista o conteudo de `C:\Dev`, tunel running, OpenCode 2.0.28, ponte SSH com identidade.
 
@@ -219,7 +311,7 @@ Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for 
 
 - Changed: a ponte SSH (relay Unix->TCP do `vpn-ssh-agent-relay`) falhava dentro do terminal com `ssh-add -l` = "error fetching identities: invalid format".
 - Why: dentro do terminal o DNS e o do Gluetun (127.0.0.1), que nao resolve `host.docker.internal`; e o kill switch bloqueava a sub-rede do Docker Desktop. O relay nao conseguia abrir `/dev/tcp/host.docker.internal/<porta>` e devolvia lixo.
-- Fix (`.env`): `LOCAL_HOSTS=host.docker.internal=192.168.65.254` (mapeia o nome no /etc/hosts pos-up) e `FIREWALL_SUBNETS=192.168.65.0/24` (libera a rede do Docker Desktop fora do tunel). Reiniciado com `vpn.ps1 start custom-openvpn`.
+- Fix (`.env`): `LOCAL_HOSTS=host.docker.internal=192.168.65.254` (mapeia o nome no /etc/hosts pos-up) e `FIREWALL_SUBNETS=PRIVATE_IP_REDACTED` (libera a rede do Docker Desktop fora do tunel). Reiniciado com `vpn.ps1 start custom-openvpn`.
 - Verified: `getent hosts host.docker.internal` = 192.168.65.254; TCP conecta na ponte; `ssh-add -l` = "The agent has no identities" (resposta valida do agente). SSH real ao github via terminal conecta (chega em "Permission denied (publickey)" = sem chave carregada no agente, comportamento esperado).
 - Nota: publicacao de porta validada (host 127.0.0.1:10050 -> container devolveu HTTP 200 via faixa do Gluetun). O loopback direto (127.0.0.1) dentro do terminal nao responde em portas publicadas; use a porta mapeada pelo Docker.
 - SSH finalizado (mesmo dia): chave ed25519 gerada em `C:\Users\kiver\.ssh\id_ed25519`, carregada no agente OpenSSH e registrada no GitHub (kivervinicius). Validado pelo tunel: `ssh -T git@github.com` -> "Hi kivervinicius!" e `git ls-remote git@github.com:kivervinicius/vpn-dev-workspace.git` listou as 4 branches.
@@ -231,8 +323,8 @@ Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for 
   - Clone renormalizado com `core.autocrlf=false` + `git rm --cached -r . && git reset --hard`: o clone inicial em CRLF quebrou os `.sh` montados por bind (`env: can't execute 'sh\r'`).
   - Docker Desktop: `C:\Projects` adicionado ao File Sharing (`filesharingDirectories` em `settings.json`/`settings-store.json`; backup `.bak-<ts>`); sem isso o bind mount e recusado.
   - Servico Windows `ssh-agent` habilitado (StartupType Automatic), exigido pelo start do modo Windows.
-- Why: os perfis `nordvpn-openvpn` e `nordvpn-wireguard` nao conectaram nesta rede: UDP 1194/51820 enviam o handshake mas nao recebem resposta (captura via netshoot: Out 148B, 0 In) e TCP 443/1231 recebem RST imediato. Com a config oficial da NordVPN na porta 80 TCP (`ovpn_tcp/br71.nordvpn.com.tcp_2.6.ovpn`) o handshake TLS completa (`Peer Connection Initiated`, TLSv1.3). O Gluetun recusa `OPENVPN_ENDPOINT_PORT` para o provider `nordvpn` e exige IP (nao hostname) na linha `remote` de config custom; por isso o perfil efetivo e `custom-openvpn` com `.secrets/nordvpn-br71-tcp80.ovpn` (`proto tcp-client`, `remote 189.1.170.129 80`, `verify-x509-name CN=br71.nordvpn.com`).
-- Verified: `vpn.ps1 start custom-openvpn` -> `vpn` healthy; `vpn-check` 5/5 (tunel, IP publico 189.1.170.12 Sao Paulo/BR, DNS do tunel, resolucao, resolv.conf); `vpn-status` perfil custom/openvpn; terminal `developer` em `/workspace` com OpenCode 1.18.31 e `curl https://api.ipify.org` retornando o IP da VPN; ponte SSH do Windows ativa (`.vpn/windows-ssh-agent.json`).
+- Why: os perfis `nordvpn-openvpn` e `nordvpn-wireguard` nao conectaram nesta rede: UDP 1194/51820 enviam o handshake mas nao recebem resposta (captura via netshoot: Out 148B, 0 In) e TCP 443/1231 recebem RST imediato. Com a config oficial da NordVPN na porta 80 TCP (`ovpn_tcp/br71.nordvpn.com.tcp_2.6.ovpn`) o handshake TLS completa (`Peer Connection Initiated`, TLSv1.3). O Gluetun recusa `OPENVPN_ENDPOINT_PORT` para o provider `nordvpn` e exige IP (nao hostname) na linha `remote` de config custom; por isso o perfil efetivo e `custom-openvpn` com `.secrets/nordvpn-br71-tcp80.ovpn` (`proto tcp-client`, `remote PUBLIC_IP_REDACTED 80`, `verify-x509-name CN=br71.nordvpn.com`).
+- Verified: `vpn.ps1 start custom-openvpn` -> `vpn` healthy; `vpn-check` 5/5 (tunel, IP publico PUBLIC_IP_REDACTED Sao Paulo/BR, DNS do tunel, resolucao, resolv.conf); `vpn-status` perfil custom/openvpn; terminal `developer` em `/workspace` com OpenCode 1.18.31 e `curl https://api.ipify.org` retornando o IP da VPN; ponte SSH do Windows ativa (`.vpn/windows-ssh-agent.json`).
 - Pending: chave ainda nao carregada no agente (`ssh-add -l` vazio); LAN do Windows inacessivel ate definir `FIREWALL_SUBNETS` (aviso do start); `verify-compose` e testes Linux nao rodados (host Windows, sem jq/make).
 - Next context: iniciar com `.\scripts\vpn.ps1 start custom-openvpn`, shell com `.\scripts\vpn.ps1 terminal`, parar com `.\scripts\vpn.ps1 stop`.
 
@@ -354,9 +446,9 @@ Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for 
 - Changed (rev. 2): `extra_hosts` rejeitado pelo Docker com `network_mode` (erro real do daemon) → mecanismo refeito: `vpn-hosts-gen` valida e gera snippet `.hosts.local.gen`; novo `vpn-hosts-apply` injeta via `docker exec -u 0` pós-up (idempotente); `vpn-switch` gera + aplica; `verify-compose` valida snippet + dry-run; travas e docs atualizadas.
 
 - Changed: novo `scripts/vpn-hosts-gen` (valida `nome=ip`, gera `.compose.local-hosts.yml` git-ignorado com `extra_hosts` em `terminal` + `vpn-auto-reconnect`); `vpn-switch` chama o generator e anexa `-f`; novo `scripts/vpn-hosts-import --domain` (extrai do `/etc/hosts` do host, só sugere a linha); `vpn-check` valida cada mapeamento (ok/mismatch/não-resolve/inválido); `LOCAL_HOSTS` repassado no Compose (2 serviços); `.env.example` + README (seção "Hosts locais"); `verify-docs` com travas (doc, exemplo, repasse, gitignore, plug do generator, `vpn-hosts-import` no loop); `verify-compose` valida o override gerado (fixture); `TESTING.md` com fixtures.
-- Why: nomes que só existem no `/etc/hosts` do host (ex: `gitlab.omega`) não resolviam no terminal, onde todo DNS passa pelo túnel; `extra_hosts` + precedência `files` do glibc resolve sem mexer no Gluetun.
+- Why: nomes que só existem no `/etc/hosts` do host (ex: `gitlab.internal.example`) não resolviam no terminal, onde todo DNS passa pelo túnel; `extra_hosts` + precedência `files` do glibc resolve sem mexer no Gluetun.
 - Verified: `bash -n`, `./scripts/verify-docs`, `git diff --check`; fixtures do generator (7 inválidos → exit 2, dup → warning+último, IPv6 ok, vazio → sem arquivo); import (case-insensitive, dedup, domínio ausente → exit 1); `vpn-check` (ok/mismatch/não-resolve/inválido/ausente). `verify-compose`/build/ShellCheck pendentes (sem Docker; cobertos pela CI). Runtime com túnel real pendente no host.
-- Next context: validar no host (`getent hosts gitlab.omega` no terminal + `vpn-check` + alcance com `FIREWALL_SUBNETS`).
+- Next context: validar no host (`getent hosts gitlab.internal.example` no terminal + `vpn-check` + alcance com `FIREWALL_SUBNETS`).
 
 ## 2026-09-17 - Robustez dos scripts + fechamento dos drifts de docs
 
@@ -391,17 +483,17 @@ Use `HANDOFF.md` for the current snapshot and `HANDOFFS/WORKLOG_ARCHIVE.md` for 
 - Spec: `SPECS/ACTIVE.md`.
 - Changed: `.env` ativado com LAN/DNS interno/paridade/GUI (achados: `INTERNAL_DNS_EXEMPT_HOSTNAMES` não aceita curingas — corrigido para nomes explícitos); `vpn-check` com teste TCP real (`INTERNAL_TEST_PORT`) e aceite de DNS "starting" (peculiaridade do endpoint com upstream plain; resolução é validada à parte); `vpn-reconnect` com polling 30×5s (o ciclo de servidores do OpenVPN passa de 36s); Dockerfile ganhou `openssh-client` (paridade SSH real); `vpn-opencode` sem `BROWSER` (ignorado — `xdg-open` é ruído cosmético); README/.env.example com notas de DNS fora da LAN e pinning de servidores.
 - Why: validar o conjunto completo em runtime e corrigir o que só aparece com túnel real.
-- Verified: todo o plano de runtime — `vpn-switch`, `vpn-check` ok, `github.com`/internet pelo túnel, `http://192.168.30.20/ → 200` (LAN), `ssh-add -l` com chave do host, `vpn-reconnect` imprimindo IP (após fixar `br72.nordvpn.com`), `vpn-server-rotate` aplicado, `vpn-top`, `vpn-opencode web` (401/200 com basic auth) e `serve` (200). `VERIFY.md` completo.
-- Risks: faixa 185.153.176.x do NordVPN bloqueada pela rede local (rotação aleatória pode cair nela; usar `VPN_SERVER_HOSTNAMES` com servidores conhecidos); `.omega.local` só existe no `/etc/hosts` do host (DNS da LAN NXDOMAIN) — alcance interno por IP validado; Desktop App real ainda não conectado à ponta `serve`; ShellCheck pendente na CI.
+- Verified: todo o plano de runtime — `vpn-switch`, `vpn-check` ok, `github.com`/internet pelo túnel, `http://PRIVATE_IP_REDACTED/ → 200` (LAN), `ssh-add -l` com chave do host, `vpn-reconnect` imprimindo IP (após fixar `br72.nordvpn.com`), `vpn-server-rotate` aplicado, `vpn-top`, `vpn-opencode web` (401/200 com basic auth) e `serve` (200). `VERIFY.md` completo.
+- Risks: faixa 185.153.176.x do NordVPN bloqueada pela rede local (rotação aleatória pode cair nela; usar `VPN_SERVER_HOSTNAMES` com servidores conhecidos); `.internal.example` só existe no `/etc/hosts` do host (DNS da LAN NXDOMAIN) — alcance interno por IP validado; Desktop App real ainda não conectado à ponta `serve`; ShellCheck pendente na CI.
 - Next context: conectar o Desktop App em `127.0.0.1:10001` via `vpn-opencode serve`; manter `VPN_SERVER_HOSTNAMES` com servidores acessíveis se a rotação aleatória reincidir em falhas.
 
 ## 2026-08-19 - Rede interna, paridade de home e GUI do OpenCode pela VPN
 
 - Spec: `SPECS/ACTIVE.md` (escopo ampliado).
 - Changed: firewall opt-in `FIREWALL_SUBNETS` (o `vpn-switch` detecta a sub-rede da rota padrão do host); DNS interno `INTERNAL_DNS` + `INTERNAL_DNS_EXEMPT_HOSTNAMES` (upstream plain único; `vpn-switch` avisa se `INTERNAL_DNS_RESOLVERS` ficar preenchido); `vpn-check` testa `INTERNAL_TEST_HOST`; Dockerfile com `HOST_UID`/`HOST_GID`; compose do `terminal` com mounts de `SSH_AUTH_SOCK` e `RUN_USER_DIR` (fallback `/dev/null`) e senha do painel; novo `scripts/vpn-opencode` (web|serve, `OPENCODE_GUI_PORT`); README, `.env.example`, `verify-docs`, DEV atualizados.
-- Why: alcançar hosts `.omega`/LAN e resolver nomes internos pelo túnel, herdar identidade/sessão do host e usar a GUI/Desktop do OpenCode com tráfego 100% na VPN.
+- Why: alcançar hosts `.internal.example`/LAN e resolver nomes internos pelo túnel, herdar identidade/sessão do host e usar a GUI/Desktop do OpenCode com tráfego 100% na VPN.
 - Verified: `bash -n` em todos os scripts, `sh -n` entrypoint, `./scripts/verify-docs`, `git diff --check`, `docker compose --profile vpn config --quiet` (8 perfis).
-- Risks: DNS público passa pelo DNS da LAN quando `INTERNAL_DNS` ativo (decisão aceita); container lê agente SSH/sessão do host (documentado); validação de runtime (túnel real, `.omega`, browser do painel, Desktop App) pendente no host com Docker.
+- Risks: DNS público passa pelo DNS da LAN quando `INTERNAL_DNS` ativo (decisão aceita); container lê agente SSH/sessão do host (documentado); validação de runtime (túnel real, `.internal.example`, browser do painel, Desktop App) pendente no host com Docker.
 - Next context: executar o plano de verificação runtime no host: build, `vpn-switch nordvpn-openvpn`, `vpn-reconnect` ×2, `vpn-check` (incl. host interno), `vpn-top`, `vpn-opencode web` e `serve`.
 
 ## 2026-08-19 - Aumento de poderes: IP pós-reconexão, saúde, dashboard e rotação

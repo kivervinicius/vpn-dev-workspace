@@ -14,17 +14,17 @@ Por padrão, o kill switch do Gluetun bloqueia qualquer tráfego direcionado a I
 
 ```ini
 # 1. Sub-redes privadas liberadas para tráfego fora do túnel VPN
-FIREWALL_SUBNETS=192.168.30.0/24,192.168.105.0/24
+FIREWALL_SUBNETS=192.168.240.0/24,192.168.241.0/24
 
 # 2. Servidor DNS interno da empresa
-INTERNAL_DNS=192.168.5.4:53
+INTERNAL_DNS=192.168.240.10:53
 INTERNAL_DNS_RESOLVERS=
 
 # 3. Nomes internos liberados da proteção contra DNS Rebinding (sem curingas)
-INTERNAL_DNS_EXEMPT_HOSTNAMES=dev.go.omega.local,dev.mt.omega.local
+INTERNAL_DNS_EXEMPT_HOSTNAMES=dev.go.internal.example,dev.mt.internal.example
 
 # 4. Host e porta de teste para validação automática no vpn-check
-INTERNAL_TEST_HOST=192.168.30.20
+INTERNAL_TEST_HOST=192.168.240.10
 INTERNAL_TEST_PORT=80
 ```
 
@@ -37,17 +37,17 @@ docker exec vpn-dev-workspace-terminal-1 vpn-check --only internal
 
 ## Cenário 2: Mapeamento de Nomes Locais com `LOCAL_HOSTS`
 
-Quando você possui entradas customizadas no `/etc/hosts` da máquina host (ex.: `gitlab.omega=192.168.105.10`) que não existem em nenhum DNS público, o terminal não as resolveria normalmente porque todo o DNS passa pelo Gluetun.
+Quando você possui entradas customizadas no `/etc/hosts` da máquina host (ex.: `gitlab.internal.example=192.168.240.10`) que não existem em nenhum DNS público, o terminal não as resolveria normalmente porque todo o DNS passa pelo Gluetun.
 
 ### 1. Importação Assistida
 Você pode extrair automaticamente as entradas do seu host filtradas por domínio:
 ```bash
-./scripts/vpn-hosts-import --domain omega
+./scripts/vpn-hosts-import --domain internal.example
 ```
 Saída sugerida:
 ```bash
 # Cole no .env:
-LOCAL_HOSTS=gitlab.omega=192.168.105.10,registry.omega=192.168.105.11
+LOCAL_HOSTS=gitlab.internal.example=192.168.240.10,registry.internal.example=192.168.240.10
 ```
 
 ### 2. Aplicação
@@ -104,8 +104,8 @@ Para desenvolvimento contínuo via interface Web ou Desktop App:
 ```
 
 Benefícios:
-- Se a VPN cair (desconexão real de rede ou túnel unhealthy), o supervisor serializa a recuperação, rotaciona/reconecta, aguarda o túnel saudável e retoma o OpenCode preservando a mesma sessão de chat.
-- Limites do provider não são falhas de rede: free-tier e HTTP 429 estruturados são tratados pelos plugins `vpn-recovery` (v1/v2), que trocam servidor/IP automaticamente (melhor esforço, sem reenvio de prompt); conta e crédito nunca alteram a VPN.
+- Se a VPN cair (desconexão real de rede ou túnel unhealthy), o supervisor recupera a conectividade, verifica que a sessão exata continua exportável e imprime o comando de retomada manual. Ele nunca repete automaticamente prompts ou ferramentas.
+- Limites do provider são status-only: free-tier, rate-limit, autenticação, conta e crédito não alteram VPN/modelo e não repetem o turno. O plugin pode exibir o countdown numérico de `Retry-After`; falha real de rede permanece no fluxo separado do supervisor.
 
 Os plugins só existem depois de instalados uma vez no host: `./scripts/opencode-vpn-install` (guia em `DEV/RUNBOOKS/opencode-v1-v2.md`).
 

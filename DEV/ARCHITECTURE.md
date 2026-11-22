@@ -66,22 +66,36 @@ Os scripts de operação e diagnóstico do repositório organizam-se da seguinte
 - `vpn-top` — painel de status com serviços Docker (quando disponível), túnel e auto-reconexão.
 - `vpn-auto-reconnect` — valida a saúde a cada intervalo e recupera a conectividade; com `VPN_ROTATE_SERVERS=true`, troca de servidor após falhas consecutivas.
 - `vpn-opencode` — executa `opencode web|serve` dentro do `terminal` na faixa publicada (o tráfego de LLM fica 100% no túnel); lê a senha em `OPENCODE_GUI_PASSWORD_FILE` e expõe basic auth (`opencode`).
-- `opencode-limit-recover` — helper chamado pelos plugins v1/v2 para free-tier e rate-limit estruturado automáticos; exige IP de saída novo e túnel saudável, com lock, cooldown e orçamento de eventos.
-- `vpn-control-lock.sh` — lock não bloqueante compartilhado entre reconexão, rotação e recuperação por limite.
+- `opencode-limit-recover` — compatibilidade para callers antigos; responde `quota_status_only` sem probes, rotação ou estado de quota.
+- `vpn-control-lock.sh` — lock não bloqueante compartilhado entre reconexão e rotação manual.
 - `vpn-hosts-gen` — valida `LOCAL_HOSTS` e gera `.hosts.local.gen` (git-ignorado, linhas `IP nome`). Não fala com o Gluetun nem com o Docker.
 - `vpn-hosts-apply` — injeta o snippet no `/etc/hosts` de `terminal` e `vpn-auto-reconnect` via `docker exec -u 0` (idempotente); o `vpn-switch` chama pós-up. Não fala com o Gluetun.
 - `vpn-hosts-import` — sugere a linha `LOCAL_HOSTS` a partir do `/etc/hosts` do host filtrado por domínio; roda só no host.
 
 
-O `opencode-supervisor` possui o processo `opencode web|serve` como filho, sem Docker socket. Ele observa apenas novos logs do processo: falha simples do processo reinicia o app; desconexão real ou túnel unhealthy dispara `vpn-server-rotate`, aguarda `vpn-check --only tunnel` e só então reinicia o OpenCode. Limites de provider não são classificados por texto/log e nunca alteram a VPN nesse serviço. Cooldown, janela e máximo de rotações evitam loops. A home/workspace são os mesmos do terminal, preservando estado e projetos.
+O `opencode-supervisor` possui o processo `opencode web|serve` como filho, sem Docker socket. Queda simples do processo reinicia o app; desconexão confirmada ou túnel unhealthy aciona recuperação de rede, aguarda `vpn-check --only tunnel` e reinicia o OpenCode. Provider quota/auth/rate-limit não são gatilhos. Após reconectar, o supervisor verifica que a sessão exata ainda pode ser exportada e imprime um comando para retomada manual; ele não reenvia prompts ou ferramentas.
 
-Os limites estruturados são tratados pelos plugins `vpn-recovery` v1/v2, que chamam `opencode-limit-recover` com o tipo do evento. O helper valida VPN running e IP público antes/depois, percorre no máximo três hostnames de `VPN_SERVER_HOSTNAMES` e compartilha `vpn-control-lock.sh`/`/var/lib/vpn-control` com reconexão e rotação. Free-tier e rate-limit estruturado trocam automaticamente. Conta/crédito nunca alteram VPN. O resultado informa o alvo solicitado, não o peer remoto, e não garante reset de quota.
+## OpenCode v1/v2 session sync and provider status
+
+`opencode1` (baseline 1.19.6) and `opencode2` (baseline 2.3.2) use separate
+databases. Their launchers sync recent sessions for the active workspace with
+native JSON export/import, convert supported message parts, and map the source
+session to a new ID. The owner-only ledger makes repeat launches idempotent.
+The helper refuses attachments, active tools, summaries, forks, reverts, and
+unknown parts instead of losing content. It never copies a database between
+client versions or executes imported tool history.
+
+Structured provider limit events are status-only. The v1 plugin cancels an
+recognized retry when the API confirms cancellation, then notifies. The v2
+server hook sets `retry: false`, and the TUI plugin notifies. Neither path calls
+the legacy helper, changes VPN/model, nor replays a turn. The numeric
+`Retry-After` value is informational.
 
 ## Acesso à rede interna do host (opt-in)
 
 O serviço `vpn` recebe `FIREWALL_OUTBOUND_SUBNETS` (lista de sub-redes permitidas fora do túnel) e, quando `INTERNAL_DNS` está definido, usa esse upstream em texto puro para o servidor DNS embutido (`DNS_UPSTREAM_PLAIN_ADDRESSES`), com `DNS_REBINDING_PROTECTION_EXEMPT_HOSTNAMES` liberando os hostnames internos listados (nomes explícitos; curingas são rejeitados pelo Gluetun). O `vpn-switch` detecta a sub-rede da interface da rota padrão apenas no Linux nativo; em WSL2 a rota virtual não é tratada como LAN, então `FIREWALL_SUBNETS` deve ser explícito.
 
-Nomes que só existem no `/etc/hosts` do host (ex: `gitlab.omega`) usam outro caminho: `LOCAL_HOSTS` vira snippet aplicado ao `/etc/hosts` dos containers pós-up, e o glibc resolve via `files` antes do DNS do túnel — sem Gluetun, sem rebinding (`extra_hosts` é rejeitado pelo Docker com `network_mode`, daí a injeção pós-up; `recreate` perde as entradas, por isso o `vpn-switch` sempre reaplica). O `vpn-check` valida cada `nome=ip`; o alcance continua exigindo `FIREWALL_SUBNETS`.
+Nomes que só existem no `/etc/hosts` do host (ex: `gitlab.internal.example`) usam outro caminho: `LOCAL_HOSTS` vira snippet aplicado ao `/etc/hosts` dos containers pós-up, e o glibc resolve via `files` antes do DNS do túnel — sem Gluetun, sem rebinding (`extra_hosts` é rejeitado pelo Docker com `network_mode`, daí a injeção pós-up; `recreate` perde as entradas, por isso o `vpn-switch` sempre reaplica). O `vpn-check` valida cada `nome=ip`; o alcance continua exigindo `FIREWALL_SUBNETS`.
 
 ## Paridade com a home do host
 

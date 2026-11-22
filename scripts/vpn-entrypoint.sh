@@ -20,10 +20,21 @@ read_secret() {
 
 api_key="$(read_secret "${GLUETUN_API_KEY_FILE:-/run/secrets/gluetun_api_key}")"
 [ -n "$api_key" ] || { echo "Erro: chave da API do Gluetun vazia." >&2; exit 1; }
-# Escapa \ e " para não quebrar o JSON quando a chave contiver esses bytes.
+# Escapa a chave para uma TOML basic string. O arquivo fica em tmpfs, modo 0600.
 esc_api_key="$(printf '%s' "$api_key" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
-export HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE="{\"auth\":\"apikey\",\"apikey\":\"$esc_api_key\"}"
-unset esc_api_key
+auth_config="${HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH:-/run/gluetun-auth/config.toml}"
+mkdir -p "$(dirname "$auth_config")"
+umask 077
+cat > "$auth_config" <<EOF
+[[roles]]
+name = "vpn-workspace"
+routes = ["GET /v1/vpn/status", "PUT /v1/vpn/status", "GET /v1/vpn/settings", "PUT /v1/vpn/settings", "GET /v1/publicip/ip", "GET /v1/dns/status"]
+auth = "apikey"
+apikey = "$esc_api_key"
+EOF
+chmod 0600 "$auth_config"
+export HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH="$auth_config"
+unset HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE api_key esc_api_key
 
 if [ -n "${OPENVPN_USER_FILE:-}" ]; then
   export OPENVPN_USER="$(read_secret "$OPENVPN_USER_FILE")"

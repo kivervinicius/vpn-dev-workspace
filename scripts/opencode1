@@ -5,16 +5,60 @@ set -Eeuo pipefail
 # Ajuda antes de qualquer checagem de ambiente/túnel: --help nunca depende de VPN.
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   echo "Uso: opencode1 [--help] [argumentos do OpenCode]" >&2
-  echo "Executa o OpenCode v1 dentro do container VPN; não há fallback no host." >&2
+  echo "Executa o OpenCode v1 dentro do container VPN." >&2
+  echo "Escape no host (fora do túnel, sem plugins de recuperação):" >&2
+  echo "  OPENCODE_ALLOW_HOST=1 opencode1 [argumentos]" >&2
   exit 0
 fi
 
-readonly V1_HOME="${OPENCODE_V1_HOME:-${HOME:?HOME must be set}/.opencode-v1}"
-readonly HOST_HOME="${OPENCODE_HOST_HOME:-${HOME:?HOME must be set}}"
-readonly V1_BIN="${V1_HOME}/bin/opencode"
 readonly TERMINAL_CONTAINER="${OPENCODE_TERMINAL_CONTAINER:-vpn-dev-workspace-terminal-1}"
 
+should_sync_session() {
+  [[ $# -eq 0 ]] && return 0
+  case "$1" in
+    --version|-v|version|serve|web|run|session|export|import|auth|models|providers|agent|mcp|debug|upgrade|stats) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+run_with_session_sync() {
+  local client="$1" bin="$2" before_json="" token="" args_file="" rc=0 child_pid=""
+  shift 2
+  local -a launch_args=("$@")
+  if command -v opencode-session-sync >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
+    if before_json="$(opencode-session-sync before --client "$client" --workspace "$PWD" -- "$@")"; then
+      token="$(printf '%s' "$before_json" | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{try{process.stdout.write(JSON.parse(s).token||"")}catch{}})')"
+      args_file="$(printf '%s' "$before_json" | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{try{process.stdout.write(JSON.parse(s).argsFile||"")}catch{}})')"
+      if [[ -n "$args_file" && -r "$args_file" ]]; then
+        launch_args=()
+        mapfile -d '' -t launch_args < "$args_file"
+      fi
+    else
+      echo "OpenCode session sync is pending; starting with the requested arguments." >&2
+    fi
+  else
+    echo "OpenCode session sync is unavailable; starting with the requested arguments." >&2
+  fi
+  "$bin" "${launch_args[@]}" &
+  child_pid=$!
+  trap 'kill -INT "$child_pid" 2>/dev/null || true' INT
+  trap 'kill -TERM "$child_pid" 2>/dev/null || true' TERM
+  set +e
+  wait "$child_pid"
+  rc=$?
+  set -e
+  trap - INT TERM
+  if [[ -n "$token" ]] && command -v opencode-session-sync >/dev/null 2>&1; then
+    opencode-session-sync after --client "$client" --workspace "$PWD" --token "$token" >/dev/null || \
+      echo "OpenCode session sync after-run is pending; it will retry on the next launch." >&2
+  fi
+  return "$rc"
+}
+
 if [[ "${VPN_WORKSPACE_CONTAINER:-}" == "1" ]]; then
+  readonly V1_HOME="${OPENCODE_V1_HOME:-${HOME:?HOME must be set}/.opencode-v1}"
+  readonly HOST_HOME="${OPENCODE_HOST_HOME:-${HOME:?HOME must be set}}"
+  readonly V1_BIN="${V1_HOME}/bin/opencode"
   if [[ ! -x "$V1_BIN" ]]; then
     printf 'opencode1: v1 binary is unavailable: %s\n' "$V1_BIN" >&2
     exit 127
@@ -33,11 +77,40 @@ if [[ "${VPN_WORKSPACE_CONTAINER:-}" == "1" ]]; then
   export XDG_DATA_HOME="$V1_HOME/.local/share"
   export XDG_CONFIG_HOME="$V1_HOME/.config"
   export XDG_STATE_HOME="$V1_HOME/.local/state"
+  export OPENCODE_HOST_HOME="$HOST_HOME"
+  export OPENCODE_V1_HOME="$V1_HOME"
+  if should_sync_session "$@"; then
+    run_with_session_sync v1 "$V1_BIN" "$@"
+    exit $?
+  fi
   exec "$V1_BIN" "$@"
 fi
 
+# Escape explícito: executar no host, fora do túnel VPN. Opt-in porque o
+# free tier do Zen é por conta e o host não tem os plugins de recuperação VPN.
+if [[ "${OPENCODE_ALLOW_HOST:-0}" == "1" ]]; then
+  host_v1_home="${OPENCODE_V1_HOME:-${HOME:?HOME must be set}/.opencode-v1}"
+  host_bin="${OPENCODE_HOST_V1_BIN:-${host_v1_home}/bin/opencode}"
+  if [[ ! -x "$host_bin" ]]; then
+    echo "opencode1: OPENCODE_ALLOW_HOST=1, mas o binário do OpenCode v1 não foi encontrado em ${host_bin} (defina OPENCODE_HOST_V1_BIN)." >&2
+    exit 127
+  fi
+  echo 'opencode1: EXECUTANDO NO HOST, FORA DO TÚNEL VPN (OPENCODE_ALLOW_HOST=1); recuperação VPN fica inativa.' >&2
+  export OPENCODE_HOST_HOME="$HOME"
+  export OPENCODE_V1_HOME="$host_v1_home"
+  export HOME="$host_v1_home"
+  export XDG_DATA_HOME="$host_v1_home/.local/share"
+  export XDG_CONFIG_HOME="$host_v1_home/.config"
+  export XDG_STATE_HOME="$host_v1_home/.local/state"
+  if should_sync_session "$@"; then
+    run_with_session_sync v1 "$host_bin" "$@"
+    exit $?
+  fi
+  exec "$host_bin" "$@"
+fi
+
 if ! command -v docker >/dev/null 2>&1; then
-  echo 'opencode1: Docker is required; refusing to run OpenCode on the host.' >&2
+  echo 'opencode1: Docker is required; refusing to run OpenCode on the host. Use OPENCODE_ALLOW_HOST=1 to bypass.' >&2
   exit 1
 fi
 if [[ "$(docker inspect --format '{{.State.Running}}' "$TERMINAL_CONTAINER" 2>/dev/null || true)" != 'true' ]]; then
@@ -61,12 +134,7 @@ if [[ -t 0 && -t 1 ]]; then
 fi
 exec docker exec "${tty_flags[@]}" \
   -e VPN_WORKSPACE_CONTAINER=1 \
-  -e HOME="$V1_HOME" \
-  -e OPENCODE_HOST_HOME="$HOST_HOME" \
-  -e XDG_DATA_HOME="$V1_HOME/.local/share" \
-  -e XDG_CONFIG_HOME="$V1_HOME/.config" \
-  -e XDG_STATE_HOME="$V1_HOME/.local/state" \
   -e TERM="${TERM:-xterm-256color}" \
   -w "$workdir" \
   "$TERMINAL_CONTAINER" \
-  "$V1_BIN" "$@"
+  opencode1 "$@"

@@ -69,7 +69,7 @@ O Desktop do host é cliente; o servidor roda no container. No fluxo Linux, o
 `PATH` do terminal prioriza o binário da home montada do host
 (`${HOST_HOME_DIR}/.opencode/bin`), então atualizar o OpenCode no host reflete
 instantaneamente no container; a versão fixada no `Dockerfile`
-(`OPENCODE_VERSION` + checksums, hoje 1.18.31) é o fallback usado quando a home
+(`OPENCODE_VERSION` + checksums, hoje 1.19.6) é o fallback usado quando a home
 não fornece o binário. Desktop mais novo que o servidor pode dar tela
 branca/falha de conexão (anomalyco/opencode#23851).
 
@@ -85,7 +85,7 @@ docker exec vpn-dev-workspace-terminal-1 opencode --version  # confirma o 2.x
 ```
 
 O binário persiste entre starts (volume); reinstale apenas se `down -v` remover
-o volume. O fallback 1.18.31 da imagem permanece como rede de segurança.
+o volume. O fallback 1.19.6 da imagem permanece como rede de segurança.
 
 Paridade de dados no modo Windows (2026-10-16): a home Windows inteira
 (`HOST_HOME_DIR`, precisa estar no File Sharing do Docker Desktop) é montada
@@ -170,10 +170,10 @@ Ao atualizar o Desktop, atualize na MESMA alteração:
 |---|---|---|
 | Ruído `xdg-open` no stderr do helper | sem navegador no container | ignorar; servidor continua (cosmético) |
 | Desktop abre tela em branco | Desktop e servidor com versões diferentes | alinhar versões (item 5) |
-| `*.omega.local` rejeitado no `.env` | Gluetun não aceita curingas em `INTERNAL_DNS_EXEMPT_HOSTNAMES` | usar nomes explícitos |
+| `*.internal.example` rejeitado no `.env` | Gluetun não aceita curingas em `INTERNAL_DNS_EXEMPT_HOSTNAMES` | usar nomes explícitos |
 | Rotação aleatória cai em servidor morto | provedor de acesso bloqueia faixas (ex: 185.153.176.x) | `VPN_SERVER_HOSTNAMES` com servidores conhecidos |
 | `vpn-check` mostra DNS "starting" | endpoint do Gluetun com upstream plain | normal; resolução é validada à parte |
-| Nomes `.omega.local` NXDOMAIN no túnel | DNS da LAN não conhece; vivem no `/etc/hosts` do host | alcançar por IP; `INTERNAL_TEST_HOST` como IP |
+| Nomes `.internal.example` NXDOMAIN no túnel | DNS da LAN não conhece; vivem no `/etc/hosts` do host | alcançar por IP; `INTERNAL_TEST_HOST` como IP |
 | Diálogo de limite no OpenCode | classe/estado do provider; `vpn-opencode check` é só observacional | consulte a política estruturada abaixo; não trate aviso nem resultado do check como gatilho VPN |
 | `vpn-opencode check` diz `down` | `web/serve` morreu ou porta fechada | `watch` reinicia sozinho (limitado) ou suba manual com `web|serve --detach` |
 
@@ -198,29 +198,23 @@ real de processo/rede/túnel; mensagens ou logs de limite não são evidência d
 falha VPN.
 
 Os plugins globais `vpn-recovery` das versões suportadas usam somente campos e
-eventos estruturados, nunca texto arbitrário de resposta ou logs:
+eventos estruturados, nunca texto arbitrário de resposta ou logs. Toda classe
+reconhecida é informativa; nenhuma altera a VPN/modelo ou repete o turno:
 
 | Evento estruturado | Comportamento |
 |---|---|
-| Free-tier | solicita troca automaticamente |
-| HTTP 429 / rate-limit | solicita troca automaticamente |
-| Conta / crédito | pode notificar; nunca altera VPN |
+| Free-tier / quota | status informativo; pode mostrar o countdown numérico de `Retry-After` |
+| HTTP 429 / rate-limit | status informativo; não rotaciona nem inicia retry |
+| Conta / crédito / autenticação | status informativo; não altera VPN ou modelo |
 
-A tentativa de recuperação por limite exige VPN running, túnel saudável e IP
-público válido diferente do anterior; ações são serializadas pelo lock
-compartilhado `/var/lib/vpn-control/operation.lock`. Candidatos são hostnames
-não vazios de `VPN_SERVER_HOSTNAMES`, sem seleção aleatória ou troca de país.
-Política: cooldown de 300 s, no máximo 6 eventos admitidos em janela móvel de
-3600 s, até 3 alvos distintos por evento e timeout de helper de 600 s. Um
-evento admitido consome orçamento mesmo se falhar. Só é reportado o alvo
-solicitado, não o peer remoto efetivamente conectado. É best effort: IP
-diferente não garante reset da quota do provider.
+No v1, o plugin cancela retries reconhecidos quando a API confirma o abort; o
+v2 server hook define `retry: false`. Ambos notificam sem reenviar prompts ou
+chamadas de ferramenta. `opencode-limit-recover` permanece como compatibilidade
+e retorna `quota_status_only`, sem probes, rotação ou gravação de estado.
 
-No v1, um retry só solicita recovery após o abort da sessão ser confirmado;
-falha/abort falso não troca VPN. Um `session.error` terminal estruturado pode
-solicitar recovery sem abort. No v2, o hook server veta retries classificados
-e uma única falha `session.execution.failed` na TUI pode solicitar recovery;
-modo headless não tem recuperação TUI. Nenhum fluxo reenvia prompt.
+Falhas confirmadas de rede são tratadas separadamente pelo supervisor. Depois
+da reconexão, ele verifica se a sessão exata continua exportável e informa um
+comando para retomada manual. Ele não repete a requisição interrompida.
 
 Instale os launchers e plugins globais com:
 

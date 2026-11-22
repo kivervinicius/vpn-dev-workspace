@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-readonly API_URL="${GLUETUN_API_URL:-http://127.0.0.1:8000}"
-readonly API_KEY_FILE="${GLUETUN_API_KEY_FILE:-/run/secrets/gluetun_api_key}"
+source "$(dirname "${BASH_SOURCE[0]}")/vpn-control-api.sh"
+
+readonly API_URL="${GLUETUN_API_URL:-$(vpn_control_default_url)}"
+readonly API_KEY_FILE="${GLUETUN_API_KEY_FILE:-$(vpn_control_default_key_file "$(dirname "${BASH_SOURCE[0]}")")}"
 readonly RECONNECT_STATE_FILE=/tmp/vpn-auto-reconnect.state
 readonly OPENCODE_PORT="${OPENCODE_GUI_PORT:-10001}"
 readonly CURL_TIMEOUT_ARGS=(--connect-timeout 5 --max-time 10)
@@ -39,9 +41,8 @@ if $output_json; then
   need curl
   need jq
   [[ -r "$API_KEY_FILE" ]] || { echo "Erro: segredo da API ausente: $API_KEY_FILE" >&2; exit 1; }
-  api_key="$(tr -d '\r\n' < "$API_KEY_FILE")"
-  jget() {
-    curl --fail --silent --show-error "${CURL_TIMEOUT_ARGS[@]}" -H "X-API-Key: ${api_key}" "$@" 2>/dev/null || printf ''
+    jget() {
+    vpn_api_curl --fail --silent --show-error "${CURL_TIMEOUT_ARGS[@]}" "$@" 2>/dev/null || printf ''
   }
   vpn_status="$(jget "${API_URL}/v1/vpn/status")"
   settings="$(jget "${API_URL}/v1/vpn/settings")"
@@ -114,7 +115,9 @@ printf '%s%s== VPN Dev Workspace ==%s\n\n' "$C_CYAN" "$C_BOLD" "$C_RESET"
 section "Serviços do ambiente"
 project="${COMPOSE_PROJECT_NAME:-$(basename "${COMPOSE_PROJECT_DIR:-$PWD}")}"
 if command -v docker >/dev/null 2>&1; then
-  format='table {{.Service}}\t{{.Status}}\t{{.Ports}}'
+  # `docker ps` não tem o campo .Service (isso é do `docker compose ps`);
+  # usamos .Names, que existe e identifica o contêiner sem ambiguidade aqui.
+  format='table {{.Names}}\t{{.Status}}\t{{.Ports}}'
   labels="label=com.docker.compose.project=${project}"
   if docker ps -a --format "$format" --filter "$labels" 2>/dev/null | grep -q .; then
     docker ps -a --format "$format" --filter "$labels"
@@ -135,9 +138,8 @@ elif ! command -v jq >/dev/null 2>&1 || [[ ! -r "$API_KEY_FILE" ]]; then
   printf '%sSem jq e/ou chave da API neste ambiente; seção do túnel indisponível.%s\n' "$C_YELLOW" "$C_RESET"
   printf 'Dentro do terminal do ambiente: %svpn-top%s\n' "$C_BOLD" "$C_RESET"
 else
-  api_key="$(tr -d '\r\n' < "$API_KEY_FILE")"
-  api_request() {
-    curl --fail --silent --show-error "${CURL_TIMEOUT_ARGS[@]}" -H "X-API-Key: ${api_key}" "$@"
+    api_request() {
+    vpn_api_curl --fail --silent --show-error "${CURL_TIMEOUT_ARGS[@]}" "$@"
   }
   if vpn_status="$(api_request "${API_URL}/v1/vpn/status" 2>/dev/null)"; then
     case "$(printf '%s' "$vpn_status" | jq -r '.status // empty')" in

@@ -57,6 +57,14 @@ if [[ -z "$compose_port_range" || "$compose_port_range" != "$env_port_range" ]];
   exit 1
 fi
 
+# Default de VPN_CONTROL_PORT deve bater entre Compose e .env.example (estático).
+compose_control_port="$(sed -nE 's/.*\$\{VPN_CONTROL_PORT:-([0-9]+)\}:8000.*/\1/p' "$COMPOSE_FILE")"
+env_control_port="$(sed -nE 's/^VPN_CONTROL_PORT=([0-9]+).*/\1/p' "$ROOT_DIR/.env.example")"
+if [[ -z "$compose_control_port" || "$compose_control_port" != "$env_control_port" ]]; then
+  echo "Erro: VPN_CONTROL_PORT padrão divergente (compose='${compose_control_port:-?}', .env.example='${env_control_port:-?}')." >&2
+  exit 1
+fi
+
 for profile_file in "${ROOT_DIR}"/profiles/*.yml; do
   profile="$(basename "$profile_file" .yml)"
   echo "Validando perfil ${profile}..."
@@ -77,8 +85,8 @@ done
 # apply deve aceitar o formato em dry-run (sem Docker).
 gen_tmp="$(mktemp)"
 trap 'rm -f "$gen_tmp"' EXIT
-LOCAL_HOSTS="vpn-check.omega=192.168.30.5" VPN_HOSTS_SNIPPET_FILE="$gen_tmp" "${ROOT_DIR}/scripts/vpn-hosts-gen" >/dev/null
-grep -Eq '^192\.168\.30\.5[[:space:]]+vpn-check\.omega$' "$gen_tmp" || {
+LOCAL_HOSTS="vpn-check.internal.example=192.168.240.10" VPN_HOSTS_SNIPPET_FILE="$gen_tmp" "${ROOT_DIR}/scripts/vpn-hosts-gen" >/dev/null
+grep -Eq '^192\.168\.240\.10[[:space:]]+vpn-check\.internal\.example$' "$gen_tmp" || {
   echo "Erro: snippet de hosts locais com conteúdo inesperado." >&2
   exit 1
 }

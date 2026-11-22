@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly COMPOSE_FILE="${ROOT_DIR}/docker-compose.yml"
+source "${ROOT_DIR}/scripts/dotenv-read.sh"
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   echo "Uso: vpn-switch <perfil> | stop|down [--help]" >&2
@@ -21,15 +22,8 @@ need() {
 need docker
 need awk
 
-if [[ "${1:-}" == "stop" || "${1:-}" == "down" ]]; then
-  [[ $# -eq 1 ]] || { echo "Erro: stop|down não aceita argumentos." >&2; exit 2; }
-  echo "Encerrando o ambiente VPN..."
-  docker compose --profile vpn -f "$COMPOSE_FILE" down --remove-orphans
-  exit 0
-fi
-
 read_compose_value() {
-  local name="$1" default_value="$2" value="" line=""
+  local name="$1" default_value="$2" value="" rc=0
 
   if [[ -n "${!name+x}" ]]; then
     printf '%s\n' "${!name}"
@@ -37,24 +31,50 @@ read_compose_value() {
   fi
 
   if [[ -f "${ROOT_DIR}/.env" ]]; then
-    line="$(grep -E "^[[:space:]]*(export[[:space:]]+)?${name}=" "${ROOT_DIR}/.env" | tail -n 1 || true)"
-    line="${line#"${line%%[![:space:]]*}"}"
-    line="${line#export}"
-    line="${line#"${line%%[![:space:]]*}"}"
-    line="${line#${name}=}"
-    # Trim espaços + remove aspas que envolvem o valor inteiro.
-    line="${line#"${line%%[![:space:]]*}"}"
-    line="${line%"${line##*[![:space:]]}"}"
-    if ((${#line} >= 2)); then
-      if [[ "${line:0:1}" == '"' && "${line: -1}" == '"' ]] || [[ "${line:0:1}" == "'" && "${line: -1}" == "'" ]]; then
-        line="${line:1:-1}"
+    if value="$(dotenv_read "${ROOT_DIR}/.env" "$name")"; then
+      printf '%s\n' "$value"
+      return
+    else
+      rc=$?
+      if ((rc != 1)); then
+        echo "Erro: valor inválido para ${name} no .env." >&2
+        exit 2
       fi
     fi
-    value="$line"
   fi
 
-  printf '%s\n' "${value:-$default_value}"
+  printf '%s\n' "${default_value}"
 }
+
+acquire_control_lock() {
+  local lock_dir
+  lock_dir="$(read_compose_value VPN_CONTROL_LOCK_DIR .vpn-control-lock)"
+  [[ -n "$lock_dir" ]] || { echo "Erro: VPN_CONTROL_LOCK_DIR não pode ser vazio." >&2; exit 2; }
+  [[ "$lock_dir" == /* ]] || lock_dir="${ROOT_DIR}/${lock_dir}"
+  umask 077
+  mkdir -p "$lock_dir"
+  chmod 700 "$lock_dir"
+  export VPN_CONTROL_LOCK_DIR="$lock_dir"
+  export VPN_CONTROL_LOCK_FILE="${lock_dir}/operation.lock"
+  source "${ROOT_DIR}/scripts/vpn-control-lock.sh"
+  vpn_control_lock_acquire || {
+    lock_rc=$?
+    if ((lock_rc == 75)); then
+      echo "VPN já está sendo alterada; tente novamente depois." >&2
+      exit 75
+    fi
+    echo "Erro: não foi possível adquirir o lock de controle VPN." >&2
+    exit 1
+  }
+}
+
+if [[ "${1:-}" == "stop" || "${1:-}" == "down" ]]; then
+  [[ $# -eq 1 ]] || { echo "Erro: stop|down não aceita argumentos." >&2; exit 2; }
+  acquire_control_lock
+  echo "Encerrando o ambiente VPN..."
+  docker compose --profile vpn --profile opencode -f "$COMPOSE_FILE" down --remove-orphans
+  exit 0
+fi
 
 port_is_published_by_current_project() {
   local port="$1" container_id ps_output
@@ -121,6 +141,8 @@ esac
 readonly PROFILE_FILE="${ROOT_DIR}/profiles/${profile}.yml"
 [[ -f "$PROFILE_FILE" ]] || { echo "Erro: perfil ausente: $PROFILE_FILE" >&2; exit 1; }
 
+acquire_control_lock
+
 # Hosts locais (opt-in): valida LOCAL_HOSTS e gera o snippet aplicado pós-up.
 # Sem LOCAL_HOSTS, o generator remove o snippet e nada muda.
 "${ROOT_DIR}/scripts/vpn-hosts-gen"
@@ -152,7 +174,7 @@ case "$host_bind_address" in
     fi
     ;;
 esac
-# HOST_HOME_MODE só aceita rw (default) ou ro (trava a home).
+# HOST_HOME_MODE só aceita rw (default: escrita necessária para compartilhar configurações OpenCode).
 host_home_mode="$(read_compose_value HOST_HOME_MODE rw)"
 [[ "$host_home_mode" == "rw" || "$host_home_mode" == "ro" ]] || {
   echo "Erro: HOST_HOME_MODE deve ser rw|ro (recebido: ${host_home_mode})." >&2
@@ -203,6 +225,23 @@ if [[ "${http_proxy,,}" == "on" ]]; then
   fi
   echo "Proxy HTTP pela VPN em http://127.0.0.1:${http_port} (dentro da faixa publicada)."
 fi
+# O proxy também é publicado na faixa do Gluetun. Em bind LAN, exigir credenciais.
+case "$host_bind_address" in
+  127.*|localhost|::1) ;;
+  *)
+    if [[ "${http_proxy,,}" == "on" ]]; then
+      proxy_user="$(read_compose_value VPN_HTTP_PROXY_USER "")"
+      proxy_password_file="$(read_compose_value VPN_HTTP_PROXY_PASSWORD_FILE "")"
+      if [[ -n "$proxy_password_file" && "$proxy_password_file" != /* ]]; then
+        proxy_password_file="${ROOT_DIR}/${proxy_password_file}"
+      fi
+      if [[ -z "$proxy_user" || ! -s "$proxy_password_file" ]]; then
+        echo "Erro: proxy HTTP exposto na LAN exige VPN_HTTP_PROXY_USER e VPN_HTTP_PROXY_PASSWORD_FILE não vazio." >&2
+        exit 2
+      fi
+    fi
+    ;;
+esac
 
 # Acesso à rede interna do host (opt-in): em Linux nativo, quando
 # FIREWALL_SUBNETS não está definido no ambiente nem no .env, injeta a sub-rede
@@ -240,9 +279,16 @@ internal_dns_resolvers=""
 if [[ -n "${INTERNAL_DNS_RESOLVERS+x}" ]]; then
   internal_dns_resolvers_isset=true
   internal_dns_resolvers="$INTERNAL_DNS_RESOLVERS"
-elif [[ -f "${ROOT_DIR}/.env" ]] && grep -Eq '^[[:space:]]*INTERNAL_DNS_RESOLVERS=' "${ROOT_DIR}/.env"; then
-  internal_dns_resolvers_isset=true
-  internal_dns_resolvers="$(awk -v prefix="INTERNAL_DNS_RESOLVERS=" 'index($0, prefix) == 1 { print substr($0, length(prefix) + 1); exit }' "${ROOT_DIR}/.env")"
+elif [[ -f "${ROOT_DIR}/.env" ]]; then
+  if internal_dns_resolvers="$(dotenv_read "${ROOT_DIR}/.env" INTERNAL_DNS_RESOLVERS)"; then
+    internal_dns_resolvers_isset=true
+  else
+    dotenv_rc=$?
+    if ((dotenv_rc != 1)); then
+      echo "Erro: valor inválido para INTERNAL_DNS_RESOLVERS no .env." >&2
+      exit 2
+    fi
+  fi
 fi
 if [[ -n "$internal_dns" ]]; then
   export DNS_UPSTREAM_RESOLVER_TYPE=plain

@@ -23,6 +23,7 @@ $script:AllowedProfiles = @(
     'protonvpn-wireguard', 'surfshark-openvpn', 'mullvad-wireguard',
     'custom-openvpn', 'custom-wireguard'
 )
+. (Join-Path $script:RootDir 'scripts/dotenv-read.ps1')
 
 function Fail {
     param([string]$Message, [int]$Code = 1)
@@ -63,18 +64,11 @@ function Get-ConfigValue {
     if ($null -ne $environment) { return $environment }
 
     $envFile = Join-Path $script:RootDir '.env'
-    if (Test-Path -LiteralPath $envFile -PathType Leaf) {
-        foreach ($line in Get-Content -LiteralPath $envFile) {
-            if ($line -match "^\s*$([regex]::Escape($Name))\s*=(.*)$") {
-                $value = $Matches[1].Trim()
-                if ($value.Length -ge 2 -and (($value.StartsWith('"') -and $value.EndsWith('"')) -or ($value.StartsWith("'") -and $value.EndsWith("'")))) {
-                    $value = $value.Substring(1, $value.Length - 2)
-                }
-                return $value
-            }
-        }
+    try {
+        return Read-DotEnvValue -Path $envFile -Name $Name -Default $Default
+    } catch {
+        Fail "valor inválido para $Name no .env: $($_.Exception.Message)" 2
     }
-    return $Default
 }
 
 function Resolve-ProjectPath {
@@ -169,6 +163,12 @@ function Validate-ProfileSecrets {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { Fail "arquivo de segredo ausente: $path" 1 }
         if ((Get-Item -LiteralPath $path).Length -eq 0) { Fail "arquivo de segredo vazio: $path" 1 }
     }
+    $xkiroFile = Get-ConfigValue 'XKIRO_API_KEY_FILE'
+    if ($xkiroFile) {
+        $path = Resolve-ProjectPath $xkiroFile
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { Fail "XKIRO_API_KEY_FILE aponta para arquivo ausente: $path" 1 }
+        if ((Get-Item -LiteralPath $path).Length -eq 0) { Fail "arquivo XKIRO_API_KEY_FILE vazio: $path" 1 }
+    }
 }
 
 function Get-PortBounds {
@@ -226,6 +226,17 @@ function Validate-PortRange {
         if ($proxyPortText -notmatch '^[1-9][0-9]{0,4}$' -or [int]$proxyPortText -gt 65535) { Fail "VPN_HTTP_PROXY_PORT inválida: $proxyPortText" 2 }
         $proxyPort = [int]$proxyPortText
         if ($proxyPort -lt $bounds[0] -or $proxyPort -gt $bounds[1]) { Fail "VPN_HTTP_PROXY_PORT ($proxyPort) fora de VPN_PORT_RANGE ($range)." 2 }
+        $parsedBind = $null
+        $isLoopback = $bindAddress -in @('localhost', '::1') -or ([Net.IPAddress]::TryParse($bindAddress, [ref]$parsedBind) -and $parsedBind.IsLoopback)
+        if (-not $isLoopback) {
+            $proxyUser = Get-ConfigValue 'VPN_HTTP_PROXY_USER'
+            $proxyPassword = Get-ConfigValue 'VPN_HTTP_PROXY_PASSWORD_FILE'
+            $proxyPasswordPath = $null
+            if ($proxyPassword) { $proxyPasswordPath = Resolve-ProjectPath $proxyPassword }
+            if (-not $proxyUser -or -not $proxyPasswordPath -or -not (Test-Path -LiteralPath $proxyPasswordPath -PathType Leaf) -or (Get-Item -LiteralPath $proxyPasswordPath).Length -eq 0) {
+                Fail 'proxy HTTP exposto na LAN exige VPN_HTTP_PROXY_USER e VPN_HTTP_PROXY_PASSWORD_FILE não vazio.' 2
+            }
+        }
     }
 }
 
@@ -400,8 +411,21 @@ function Invoke-ContainerSessionSync {
         [Parameter(Mandatory = $true)] [string]$Mode,
         [Parameter(Mandatory = $true)] [string[]]$Compose
     )
-    # Best-effort: sem container ativo (ou script ausente) nao bloqueia o fluxo.
-    Invoke-Compose -Arguments @($Compose + @('exec', '-T', 'terminal', 'vpn-session-sync', $Mode)) -IgnoreFailure | Out-Null
+    $arguments = @($Compose + @('exec', '-T', 'terminal', 'vpn-session-sync', $Mode))
+    $output = @()
+    $code = 127
+    try {
+        $output = @(& docker compose @arguments 2>&1 | ForEach-Object { [string]$_ })
+        $code = $LASTEXITCODE
+    } catch {
+        $output = @($_.Exception.Message)
+    }
+    [pscustomobject]@{
+        Mode = $Mode
+        Success = ($code -eq 0)
+        ExitCode = $code
+        Output = ($output -join "`n")
+    }
 }
 
 function Sync-OpenCodeSessionsFromHost {
@@ -474,12 +498,20 @@ function Invoke-OpenCodeSessionSync {
     Set-ActiveComposeEnvironment | Out-Null
     $compose = Get-ComposeArguments
     if ($push) {
-        Invoke-ContainerSessionSync 'push' $compose
+        $sync = Invoke-ContainerSessionSync 'push' $compose
+        if ($sync.Output) { Write-Output $sync.Output }
+        if (-not $sync.Success) {
+            Fail "sessions-sync: exportacao do container falhou (Compose exit $($sync.ExitCode)); o staging existente nao foi aplicado." 1
+        }
         if (Sync-PendingSessionPush) { Write-Output 'Conversas do container exportadas para o host.' }
-        else { Write-Output 'Exportacao NAO aplicada ao host (ver avisos). Staging preservado em .vpn\sync\out.' }
+        else { Write-Output 'Nenhuma exportacao mais recente foi aplicada ao host; confira os avisos e o staging em .vpn\sync\out.' }
     } else {
         if (Sync-OpenCodeSessionsFromHost) {
-            Invoke-ContainerSessionSync 'pull' $compose
+            $sync = Invoke-ContainerSessionSync 'pull' $compose
+            if ($sync.Output) { Write-Output $sync.Output }
+            if (-not $sync.Success) {
+                Fail "sessions-sync: importacao no container falhou (Compose exit $($sync.ExitCode))." 1
+            }
             Write-Output 'Conversas do host importadas para o container.'
         } else {
             Write-Output 'Importacao NAO aplicada (ver avisos).'
@@ -523,11 +555,18 @@ function Stop-Vpn {
     Set-ActiveComposeEnvironment | Out-Null
     if ($Profile) { Validate-Profile $Profile }
     $compose = Get-ComposeArguments $Profile
-    # Exporta as conversas do container antes do down (best-effort).
-    Invoke-ContainerSessionSync 'push' $compose
+    # Tenta exportar antes do down, mas nunca aplica staging se o push falhar.
+    $sync = Invoke-ContainerSessionSync 'push' $compose
     try { Invoke-Compose -Arguments @($compose + @('down', '--remove-orphans')) | Out-Null }
     finally { Stop-SshAgentBridge }
-    if (Sync-PendingSessionPush) { Write-Output 'Conversas do container exportadas para o host.' }
+    if ($sync.Success) {
+        if ($sync.Output) { Write-Output $sync.Output }
+        if (Sync-PendingSessionPush) { Write-Output 'Conversas do container exportadas para o host.' }
+        else { Write-Output 'Nenhuma exportacao mais recente foi aplicada ao host.' }
+    } else {
+        Write-Warning "Exportacao das conversas falhou (Compose exit $($sync.ExitCode)); nenhum staging existente foi aplicado."
+        if ($sync.Output) { Write-Warning $sync.Output }
+    }
 }
 
 function Invoke-TerminalScript {
@@ -787,8 +826,7 @@ function Invoke-OpenCode {
     if ($mode -eq 'stop') {
         Invoke-Compose -Arguments @($supervisorCompose + @('stop', 'opencode-supervisor')) -IgnoreFailure | Out-Null
         Invoke-Compose -Arguments @($supervisorCompose + @('rm', '-f', 'opencode-supervisor')) -IgnoreFailure | Out-Null
-        $command = 'for d in /proc/[0-9]*; do if tr "\0" " " < "$d/cmdline" 2>/dev/null | grep -Eq "opencode (web|serve)"; then kill "${d#/proc/}" 2>/dev/null || true; fi; done'
-        Invoke-Compose -Arguments @($compose + @('exec', 'terminal', 'sh', '-c', $command)) -IgnoreFailure | Out-Null
+        Invoke-Compose -Arguments @($compose + @('exec', 'terminal', 'vpn-opencode-processes', [string]$port)) -IgnoreFailure | Out-Null
         return
     }
 
@@ -803,7 +841,7 @@ function Invoke-OpenCode {
     } else {
         Write-Warning "sem arquivo de senha em $passwordPath; o painel ficará sem autenticação."
     }
-    $exec += @('terminal', 'opencode', $mode, '--port', [string]$port, '--hostname', '0.0.0.0')
+    $exec += @('terminal', 'opencode2-service', $mode, '--port', [string]$port, '--hostname', '0.0.0.0')
     & docker compose @($compose + $exec)
     exit $LASTEXITCODE
 }

@@ -6,6 +6,7 @@ secrets/
 # Snippet de hosts locais gerado (LOCAL_HOSTS, aplicado pós-up)
 .hosts.local.gen
 .vpn/
+.vpn-control-lock/
 
 # Sessões locais que não devem ir pro Git caso copiem para dentro
 .opencode/

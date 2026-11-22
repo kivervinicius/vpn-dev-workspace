@@ -5,14 +5,58 @@ set -Eeuo pipefail
 # Ajuda antes de qualquer checagem de ambiente/túnel: --help nunca depende de VPN.
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   echo "Uso: opencode2 [--help] [argumentos do OpenCode]" >&2
-  echo "Executa o OpenCode v2 dentro do container VPN; não há fallback no host." >&2
+  echo "Executa o OpenCode v2 dentro do container VPN." >&2
+  echo "Escape no host (fora do túnel, sem plugins de recuperação):" >&2
+  echo "  OPENCODE_ALLOW_HOST=1 opencode2 [argumentos]" >&2
   exit 0
 fi
 
-readonly V2_BIN="${HOME:?HOME must be set}/.opencode/bin/opencode"
 readonly TERMINAL_CONTAINER="${OPENCODE_TERMINAL_CONTAINER:-vpn-dev-workspace-terminal-1}"
 
+should_sync_session() {
+  [[ $# -eq 0 ]] && return 0
+  case "$1" in
+    --version|-v|version|serve|web|run|session|export|import|auth|models|providers|agent|mcp|debug|upgrade|stats) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+run_with_session_sync() {
+  local client="$1" bin="$2" before_json="" token="" args_file="" rc=0 child_pid=""
+  shift 2
+  local -a launch_args=("$@")
+  if command -v opencode-session-sync >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
+    if before_json="$(opencode-session-sync before --client "$client" --workspace "$PWD" -- "$@")"; then
+      token="$(printf '%s' "$before_json" | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{try{process.stdout.write(JSON.parse(s).token||"")}catch{}})')"
+      args_file="$(printf '%s' "$before_json" | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{try{process.stdout.write(JSON.parse(s).argsFile||"")}catch{}})')"
+      if [[ -n "$args_file" && -r "$args_file" ]]; then
+        launch_args=()
+        mapfile -d '' -t launch_args < "$args_file"
+      fi
+    else
+      echo "OpenCode session sync is pending; starting with the requested arguments." >&2
+    fi
+  else
+    echo "OpenCode session sync is unavailable; starting with the requested arguments." >&2
+  fi
+  "$bin" "${launch_args[@]}" &
+  child_pid=$!
+  trap 'kill -INT "$child_pid" 2>/dev/null || true' INT
+  trap 'kill -TERM "$child_pid" 2>/dev/null || true' TERM
+  set +e
+  wait "$child_pid"
+  rc=$?
+  set -e
+  trap - INT TERM
+  if [[ -n "$token" ]] && command -v opencode-session-sync >/dev/null 2>&1; then
+    opencode-session-sync after --client "$client" --workspace "$PWD" --token "$token" >/dev/null || \
+      echo "OpenCode session sync after-run is pending; it will retry on the next launch." >&2
+  fi
+  return "$rc"
+}
+
 if [[ "${VPN_WORKSPACE_CONTAINER:-}" == "1" ]]; then
+  readonly V2_BIN="${HOME:?HOME must be set}/.opencode/bin/opencode"
   if [[ ! -x "$V2_BIN" ]]; then
     printf 'opencode2: v2 binary is unavailable: %s\n' "$V2_BIN" >&2
     exit 127
@@ -21,11 +65,37 @@ if [[ "${VPN_WORKSPACE_CONTAINER:-}" == "1" ]]; then
     echo 'opencode2: VPN tunnel is unhealthy; run vpn-reconnect before starting OpenCode.' >&2
     exit 1
   fi
+  export OPENCODE_HOST_HOME="$HOME"
+  export OPENCODE_V2_HOME="$HOME"
+  if should_sync_session "$@"; then
+    run_with_session_sync v2 "$V2_BIN" "$@"
+    exit $?
+  fi
   exec "$V2_BIN" "$@"
 fi
 
+# Escape explícito: executar no host, fora do túnel VPN. Opt-in porque o
+# host não tem os plugins de recuperação VPN (a rotação em free tier só
+# acontece dentro do container, com egress verificável).
+if [[ "${OPENCODE_ALLOW_HOST:-0}" == "1" ]]; then
+  host_bin="${OPENCODE_HOST_BIN:-}"
+  [[ -n "$host_bin" ]] || host_bin="$(command -v opencode 2>/dev/null || true)"
+  if [[ -z "$host_bin" || ! -x "$host_bin" ]]; then
+    echo 'opencode2: OPENCODE_ALLOW_HOST=1, mas o binário do OpenCode v2 não foi encontrado no host (defina OPENCODE_HOST_BIN).' >&2
+    exit 127
+  fi
+  echo 'opencode2: EXECUTANDO NO HOST, FORA DO TÚNEL VPN (OPENCODE_ALLOW_HOST=1); recuperação VPN fica inativa.' >&2
+  export OPENCODE_HOST_HOME="$HOME"
+  export OPENCODE_V2_HOME="$HOME"
+  if should_sync_session "$@"; then
+    run_with_session_sync v2 "$host_bin" "$@"
+    exit $?
+  fi
+  exec "$host_bin" "$@"
+fi
+
 if ! command -v docker >/dev/null 2>&1; then
-  echo 'opencode2: Docker is required; refusing to run OpenCode on the host.' >&2
+  echo 'opencode2: Docker is required; refusing to run OpenCode on the host. Use OPENCODE_ALLOW_HOST=1 to bypass.' >&2
   exit 1
 fi
 if [[ "$(docker inspect --format '{{.State.Running}}' "$TERMINAL_CONTAINER" 2>/dev/null || true)" != 'true' ]]; then
@@ -42,22 +112,15 @@ case "$workdir" in
   /projetos|/projetos/*|/home/*|/tmp|/tmp/*) ;;
   *) workdir=/projetos ;;
 esac
-readonly V2_HOME="${HOME:?HOME must be set}"
-readonly V2_XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-${V2_HOME}/.config}"
-readonly V2_XDG_DATA_HOME="${XDG_DATA_HOME:-${V2_HOME}/.local/share}"
-readonly V2_XDG_STATE_HOME="${XDG_STATE_HOME:-${V2_HOME}/.local/state}"
-
 tty_flags=(-i)
 if [[ -t 0 && -t 1 ]]; then
   tty_flags+=(-t)
 fi
+# Let the container launcher use its Compose-provided HOME and XDG paths.
+# Host HOME/XDG values may point to an isolated CLI profile, not the mounted home.
 exec docker exec "${tty_flags[@]}" \
   -e VPN_WORKSPACE_CONTAINER=1 \
-  -e HOME="$V2_HOME" \
-  -e XDG_CONFIG_HOME="$V2_XDG_CONFIG_HOME" \
-  -e XDG_DATA_HOME="$V2_XDG_DATA_HOME" \
-  -e XDG_STATE_HOME="$V2_XDG_STATE_HOME" \
   -e TERM="${TERM:-xterm-256color}" \
   -w "$workdir" \
   "$TERMINAL_CONTAINER" \
-  "$V2_BIN" "$@"
+  opencode2 "$@"

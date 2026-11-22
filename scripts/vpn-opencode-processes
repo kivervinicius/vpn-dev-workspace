@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+if (($# != 1)) || [[ ! "$1" =~ ^[1-9][0-9]{0,4}$ ]] || ((10#$1 > 65535)); then
+  if (($# == 1)) && [[ "$1" == "-h" || "$1" == "--help" ]]; then
+    echo "Uso: vpn-opencode-processes <porta>" >&2
+    echo "Encerra somente processos OpenCode web/serve que usam a porta indicada." >&2
+    exit 0
+  fi
+  echo "Uso: vpn-opencode-processes <porta>" >&2
+  exit 2
+fi
+port="$1"
+proc_root="${VPN_PROC_ROOT:-/proc}"
+kill_bin="${VPN_KILL_BIN:-kill}"
+stopped=0
+
+matches_server() {
+  local command_line="$1"
+  [[ "$command_line" =~ (^|/)(opencode|opencode1|opencode2)([[:space:]]|$) ]] || return 1
+  [[ " $command_line " =~ [[:space:]](web|serve)[[:space:]] ]] || return 1
+  [[ " $command_line " =~ [[:space:]]--port[[:space:]]${port}[[:space:]] ]]
+}
+
+for proc_dir in "$proc_root"/[0-9]*; do
+  [[ -d "$proc_dir" && -r "$proc_dir/cmdline" ]] || continue
+  command_line="$(tr '\0' ' ' < "$proc_dir/cmdline" 2>/dev/null || true)"
+  if matches_server "$command_line" && "$kill_bin" "${proc_dir##*/}" 2>/dev/null; then
+    ((stopped += 1))
+  fi
+done
+printf '%s\n' "$stopped"

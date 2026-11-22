@@ -8,6 +8,6 @@
     "./tui": "./tui.js"
   },
   "dependencies": {
-    "@opencode/plugin": "2.1.3"
+    "@opencode/plugin": "2.3.2"
   }
 }

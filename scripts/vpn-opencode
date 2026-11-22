@@ -5,24 +5,24 @@
 set -Eeuo pipefail
 
 readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$(dirname "${BASH_SOURCE[0]}")/dotenv-read.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/vpn-control-api.sh"
 
 need() {
   command -v "$1" >/dev/null 2>&1 || { echo "Erro: dependência ausente: $1" >&2; exit 2; }
 }
 
 read_compose_value() {
-  local name="$1" default_value="$2" value=""
-
-  if [[ -n "${!name+x}" ]]; then
-    printf '%s\n' "${!name}"
-    return
-  fi
-
+  local name="$1" default_value="$2" value="" rc=0
+  if [[ -n "${!name+x}" ]]; then printf '%s\n' "${!name}"; return; fi
   if [[ -f "${ROOT_DIR}/.env" ]]; then
-    value="$(awk -v prefix="${name}=" 'index($0, prefix) == 1 { print substr($0, length(prefix) + 1); exit }' "${ROOT_DIR}/.env")"
+    if value="$(dotenv_read "${ROOT_DIR}/.env" "$name")"; then printf '%s\n' "$value"; return
+    else
+      rc=$?
+      if ((rc != 1)); then echo "Erro: valor inválido para ${name} no .env." >&2; exit 2; fi
+    fi
   fi
-
-  printf '%s\n' "${value:-$default_value}"
+  printf '%s\n' "$default_value"
 }
 
 usage() {
@@ -34,7 +34,7 @@ usage() {
   echo "  logs [--tail N] [--port P]  logs do terminal (útil com --detach)" >&2
   echo "  check [--port P] [--json|-q] [--log-lines N]  verifica ok|down|quota (0/1); detalhe: credit-exhausted|zen-usage-limit|rate-limit|quota-pattern-in-http|quota-pattern-in-logs" >&2
   echo "  supervise [--port P] [--mode web|serve] [--interval N] [--restart-max N]" >&2
-  echo "    inicia supervisor persistente: desconexão real => recuperação da VPN; limite/quota => apenas aviso" >&2
+  echo "    inicia supervisor persistente: desconexão real => recuperação da VPN; limite/quota => plugins fazem handling; supervisor não altera a VPN" >&2
   echo "  supervise-stop|supervise-status|supervise-logs  gerencia o supervisor persistente" >&2
   echo "  watch [opções]              compatibilidade: inicia supervise e acompanha os logs" >&2
   echo "Porta padrão: \${OPENCODE_GUI_PORT:-10001} (deve estar na VPN_PORT_RANGE)." >&2
@@ -111,8 +111,6 @@ if command -v docker >/dev/null 2>&1; then
   terminal_cid="$("${compose[@]}" ps -q terminal 2>/dev/null || true)"
 fi
 
-proc_match="opencode \(web\|serve\).*--port ${port}"
-
 tcp_direct_ok() {
   local p="$1"
   if command -v timeout >/dev/null 2>&1; then
@@ -143,7 +141,7 @@ http_fetch_body() {
     pass="$(tr -d '\r\n' < "$pass_file" 2>/dev/null || true)"
     if [[ -n "$pass" ]]; then
       local auth_out="" auth_code=""
-      auth_out="$(curl --silent --show-error --connect-timeout 5 --max-time 10 -w '\n%{http_code}' -u "${user}:${pass}" "http://127.0.0.1:${p}/" 2>/dev/null || true)"
+      auth_out="$(vpn_basic_auth_curl "$user" "$pass" --silent --show-error --connect-timeout 5 --max-time 10 -w '\n%{http_code}' "http://127.0.0.1:${p}/" 2>/dev/null || true)"
       auth_code="$(printf '%s\n' "$auth_out" | tail -n1)"
       [[ "$auth_code" =~ ^[0-9]+$ ]] || auth_code=""
       auth_out="$(printf '%s\n' "$auth_out" | sed '$d')"
@@ -258,7 +256,7 @@ start_detached() {
   if [[ -n "${OPENCODE_SERVER_USER:-}" ]]; then env_args+=(-e OPENCODE_SERVER_USER); fi
   docker compose --profile vpn -f "${ROOT_DIR}/docker-compose.yml" exec -d \
     "${env_args[@]}" \
-    terminal opencode "$m" --port "$p" --hostname 0.0.0.0
+    terminal opencode2-service "$m" --port "$p" --hostname 0.0.0.0
 }
 
 case "$mode" in
@@ -315,7 +313,7 @@ case "$mode" in
     "${supervisor_compose[@]}" stop opencode-supervisor >/dev/null 2>&1 || true
     "${supervisor_compose[@]}" rm -f opencode-supervisor >/dev/null 2>&1 || true
     [[ -n "$terminal_cid" ]] || { echo "Supervisor encerrado; terminal não está ativo." >&2; exit 0; }
-    stopped="$(docker exec "$terminal_cid" sh -c 'n=0; for d in /proc/[0-9]*; do if tr "\0" " " < "$d/cmdline" 2>/dev/null | grep -Eq "'"${proc_match}"'"; then kill "${d#/proc/}" 2>/dev/null && n=$((n+1)); fi; done; printf "%s" "$n"')"
+    stopped="$(docker exec "$terminal_cid" vpn-opencode-processes "$port")"
     if (( stopped > 0 )); then
       echo "Encerrado(s) ${stopped} processo(s) na porta ${port}."
     else
@@ -355,12 +353,12 @@ case "$mode" in
       echo "OpenCode ${mode} pela VPN em http://127.0.0.1:${port} (fundo; pare com: vpn-opencode stop --port ${port})..."
       exec docker compose --profile vpn -f "${ROOT_DIR}/docker-compose.yml" exec -d \
         "${env_args[@]}" \
-        terminal opencode "$mode" --port "$port" --hostname 0.0.0.0
+        terminal opencode2-service "$mode" --port "$port" --hostname 0.0.0.0
     else
       echo "OpenCode ${mode} pela VPN em http://127.0.0.1:${port} (Ctrl+C para encerrar)..."
       exec docker compose --profile vpn -f "${ROOT_DIR}/docker-compose.yml" exec \
         "${env_args[@]}" \
-        terminal opencode "$mode" --port "$port" --hostname 0.0.0.0
+        terminal opencode2-service "$mode" --port "$port" --hostname 0.0.0.0
     fi
     ;;
 esac

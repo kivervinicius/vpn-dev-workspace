@@ -1,5 +1,11 @@
 # VPN Dev Workspace
 
+> **Projeto comunitário — ambiente de desenvolvimento por VPN.** O objetivo
+> é diagnóstico, isolamento e recuperação verificável; não existe garantia
+> de uso ilimitado de modelos externos. Contribua: [Contributing](CONTRIBUTING.md),
+> [Compatibility](docs/compatibility.md), [Security](SECURITY.md).
+
+
 Ambiente local de desenvolvimento em Docker que força o tráfego do terminal por uma VPN operada pelo [Gluetun](https://github.com/qdm12/gluetun). O terminal compartilha a rede do serviço VPN; se o túnel falhar, o kill switch do Gluetun bloqueia a saída.
 
 > Use somente provedores, contas e redes para os quais você tem autorização. A manutenção automática existe para recuperar conectividade, não para ocultar atividade ou contornar políticas.
@@ -227,38 +233,38 @@ docker compose -f docker-compose.yml -f profiles/nordvpn-openvpn.yml logs -f vpn
 
 ## 5. Acesso à rede interna do host (opt-in)
 
-Por padrão, o kill switch do Gluetun bloqueia todo o tráfego fora do túnel. Para permitir alcance à rede interna do host (ex: servidores `.omega`, NAS, impressoras):
+Por padrão, o kill switch do Gluetun bloqueia todo o tráfego fora do túnel. Para permitir alcance à rede interna do host (ex: servidores `.internal.example`, NAS, impressoras):
 
 ```ini
 # Sub-redes extras permitidas fora do túnel (a LAN do host é detectada sozinha).
-FIREWALL_SUBNETS=192.168.1.0/24,10.0.0.0/24
+FIREWALL_SUBNETS=192.168.240.0/24,10.0.0.0/24
 # DNS interno da LAN (resolução pública E interna passa por ele; deixe
 # INTERNAL_DNS_RESOLVERS vazio nesse modo).
-INTERNAL_DNS=192.168.1.1:53
+INTERNAL_DNS=192.168.240.10:53
 INTERNAL_DNS_RESOLVERS=
 # Hostnames internos liberados da proteção contra rebinding. Sem curingas:
-# o Gluetun rejeita "*.omega.local"; liste os nomes explícitos.
-INTERNAL_DNS_EXEMPT_HOSTNAMES=dev.go.omega.local,dev.mt.omega.local
+# o Gluetun rejeita "*.internal.example"; liste os nomes explícitos.
+INTERNAL_DNS_EXEMPT_HOSTNAMES=dev.go.internal.example,dev.mt.internal.example
 ```
 
 - No Linux nativo, sem `FIREWALL_SUBNETS`, o `vpn-switch` injeta a sub-rede da interface com a rota padrão do host (a LAN local).
 - No PowerShell e no WSL2, a rota padrão pode ser a rede virtual do Docker/WSL; por isso nenhuma sub-rede é inferida. Configure `FIREWALL_SUBNETS` explicitamente nos modos Windows para liberar a LAN do Windows.
 - Quando `INTERNAL_DNS` aponta para um servidor fora da sub-rede da LAN (ex: DNS em outra VLAN), inclua também a sub-rede dele em `FIREWALL_SUBNETS`, senão as consultas são bloqueadas pelo firewall do túnel.
 - Com `INTERNAL_DNS`, o servidor DNS embutido do Gluetun usa esse upstream em texto puro; sem ele, mantém o padrão DoT (Cloudflare).
-- `INTERNAL_DNS_EXEMPT_HOSTNAMES` é obrigatório para nomes internos: sem ele o Gluetun descarta respostas que apontam para IPs privados (proteção contra rebinding). Curingas não são aceitos (`*.omega` é rejeitado) — liste os nomes explícitos, separados por vírgula.
-- O `vpn-check` testa `INTERNAL_TEST_HOST` (nome ou IP) quando configurado, com teste TCP real na `INTERNAL_TEST_PORT` quando definida (ex: `INTERNAL_TEST_HOST=192.168.30.20`, `INTERNAL_TEST_PORT=80`); sem a porta, valida apenas que o nome resolve.
+- `INTERNAL_DNS_EXEMPT_HOSTNAMES` é obrigatório para nomes internos: sem ele o Gluetun descarta respostas que apontam para IPs privados (proteção contra rebinding). Curingas não são aceitos (`*.internal.example` é rejeitado) — liste os nomes explícitos, separados por vírgula.
+- O `vpn-check` testa `INTERNAL_TEST_HOST` (nome ou IP) quando configurado, com teste TCP real na `INTERNAL_TEST_PORT` quando definida (ex: `INTERNAL_TEST_HOST=192.168.240.10`, `INTERNAL_TEST_PORT=80`); sem a porta, valida apenas que o nome resolve.
 - Não inclua a faixa privada do túnel em `FIREWALL_SUBNETS`.
 
 ### 5.1 Hosts locais que só existem no host (opt-in)
 
-Nomes que vivem apenas no `/etc/hosts` do host (ex: `gitlab.omega`) não resolvem dentro do terminal, porque lá todo DNS passa pelo túnel. Para mapeá-los:
+Nomes que vivem apenas no `/etc/hosts` do host (ex: `gitlab.internal.example`) não resolvem dentro do terminal, porque lá todo DNS passa pelo túnel. Para mapeá-los:
 
 ```ini
-LOCAL_HOSTS=gitlab.omega=192.168.30.5,registry.omega=192.168.30.6
+LOCAL_HOSTS=gitlab.internal.example=192.168.240.10,registry.internal.example=192.168.240.10
 ```
 
 - O `vpn-switch` gera um snippet a partir de `LOCAL_HOSTS` e injeta no `/etc/hosts` do terminal pós-up (idempotente; `extra_hosts` é rejeitado pelo Docker com `network_mode`, por isso a injeção pós-up).
-- Para importar do `/etc/hosts` do host por domínio: `./scripts/vpn-hosts-import --domain omega` (só sugere a linha — você cola no `.env`). O gerador interno é `vpn-hosts-gen`.
+- Para importar do `/etc/hosts` do host por domínio: `./scripts/vpn-hosts-import --domain internal.example` (só sugere a linha — você cola no `.env`). O gerador interno é `vpn-hosts-gen`.
 - Reaplicar após `restart` manual: `./scripts/vpn-hosts-apply` (o `vpn-switch` sempre reaplica; `down`/`recreate` perde as entradas). Se `opencode-supervisor` estiver ativo, ele também recebe os mesmos `LOCAL_HOSTS`.
 - O `vpn-check` valida que cada nome resolve para o IP declarado.
 - O mapeamento resolve só o **nome**; o **alcance** continua exigindo a sub-rede em `FIREWALL_SUBNETS` (acima). Se o IP mudar na LAN, atualize o mapeamento (o import facilita o re-sync).
@@ -279,7 +285,7 @@ SSH_AUTH_SOCK=/run/user/1000/keyring/ssh
 RUN_USER_DIR=/run/user/1000
 ```
 
-- `HOST_HOME_DIR` seleciona a home montada (padrão: quem roda o Compose). `HOST_HOME_MODE=ro` monta read-only — use quando o fluxo só lê a home.
+- `HOST_HOME_DIR` seleciona a home montada (padrão: quem roda o Compose). O modo padrão `rw` permite ao OpenCode compartilhar e atualizar configurações, autenticação e dados de sessão com o host; `HOST_HOME_MODE=ro` serve para fluxos que só leem a home e não precisam persistir alterações.
 - `SSH_AUTH_SOCK` monta o agente SSH do host em `/run/vpn-ssh-agent.sock` (leitura) — `git push`, `ssh` e ferramentas que usam o agente funcionam dentro do terminal.
 - `RUN_USER_DIR` monta a sessão do usuário (keyring, dbus) no mesmo caminho.
 - **Risco consciente**: o container passa a ler seu agente SSH e sua sessão. Inicie apenas o seu próprio ambiente e não rode o terminal com agentes de outros usuários.
@@ -306,14 +312,17 @@ O helper `vpn-opencode` roda o OpenCode dentro do container (tráfego de LLM 100
 - Verificação: `vpn-opencode check [--port P] [--json|-q]` distingue `ok|down|quota` (exit `0` ok / `1` down|quota); `vpn-top` mostra a seção OpenCode.
 - Supervisor persistente (recomendado): `vpn-opencode supervise --mode serve` inicia o serviço `opencode-supervisor`. Ele roda no mesmo namespace da VPN, usa a mesma home/workspace e **não** recebe o socket Docker.
 - Recuperação automática: queda do processo com VPN saudável reinicia apenas o OpenCode; somente desconexão real ou túnel unhealthy acionam recuperação VPN pelo supervisor. O `vpn-opencode check` é observacional e não inicia rotação; limites de provider não são falhas de túnel.
-- Plugins das versões fixadas classificam somente eventos/campos estruturados: free-tier e HTTP 429/rate-limit podem solicitar troca real de servidor/IP; limites de conta e crédito não alteram VPN. Texto de resposta e logs nunca são gatilhos.
-- A recuperação por limite é best effort: o plugin chama o helper `scripts/opencode-limit-recover` (montado em `/usr/local/bin`), que exige túnel saudável, IP público válido e IP de saída diferente, sob o lock compartilhado `/var/lib/vpn-control/operation.lock`; respeita cooldown de 300 s, até 6 eventos por janela móvel de 3600 s e até 3 alvos distintos por evento (estado em `/var/lib/vpn-control/opencode-limit-recovery.json`). Candidatos são somente hostnames configurados em `VPN_SERVER_HOSTNAMES`; o resultado identifica o alvo solicitado, não comprova o peer remoto. Trocar o IP não garante reset de quota.
-- Em v1, retry estruturado só solicita recuperação após confirmação do abort; erro terminal estruturado não exige abort. Em v2, o hook do servidor veta retry classificado e um único evento de falha na TUI pode solicitar recuperação; execução headless não tem recuperação TUI. Nenhum plugin reenvia o prompt.
+- Plugins v1/v2 classificam somente eventos e campos estruturados. Provider quota, autenticação e rate-limit são status informativos: não alteram VPN nem modelo e não repetem automaticamente o turno ou chamadas de ferramenta. O v1 cancela retries reconhecidos quando possível; o hook de servidor v2 define `retry: false`; a TUI pode mostrar a contagem regressiva numérica de `Retry-After`. Texto arbitrário e logs não acionam ações. Para executar no host fora do túnel, use `OPENCODE_ALLOW_HOST=1 opencode1|opencode2`.
+- Falhas confirmadas de conectividade continuam separadas dos limites do provider. O `opencode-supervisor` recupera apenas desconexão de rede ou túnel unhealthy. Ele salva o ID da sessão mais recente, verifica que a sessão exata ainda pode ser exportada e informa `opencode2 --session <id>` para retomada manual; prompts e ferramentas nunca são repetidos automaticamente.
 - Proteção anti-loop do supervisor (`OPENCODE_RECOVERY_MAX_ROTATIONS`, `OPENCODE_RECOVERY_WINDOW_SECONDS` e `OPENCODE_RECOVERY_COOLDOWN_SECONDS`) limita recuperação de conectividade, separada dos limites do plugin.
 - `vpn-opencode watch` permanece como compatibilidade: inicia o supervisor persistente e acompanha seus logs.
-- Launchers e plugins globais: `./scripts/opencode-vpn-install` instala `opencode1` (v1, dados isolados em `~/.opencode-v1`) e `opencode2` (v2, home compartilhada) no `PATH` do host e o plugin `vpn-recovery` nos diretórios globais de cada versão. Ambos executam no terminal da VPN e recusam iniciar com túnel unhealthy; guia completo em `DEV/RUNBOOKS/opencode-v1-v2.md`.
-- Antes de uma recuperação de conectividade, o supervisor registra a sessão raiz mais recente com `opencode session list`. Depois que o túnel volta e o servidor reinicia, ele confirma que esse mesmo ID de sessão continua disponível na home persistente. Isso preserva o **mesmo contexto/sessão** para Desktop/Web/CLI reconectarem.
-- Uma resposta que estava em voo não é reenviada automaticamente: repetir o último prompt poderia duplicar comandos ou tools já executados. A recuperação restaura VPN + servidor + sessão persistida; a continuação exata da chamada interrompida depende do mecanismo de replay/continuação do próprio OpenCode.
+- Launchers e plugins globais: `./scripts/opencode-vpn-install` instala `opencode1` (v1, dados isolados em `~/.opencode-v1`), `opencode2` (v2, home compartilhada), o helper de sync e os plugins de status do provider. O launcher exige túnel saudável. Guia completo em `DEV/RUNBOOKS/opencode-v1-v2.md`.
+- Sessões entre clientes v1/v2: os launchers sincronizam as cinco sessões recentes do workspace por native JSON export/import e uma ledger de IDs. `--session <id>` explícito também sincroniza sessões antigas. A conversão preserva texto, raciocínio e resultados de ferramentas concluídas; recusa anexos, ferramentas em execução e partes desconhecidas. É uma cópia verificada, sem replay de prompt ou ferramentas.
+- No Windows, `vpn-opencode-wrapper` mantém a sincronização do banco v2 entre o host e o container separada da conversão v1/v2. `vpn.ps1 sessions-sync --push` reporta falhas e não aplica staging antigo quando o push falha.
+- Validação por plataforma: o gate Linux-first está concluído. O fluxo Windows
+  ainda precisa de `Invoke-Pester -Path tests/windows` e staging SQLite real no
+  Docker Desktop. Essa validação futura não bloqueia o uso inicial em Linux,
+  mas deve passar antes de declarar o caminho Windows validado.
 - Sonda no `vpn-auto-reconnect` (`OPENCODE_AUTOCHECK=true`) continua apenas observacional; a responsabilidade de recuperar o OpenCode fica centralizada no `opencode-supervisor`.
 - Senha (basic auth, usuário `opencode`): arquivo `OPENCODE_GUI_PASSWORD_FILE` (padrão `.secrets/opencode_gui_password`). Sem o arquivo, o painel abre sem senha — apenas para uso local; com `HOST_BIND_ADDRESS` em LAN, `vpn-switch`/`vpn.ps1` exigem o arquivo não vazio e recusam subir sem ele.
 - O estado é compartilhado com o CLI: o mesmo `$HOME` e os mesmos projetos são usados por `opencode` no terminal e pela GUI.
@@ -401,7 +410,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\vpn.ps1 opencode web
 .\scripts\vpn.ps1 opencode supervise --mode serve
 .\scripts\vpn.ps1 opencode supervise-status
-.\scripts\vpn.ps1 hosts-import --domain omega
+.\scripts\vpn.ps1 hosts-import --domain internal.example
 .\scripts\vpn.ps1 hosts-apply
 .\scripts\vpn.ps1 stop
 ```
@@ -496,4 +505,90 @@ OpenCode em `DEV/RUNBOOKS/`).
 
 ```bash
 ./scripts/vpn-switch stop
+```
+
+
+## Control Plane (opt-in, em desenvolvimento)
+
+A branch `feat/control-plane-observability-v1` introduz ferramentas read-only:
+`vpn-state --json`, `opencode-compat --json`, `vpn-events list` e `vpn-backup`.
+
+- O painel é um serviço local sem acesso à home, workspace, Docker socket ou segredos do OpenCode.
+- O observer roda no namespace VPN, agrega sinais sem executar rotação e grava snapshots sanitizados no volume `vpn_control_state`.
+- Para habilitar a UI, crie `.secrets/control_ui_password` com senha aleatória de pelo menos 16 caracteres (modo `0600`), configure `CONTROL_UI_PASSWORD_FILE` no `.env` e use o mesmo arquivo de perfil de VPN que foi iniciado:
+
+```bash
+# Exemplo apenas se o perfil ativo for nordvpn-openvpn:
+docker compose -f docker-compose.yml -f profiles/nordvpn-openvpn.yml --profile vpn --profile control up -d vpn-control-observer vpn-control-ui
+# Acesse http://127.0.0.1:10003 e autentique com usuario 'control'.
+```
+
+Depois de iniciar o ambiente, gere a matriz de compatibilidade pelo container
+(usa somente binários e arquivos locais; sem chamadas a modelos):
+
+```bash
+docker compose -f docker-compose.yml -f profiles/nordvpn-openvpn.yml exec terminal opencode-compat --json --publish
+```
+
+`vpn-backup` e `opencode-compat` também ficam disponíveis no terminal Linux e
+no container Windows, preservando o contrato dos comandos existentes. A
+publicação de compatibilidade armazena apenas versões e resultados de hash
+sanitizados no volume de controle, para a UI ler sem acesso à home.
+
+O painel **falha fechado** se `HOST_BIND_ADDRESS` for diferente de loopback. O modo control não é iniciado pelo `vpn-switch` por padrão. GETs não executam reconexão. A UI utiliza HTML/CSS/JS estático, sem dependências externas, para manter superfície de ataque e manutenção pequenas.
+
+Backups: a CLI `vpn-backup create --scope v2 --offline` exige que todos os escritores do OpenCode (inclusive host) tenham sido encerrados antes da operação; `--offline` é confirmação do operador, e não prova de ausência de processos em outros namespaces. `vpn-backup verify --id ID` verifica hashes e `PRAGMA integrity_check`; `plan-restore` é read-only; `restore ... --offline` cria snapshot pre-restore e journal para `recover --offline`. `auth.json` não é copiado. Os backups devem ser exportados para fora do volume Docker quando relevantes; a CLI não garante por si só persistência em outro host.
+
+**Limitação importante:** as mudanças de IP demonstram somente egress diferente; não comprovam recuperação de franquia de um provedor de IA. O journal distingue eventos de rede de aceitação real de requisição. A observação remota depende de evidência do provedor e não é automatizada neste MVP.
+
+
+### Prova experimental de resposta do provedor (manual)
+
+O comando `vpn-provider-probe --model provider/model --confirm` roda **uma invocação**
+do OpenCode v2 dentro do container e registra um resultado sanitizado. Ele exige
+consentimento explícito porque **consome uma requisição** e cria uma sessão
+arquivada (não apaga nem renumera sessões). A invocação é `--standalone --archived
+--format json --agent plan`; sem `--auto`, sem replay e sem rotação de IP.
+
+O wrapper não repete a execução; o próprio OpenCode pode fazer retries internos.
+Aceitação requer exit 0 mais parte de texto estruturada; erro estruturado
+reconhecido informa rejeição; falhas genéricas permanecem **unverified**.
+A API local mostra a última prova e a marca como desatualizada em 120 segundos,
+sem concluir que a quota foi restaurada permanentemente.
+
+O resultado inclui `publicIp` apenas quando o endereço público da VPN
+foi observado igual **antes e depois** da execução; caso contrário
+`egressStable=false` e não há atribuição segura da resposta a um IP específico.
+Os eventos de resultado preservam o IP confirmado, quando existir, permitindo
+correlacionar alterações de saída e respostas do provedor sem registrar prompts.
+
+O teste roda a CLI em um diretório temporário vazio, sem contexto do workspace, e remove esse diretório ao terminar. Configurações globais autorizadas do OpenCode ainda podem ser carregadas pelo cliente; não há aprovação automática de permissões.
+
+### Matriz de compatibilidade OpenCode v1/v2 (2026-11-22)
+
+O baseline testado é **v1 1.19.6** e **v2 2.3.2**. O instalador exige v1
+1.19.6 e aceita v2 a partir de 2.2.6; versões v2 diferentes de 2.3.2 são
+marcadas como não homologadas pelo `opencode-compat --json` e pelo
+`opencode2-service --check`. A sincronização nativa de sessões foi exercitada
+com dados sintéticos isolados nas duas versões; os detalhes e limites estão
+em `docs/compatibility.md` e `DEV/RUNBOOKS/opencode-v1-v2.md`.
+
+O probe conservador exige `--archived`, disponível a partir do v2.2.6. A
+política de limites do provider é status-only: nenhuma versão altera VPN ou
+modelo, nem repete automaticamente prompts ou ferramentas. Recuperação de
+rede permanece no supervisor e, após verificar a sessão exata, fornece o
+comando para retomada manual.
+
+Referências oficiais:
+- https://opencode.ai/changelog/v2.2.6
+- https://opencode.ai/changelog/v2.3.2
+- https://opencode.ai/docs/plugins/
+
+O serviço `opencode2-service` valida que o executável pertence à linha v2 e
+recusa versões abaixo do mínimo 2.2.6, a menos que a opção de canário seja
+explicitamente habilitada. Versões diferentes do baseline 2.3.2 emitem aviso;
+isso não é prova de compatibilidade dos plugins.
+
+```bash
+opencode2-service --check
 ```

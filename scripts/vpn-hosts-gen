@@ -2,7 +2,7 @@
 # vpn-hosts-gen: valida LOCAL_HOSTS e gera o snippet hosts a partir dele.
 #
 # Formato: LOCAL_HOSTS="nome=ip,nome=ip" (vírgula e/ou espaço como separador).
-# Ex: LOCAL_HOSTS="gitlab.omega=192.168.30.5,registry.omega=192.168.30.6"
+# Ex: LOCAL_HOSTS="gitlab.internal.example=192.168.240.10,registry.internal.example=192.168.240.10"
 #
 # Comportamento:
 # - vazio/ausente: remove o snippet (se existir) e sai 0 — sem mapeamento.
@@ -93,7 +93,7 @@ while [[ -n "$rest" ]]; do
     rest=""
   fi
   entry="$(trim "$entry")"
-  # Permite espaço como separador adicional: "a=1.1.1.1 b=2.2.2.2".
+  # Permite espaço como separador adicional: "a=192.168.240.11 b=192.168.240.11".
   [[ -n "$entry" ]] || continue
   read -r -a tokens <<< "$entry"
   for token in "${tokens[@]}"; do

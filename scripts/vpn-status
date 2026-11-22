@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-readonly API_URL="${GLUETUN_API_URL:-http://127.0.0.1:8000}"
-readonly API_KEY_FILE="${GLUETUN_API_KEY_FILE:-/run/secrets/gluetun_api_key}"
+source "$(dirname "${BASH_SOURCE[0]}")/vpn-control-api.sh"
+
+readonly API_URL="${GLUETUN_API_URL:-$(vpn_control_default_url)}"
+readonly API_KEY_FILE="${GLUETUN_API_KEY_FILE:-$(vpn_control_default_key_file "$(dirname "${BASH_SOURCE[0]}")")}"
 readonly CURL_TIMEOUT_ARGS=(--connect-timeout 5 --max-time 10)
 
 usage() {
@@ -34,13 +36,11 @@ need curl
 need jq
 
 [[ -r "$API_KEY_FILE" ]] || { echo "Erro: segredo da API ausente: $API_KEY_FILE" >&2; exit 1; }
-api_key="$(tr -d '\r\n' < "$API_KEY_FILE")"
-[[ -n "$api_key" ]] || { echo "Erro: chave da API vazia." >&2; exit 1; }
 
 api_request() {
-  curl --fail --silent --show-error \
+  vpn_api_curl --fail --silent --show-error \
     "${CURL_TIMEOUT_ARGS[@]}" \
-    -H "X-API-Key: ${api_key}" "$@"
+    "$@"
 }
 
 status="$(api_request "${api_url}/v1/vpn/status")"

@@ -10,13 +10,70 @@ const ERROR_CLASSES = new Map([
   ["credit_limit", "credit_limit"],
 ])
 
+// O runtime OpenCode mapeia o erro do provider para tipos estáveis
+// (packages/core/src/session/to-session-error.ts). Todos os tipos reconhecidos
+// ficam em modo informativo: nenhum deles muda a VPN ou repete o turno.
+const RUNTIME_ERROR_CLASSES = new Map([
+  ["provider.free-limit", "free_tier_limit"],
+  ["provider.rate-limit", "rate_limit"],
+  ["provider.quota", "account_limit"],
+  ["provider.auth", "auth_limit"],
+])
+
 function object(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
+function parseRetryAfter(value) {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return Math.min(Math.trunc(value), 86_400)
+  }
+  if (typeof value === "string" && /^\d+$/.test(value.trim())) {
+    return Math.min(Number.parseInt(value.trim(), 10), 86_400)
+  }
+  return undefined
+}
+
+// Localiza um header Retry-After numérico (segundos) no erro do provider.
+// Format HTTP-date é ignorado de propósito: a janela de cota do Zen é longa e
+// um parse errado seria pior do que nenhum countdown.
+export function extractRetryAfterSeconds(error) {
+  if (!object(error)) return undefined
+  const pending = [error]
+  const seen = new Set()
+  while (pending.length) {
+    const current = pending.pop()
+    if (!object(current) || seen.has(current)) continue
+    seen.add(current)
+    // O runtime entrega o Retry-After em milissegundos no topo do SessionError
+    // (packages/core/src/route/executor.js -> providerError()). Sem esta leitura
+    // o cooldown de cota nunca é aplicado e a rotação vira tempestade.
+    const millis = current.retryAfterMs
+    if (typeof millis === "number" && Number.isFinite(millis) && millis > 0) {
+      return Math.min(Math.trunc(millis / 1000), 86_400)
+    }
+    for (const key of ["retryAfter", "retry_after"]) {
+      const parsed = parseRetryAfter(current[key])
+      if (parsed !== undefined) return parsed
+    }
+    for (const key of ["headers", "responseHeaders"]) {
+      const child = current[key]
+      if (!object(child)) continue
+      const parsed = parseRetryAfter(child["retry-after"] ?? child["Retry-After"])
+      if (parsed !== undefined) return parsed
+    }
+    for (const [key, child] of Object.entries(current)) {
+      if (key === "body" || key === "responseBody") continue
+      if (object(child)) pending.push(child)
+    }
+  }
+  return undefined
+}
+
 export function classifyV2Error(error) {
   if (!object(error)) return undefined
-  if (error.type === "provider.free-limit") return "free_tier_limit"
+  const runtimeClass = RUNTIME_ERROR_CLASSES.get(error.type)
+  if (runtimeClass) return runtimeClass
   const pending = [error]
   const seen = new Set()
   let hasFreeTier = false

@@ -14,15 +14,14 @@ doctor: ## Diagnostica o ambiente, VPN e credenciais
 setup: ## Assistente interativo de configuração inicial
 	@./scripts/vpn-setup
 
-up: ## Sobe a stack de containers em background (use vpn-switch <perfil> no primeiro uso)
-	docker compose --profile vpn up -d
-	@echo "Nota: o primeiro boot exige ./scripts/vpn-switch <perfil> (credenciais + firewall + hosts)."
+up: ## Sobe a stack de containers em background (VPN_PROFILE=<perfil>)
+	@profile="$(VPN_PROFILE)"; test -n "$$profile" || { echo "Defina VPN_PROFILE=<perfil>." >&2; exit 2; }; ./scripts/vpn-switch "$$profile"
 
 down: ## Encerra a stack de containers
-	docker compose --profile vpn --profile opencode down --remove-orphans
+	@./scripts/vpn-switch down
 
 restart: ## Reinicia todos os containers da stack
-	docker compose --profile vpn --profile opencode restart
+	@profile="$(VPN_PROFILE)"; test -n "$$profile" || { echo "Defina VPN_PROFILE=<perfil>." >&2; exit 2; }; ./scripts/vpn-switch "$$profile"
 
 logs: ## Exibe os logs da stack em tempo real
 	docker compose --profile vpn --profile opencode logs -f

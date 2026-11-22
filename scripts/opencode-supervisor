@@ -3,6 +3,8 @@
 # Não usa Docker socket: controla o processo filho OpenCode e a VPN pela API do Gluetun.
 set -Eeuo pipefail
 
+source "$(dirname "${BASH_SOURCE[0]}")/vpn-control-api.sh"
+
 MODE="${OPENCODE_SUPERVISOR_MODE:-serve}"
 PORT="${OPENCODE_GUI_PORT:-10001}"
 INTERVAL="${OPENCODE_SUPERVISOR_INTERVAL_SECONDS:-10}"
@@ -101,7 +103,7 @@ validate_nonnegative() {
 need curl
 need grep
 need jq
-need opencode
+need opencode2-service
 
 [[ "$MODE" == "serve" || "$MODE" == "web" ]] || { echo "Erro: OPENCODE_SUPERVISOR_MODE deve ser serve|web." >&2; exit 2; }
 [[ "$PORT" =~ ^[1-9][0-9]{0,4}$ && "$PORT" -le 65535 ]] || { echo "Erro: OPENCODE_GUI_PORT inválida: $PORT." >&2; exit 2; }
@@ -136,13 +138,13 @@ load_server_auth() {
 }
 
 http_ready() {
-  local -a auth=()
+  local url="http://127.0.0.1:${PORT}/"
   if [[ -n "${OPENCODE_SERVER_PASSWORD:-}" ]]; then
-    auth=(-u "${OPENCODE_SERVER_USER:-opencode}:${OPENCODE_SERVER_PASSWORD}")
+    vpn_basic_auth_curl "${OPENCODE_SERVER_USER:-opencode}" "$OPENCODE_SERVER_PASSWORD" \
+      --silent --show-error --output /dev/null --connect-timeout 3 --max-time 5 "$url"
+  else
+    curl --silent --show-error --output /dev/null --connect-timeout 3 --max-time 5 "$url"
   fi
-  curl --silent --show-error --output /dev/null \
-    --connect-timeout 3 --max-time 5 \
-    "${auth[@]}" "http://127.0.0.1:${PORT}/"
 }
 
 start_opencode() {
@@ -153,7 +155,7 @@ start_opencode() {
   fi
   log_offset=0
   echo "Iniciando OpenCode ${MODE} em 127.0.0.1:${PORT}..."
-  opencode "$MODE" --port "$PORT" --hostname 0.0.0.0 >>"$LOG_FILE" 2>&1 &
+  opencode2-service "$MODE" --port "$PORT" --hostname 0.0.0.0 >>"$LOG_FILE" 2>&1 &
   child_pid=$!
   printf '%s\n' "$child_pid" > "$PID_FILE"
 }
@@ -205,12 +207,12 @@ read_new_logs() {
 
 capture_resume_session() {
   local json id
-  json="$(opencode session list --format json -n 1 2>/dev/null || true)"
+  json="$(opencode2-service session list --format json -n 1 2>/dev/null || true)"
   id="$(printf '%s' "$json" | jq -r 'if type == "array" and length > 0 then .[0].id // empty else empty end' 2>/dev/null || true)"
   if [[ -n "$id" && "$id" != "null" ]]; then
     resume_session_id="$id"
     printf '%s\n' "$resume_session_id" > "$SESSION_STATE_FILE"
-    echo "Sessão OpenCode preservada para retomada de contexto: ${resume_session_id}."
+    echo "ID da sessão OpenCode salvo para retomada manual: ${resume_session_id}; nenhuma requisição ou ferramenta será repetida."
     return 0
   fi
 
@@ -220,20 +222,19 @@ capture_resume_session() {
 }
 
 verify_resume_session() {
-  local target json
+  local target
   target="$resume_session_id"
   if [[ -z "$target" && -r "$SESSION_STATE_FILE" ]]; then
     target="$(tr -d '\r\n' < "$SESSION_STATE_FILE" 2>/dev/null || true)"
   fi
   [[ -n "$target" ]] || return 0
 
-  json="$(opencode session list --format json -n 50 2>/dev/null || true)"
-  if printf '%s' "$json" | jq -e --arg id "$target" 'any(.[]?; .id == $id)' >/dev/null 2>&1; then
-    echo "Contexto preservado: sessão ${target} continua disponível após a recuperação."
+  if [[ "$target" =~ ^[A-Za-z0-9_-]+$ ]] && opencode2-service session export "$target" >/dev/null 2>&1; then
+    echo "Sessão ${target} confirmada após a recuperação. Para retomar exatamente este contexto, execute: opencode2 --session ${target}."
     return 0
   fi
 
-  echo "Aviso: a sessão ${target} não apareceu na listagem após reiniciar o OpenCode; nenhuma requisição será repetida automaticamente." >&2
+  echo "Aviso: não foi possível exportar a sessão ${target} após reiniciar o OpenCode; nenhuma requisição será repetida automaticamente." >&2
   return 1
 }
 

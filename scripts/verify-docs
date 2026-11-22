@@ -67,6 +67,45 @@ grep -Fq 'HOST_HOME_DIR' "$README_FILE" || {
   fails=$((fails + 1))
 }
 
+for variable in VPN_SERVICE_PROVIDER VPN_TYPE PUBLICIP_API VPN_IP_ATTEMPTS OPENCODE_SERVER_USER OPENCODE_GUI_PASSWORD_FILE XKIRO_API_KEY_FILE; do
+  grep -Fq "$variable" "$ROOT_DIR/.env.example" || {
+    echo "Erro: variável ${variable} sem referência em .env.example." >&2
+    fails=$((fails + 1))
+  }
+done
+
+for target in up down restart; do
+  make_recipe="$(awk -v target="$target:" '$1 == target { getline; print; exit }' "$ROOT_DIR/Makefile")"
+  [[ "$make_recipe" == *'./scripts/vpn-switch'* ]] || {
+    echo "Erro: make ${target} deve encaminhar a mutação pelo vpn-switch." >&2
+    fails=$((fails + 1))
+  }
+done
+grep -Fq 'vpn_control_lock_acquire' "$SWITCH_FILE" || {
+  echo "Erro: vpn-switch sem lock compartilhado para serializar mutações." >&2
+  fails=$((fails + 1))
+}
+grep -Fq 'HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH' "$ROOT_DIR/docker-compose.yml" || {
+  echo "Erro: Compose não define o arquivo de autenticação do control server." >&2
+  fails=$((fails + 1))
+}
+grep -Fq '/run/gluetun-auth:mode=0700' "$ROOT_DIR/docker-compose.yml" || {
+  echo "Erro: arquivo de autenticação do Gluetun não está em tmpfs." >&2
+  fails=$((fails + 1))
+}
+if grep -Eq '(^|[[:space:]])(HTTPPROXY_PASSWORD|VPN_HTTP_PROXY_PASSWORD|OPENCODE_SERVER_PASSWORD):' "$ROOT_DIR/docker-compose.yml"; then
+  echo "Erro: Compose interpola senha direta em variável de ambiente." >&2
+  fails=$((fails + 1))
+fi
+grep -Fq 'curl --config -' "$ROOT_DIR/scripts/vpn-control-api.sh" || {
+  echo "Erro: autenticação da API não é fornecida pelo stdin do curl." >&2
+  fails=$((fails + 1))
+}
+grep -Fq 'docker build --pull=true ./gluetun' "$ROOT_DIR/.github/workflows/validate.yml" || {
+  echo "Erro: CI não constrói a imagem local do Gluetun." >&2
+  fails=$((fails + 1))
+}
+
 grep -Fq 'network_mode: "service:vpn"' "$ROOT_DIR/docker-compose.yml" || {
   echo "Erro: terminal não está associado à rede do serviço VPN." >&2
   fails=$((fails + 1))
@@ -198,7 +237,7 @@ grep -Fq 'verify_resume_session' "$ROOT_DIR/scripts/opencode-supervisor" || {
   echo "Erro: supervisor não verifica a sessão após a recuperação." >&2
   fails=$((fails + 1))
 }
-grep -Fq 'mesmo contexto/sessão' "$README_FILE" || {
+grep -Fq 'opencode2 --session <id>' "$README_FILE" || {
   echo "Erro: retomada do contexto do OpenCode sem documentação no README." >&2
   fails=$((fails + 1))
 }
@@ -300,8 +339,11 @@ if grep -Eq 'mudarip|/usr/local/bin/mudarip' "$README_FILE" "$ROOT_DIR/docker-co
   exit 1
 fi
 
-# Trava de drift: versão do exemplo de genkey acompanha o Compose.
-if grep -Fq 'gluetun:v3.40.0' "$ROOT_DIR/.env.example" "$README_FILE" "$EXAMPLE_FILE" 2>/dev/null; then
+# Trava de drift: versão do exemplo de genkey acompanha o Compose, inclusive
+# no .env local quando existe (ele é ignorado pelo Git, mas usado no setup).
+versioned_docs=("$ROOT_DIR/.env.example" "$README_FILE" "$EXAMPLE_FILE")
+[[ ! -f "$ROOT_DIR/.env" ]] || versioned_docs+=("$ROOT_DIR/.env")
+if grep -Fq 'gluetun:v3.40.0' "${versioned_docs[@]}" 2>/dev/null; then
   echo "Erro: referência antiga ao Gluetun v3.40.0 (atualize para a versão do Compose)." >&2
   exit 1
 fi

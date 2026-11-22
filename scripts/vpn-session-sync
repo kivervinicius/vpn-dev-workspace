@@ -9,7 +9,8 @@
 #   autopull  host -> container, se o host estiver mais novo   (wrapper)
 #   autopush  container -> staging, se o container for mais novo (wrapper)
 #
-# Best-effort: nunca derruba o fluxo (erros sao reportados, exit 0).
+# Wrapperes podem tratar falhas como best-effort, mas os callers recebem um
+# exit status diferente de zero quando a sincronizacao ficou pendente.
 set -uo pipefail
 
 readonly STAGING_DIR="${VPN_SESSION_SYNC_DIR:-/tmp/vpn-session-sync}"
@@ -38,11 +39,38 @@ esac
 # destino (um WAL antigo corromperia a leitura do db novo).
 copy_db_set() {
   local src="$1" dst="$2" f
-  rm -f "${dst}/opencode.db-wal" "${dst}/opencode.db-shm"
+  mkdir -p "$dst" || return 1
+  rm -f "${dst}/opencode.db-wal" "${dst}/opencode.db-shm" || return 1
   for f in "${DB_FILES[@]}"; do
-    [[ -f "${src}/${f}" ]] && cp -f "${src}/${f}" "${dst}/${f}"
+    [[ -f "${src}/${f}" ]] || continue
+    cp -f "${src}/${f}" "${dst}/${f}" || return 1
   done
   return 0
+}
+
+publish_snapshot() {
+  local src="$1" direction="$2" tmp backup
+  mkdir -p "$STAGING_DIR" || return 1
+  tmp="$(mktemp -d "${STAGING_DIR}/.out.XXXXXX")" || return 1
+  if ! copy_db_set "$src" "$tmp" || [[ ! -f "${tmp}/opencode.db" ]] || ! db_valid "${tmp}/opencode.db"; then
+    echo "vpn-session-sync: snapshot inconsistente; publicacao nao aplicada." >&2
+    rm -rf "$tmp"
+    return 1
+  fi
+  rewrite_db_paths "${tmp}/opencode.db" "$direction"
+
+  backup="${STAGING_DIR}/.out.backup.$$"
+  rm -rf "$backup"
+  if [[ -d "${STAGING_DIR}/out" ]]; then
+    mv "${STAGING_DIR}/out" "$backup" || { rm -rf "$tmp"; return 1; }
+  fi
+  if mv "$tmp" "${STAGING_DIR}/out"; then
+    rm -rf "$backup"
+    return 0
+  fi
+  [[ ! -d "$backup" ]] || mv "$backup" "${STAGING_DIR}/out" || true
+  rm -rf "$tmp"
+  return 1
 }
 
 file_mtime() {
@@ -197,12 +225,23 @@ case "$mode" in
     fi
     stop_container_service
     if container_busy; then
-      echo "vpn-session-sync: opencode ativo no container; importacao pulada." >&2
-      exit 0
+      echo "vpn-session-sync: opencode ativo no container; importacao pendente." >&2
+      exit 75
     fi
     mkdir -p "$SHARE_DIR"
-    [[ -f "${SHARE_DIR}/opencode.db" ]] && cp -f "${SHARE_DIR}/opencode.db" "${SHARE_DIR}/opencode.db${BACKUP_SUFFIX}"
-    copy_db_set "${STAGING_DIR}/opencode" "$SHARE_DIR"
+    tmp="$(mktemp -d)"
+    if ! copy_db_set "${STAGING_DIR}/opencode" "$tmp" || ! db_valid "${tmp}/opencode.db"; then
+      echo "vpn-session-sync: staging inconsistente; importacao nao aplicada." >&2
+      rm -rf "$tmp"
+      exit 1
+    fi
+    [[ ! -f "${SHARE_DIR}/opencode.db" ]] || cp -f "${SHARE_DIR}/opencode.db" "${SHARE_DIR}/opencode.db${BACKUP_SUFFIX}" || { rm -rf "$tmp"; exit 1; }
+    if ! copy_db_set "$tmp" "$SHARE_DIR"; then
+      echo "vpn-session-sync: falha copiando staging para o container." >&2
+      rm -rf "$tmp"
+      exit 1
+    fi
+    rm -rf "$tmp"
     rewrite_db_paths "${SHARE_DIR}/opencode.db" to-container
     echo "vpn-session-sync: conversas importadas do staging (host)." >&2
     ;;
@@ -223,19 +262,27 @@ case "$mode" in
     fi
     stop_container_service
     if container_busy; then
-      echo "vpn-session-sync: opencode ativo no container; importacao pulada." >&2
-      exit 0
+      echo "vpn-session-sync: opencode ativo no container; importacao pendente." >&2
+      exit 75
     fi
     tmp="$(mktemp -d)"
-    copy_db_set "$HOST_SHARE_DIR" "$tmp"
-    if [[ ! -f "${tmp}/opencode.db" ]] || ! db_valid "${tmp}/opencode.db"; then
-      echo "vpn-session-sync: copia do banco do host inconsistente; importacao pulada." >&2
+    if ! copy_db_set "$HOST_SHARE_DIR" "$tmp"; then
+      echo "vpn-session-sync: falha copiando banco do host; importacao pendente." >&2
       rm -rf "$tmp"
-      exit 0
+      exit 1
+    fi
+    if [[ ! -f "${tmp}/opencode.db" ]] || ! db_valid "${tmp}/opencode.db"; then
+      echo "vpn-session-sync: copia do banco do host inconsistente; importacao pendente." >&2
+      rm -rf "$tmp"
+      exit 1
     fi
     mkdir -p "$SHARE_DIR"
-    [[ -f "${SHARE_DIR}/opencode.db" ]] && cp -f "${SHARE_DIR}/opencode.db" "${SHARE_DIR}/opencode.db${BACKUP_SUFFIX}"
-    copy_db_set "$tmp" "$SHARE_DIR"
+    [[ ! -f "${SHARE_DIR}/opencode.db" ]] || cp -f "${SHARE_DIR}/opencode.db" "${SHARE_DIR}/opencode.db${BACKUP_SUFFIX}" || { rm -rf "$tmp"; exit 1; }
+    if ! copy_db_set "$tmp" "$SHARE_DIR"; then
+      echo "vpn-session-sync: falha copiando snapshot para o container." >&2
+      rm -rf "$tmp"
+      exit 1
+    fi
     rm -rf "$tmp"
     rewrite_db_paths "${SHARE_DIR}/opencode.db" to-container
     echo "vpn-session-sync: conversas do host importadas." >&2
@@ -245,9 +292,15 @@ case "$mode" in
       echo "vpn-session-sync: sem banco no container para exportar." >&2
       exit 0
     fi
-    mkdir -p "${STAGING_DIR}/out"
-    copy_db_set "$SHARE_DIR" "${STAGING_DIR}/out"
-    rewrite_db_paths "${STAGING_DIR}/out/opencode.db" to-host
+    stop_container_service
+    if container_busy; then
+      echo "vpn-session-sync: opencode ativo no container; exportacao pendente." >&2
+      exit 75
+    fi
+    if ! publish_snapshot "$SHARE_DIR" to-host; then
+      echo "vpn-session-sync: exportacao do container falhou; staging anterior preservado." >&2
+      exit 1
+    fi
     echo "vpn-session-sync: conversas exportadas para o staging." >&2
     ;;
   autopush)
@@ -260,16 +313,22 @@ case "$mode" in
       exit 0
     fi
     tmp="$(mktemp -d)"
-    copy_db_set "$SHARE_DIR" "$tmp"
-    if [[ ! -f "${tmp}/opencode.db" ]] || ! db_valid "${tmp}/opencode.db"; then
-      echo "vpn-session-sync: snapshot do container inconsistente; publicacao pulada." >&2
+    if ! copy_db_set "$SHARE_DIR" "$tmp"; then
+      echo "vpn-session-sync: falha copiando snapshot do container." >&2
       rm -rf "$tmp"
-      exit 0
+      exit 1
     fi
-    mkdir -p "${STAGING_DIR}/out"
-    copy_db_set "$tmp" "${STAGING_DIR}/out"
+    if [[ ! -f "${tmp}/opencode.db" ]] || ! db_valid "${tmp}/opencode.db"; then
+      echo "vpn-session-sync: snapshot do container inconsistente; publicacao pendente." >&2
+      rm -rf "$tmp"
+      exit 1
+    fi
+    if ! publish_snapshot "$tmp" to-host; then
+      echo "vpn-session-sync: publicacao do snapshot falhou; staging anterior preservado." >&2
+      rm -rf "$tmp"
+      exit 1
+    fi
     rm -rf "$tmp"
-    rewrite_db_paths "${STAGING_DIR}/out/opencode.db" to-host
     echo "vpn-session-sync: conversas preparadas para o host." >&2
     ;;
 esac

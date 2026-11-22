@@ -38,13 +38,17 @@ if [[ -t 0 && -t 1 && "${VPN_OPENCODE_WRAPPED:-}" != "1" && -x "$REAL_OPENCODE" 
   # Importa as conversas do host (o helper para o servico de background antes
   # de trocar o banco). Best-effort: nunca impede o OpenCode de abrir.
   if [[ -x "$SYNC_HELPER" ]]; then
-    timeout 60 "$SYNC_HELPER" autopull >/dev/null 2>&1 || true
+    if ! timeout 60 "$SYNC_HELPER" autopull >/dev/null 2>&1; then
+      echo "opencode: sincronizacao de conversas pendente; abrindo sem importar o staging." >&2
+    fi
   fi
   "$REAL_OPENCODE" "$@"
   status=$?
   # Publica as conversas no staging; o vpn.ps1 aplica no host quando possivel.
   if [[ -x "$SYNC_HELPER" ]]; then
-    timeout 60 "$SYNC_HELPER" autopush >/dev/null 2>&1 || true
+    if ! timeout 60 "$SYNC_HELPER" autopush >/dev/null 2>&1; then
+      echo "opencode: exportacao de conversas pendente; o staging anterior foi preservado." >&2
+    fi
   fi
   exit $status
 fi

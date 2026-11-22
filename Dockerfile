@@ -6,7 +6,7 @@ ARG TARGETARCH
 ARG NODE_VERSION=22.23.2
 # Deve acompanhar a versão instalada no host para que o terminal VPN tenha o
 # mesmo comportamento do OpenCode local.
-ARG OPENCODE_VERSION=1.18.31
+ARG OPENCODE_VERSION=1.19.6
 
 ENV DEBIAN_FRONTEND=noninteractive \
     HOME=/home/developer \
@@ -46,8 +46,8 @@ RUN case "${TARGETARCH}" in \
 # upstream sst/opencode, ajuste OPENCODE_GITHUB_REPO e os sha256 correspondentes.
 ARG OPENCODE_GITHUB_REPO=anomalyco/opencode
 RUN case "${TARGETARCH}" in \
-      amd64) opencode_arch=x64; opencode_sha256=e9312be75ed803b7415fc2aeabda1f4fe938912a39673762dc0c38c0e11ebde4 ;; \
-      arm64) opencode_arch=arm64; opencode_sha256=d4e332f46b227448582c0d9fc75f6f826dfe95c9f751bc2011fc4d937a042be6 ;; \
+      amd64) opencode_arch=x64; opencode_sha256=47734e08968b30cc22a0bffb6d9feeed76ad4aa743213a12122040392d09a057 ;; \
+      arm64) opencode_arch=arm64; opencode_sha256=5b68c1f4c5e75b4134e664cc8f36d634d64208d4fcfe5bcf3b48bab699c2dbac ;; \
       *) echo "Arquitetura não suportada: ${TARGETARCH}" >&2; exit 1 ;; \
     esac \
     && curl --fail --location --silent --show-error \

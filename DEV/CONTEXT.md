@@ -5,6 +5,11 @@
 - Project: `vpn-dev-workspace`
 - Active handoff: `HANDOFF.md`
 - Active spec: `SPECS/ACTIVE.md`
+- Linux-first integration validation is complete in
+  `/tmp/vpn-v1v2-integration`. Windows Pester and real Docker Desktop SQLite
+  staging are future platform validation and do not block initial Linux use.
+- The `vpn-dev-workspace` Compose project currently runs images built from that
+  integration worktree; rollback image tags are recorded in `HANDOFF.md`.
 - Update this file when commands, architecture, environment, risks, or active decisions change.
 
 ## Commands
@@ -13,25 +18,27 @@
 - Development Windows sem distro WSL: `powershell -ExecutionPolicy Bypass -File .\scripts\vpn.ps1 start <profile>`; use `vpn.ps1 terminal|status|check|top|reconnect|rotate|opencode|hosts-apply|stop`. O override exige Compose >= 2.24.4, monta o projeto em `/workspace`, mantém a home em `vpn_windows_home` e usa a ponte `openssh-ssh-agent`. A paridade do OpenCode linka todo o `~/.config/opencode` (exceto `node_modules`) + `auth.json` via `WINDOWS_OPENCODE_FULL_LINKS=true` (padrão).
 - OpenCode GUI: `./scripts/vpn-opencode web|serve|check|watch` (porta `OPENCODE_GUI_PORT`, padrão `10001`, na `VPN_PORT_RANGE`; `check`=ok|down|quota e é observacional; `watch` inicia o supervisor persistente). Desktop App do host conecta em `http://127.0.0.1:10001` (login `opencode`; senha em `.secrets/opencode_gui_password`). Passo a passo: `RUNBOOKS/opencode-desktop-vpn.md`.
 - Rotação de servidor: `vpn-server-rotate [--to <host>|--random|--countries "Brazil,Argentina,Chile"|--list]`; `--countries` limpa os hostnames e deixa o Gluetun escolher entre os países. Para rotação entre países via `.env`, use `VPN_COUNTRY` com vírgulas e `VPN_SERVER_HOSTNAMES=` vazio.
-- OpenCode v1/v2: `opencode2` (v2.1.3, home compartilhada) e `opencode1` (v1.19.5, dados isolados em `~/.opencode-v1`; auth copiado uma vez). Launchers do host executam no terminal pela VPN e recusam iniciar se o túnel estiver unhealthy; sessões **não** são sincronizáveis (export/import v2→v1 falha por schema). Ver `RUNBOOKS/opencode-v1-v2.md`.
+- OpenCode v1/v2: baseline testado v1 **1.19.6** e v2 **2.3.2**. `opencode1` mantém dados isolados em `~/.opencode-v1`; `opencode2` usa a home compartilhada. Launchers interativos sincronizam sessões recentes da workspace usando export/import JSON nativo e IDs vinculados; conteúdo não suportado fica pendente sem perda. Ver `RUNBOOKS/opencode-v1-v2.md`.
 - Atualizações: `opencode-update --check|--apply` (v1 = GitHub 1.x; v2 = npm `@opencode/cli`); timer systemd do usuário `opencode-update.timer` roda diariamente; log em `~/.local/state/opencode-update.log`.
-- Histórico v2→v1: `opencode1-import-v2` copia um snapshot consistente (`VACUUM INTO`) do banco do v2 para o home do v1 (o v1.19.5 lê o schema do v2). É unidirecional: rode de novo para trazer sessões novas; o que fizer no v1 não volta ao v2.
-- OpenCode v1/v2: `opencode1`/`opencode2` executam no container pela VPN. `scripts/opencode-vpn-install` instala os launchers e o plugin `vpn-recovery` nos diretórios globais das versões.
-- Recuperação por limite considera somente eventos/campos estruturados: free-tier e HTTP 429/rate-limit trocam servidor/IP automaticamente; conta e crédito nunca alteram VPN. Texto arbitrário e logs nunca são gatilhos.
-- A tentativa requer túnel running, IP público válido diferente, e lock compartilhado. Política: cooldown 300 s, máximo 6 eventos em janela móvel de 3600 s e até 3 alvos por evento; timeout de helper 600 s. É best effort e não garante reset da quota. Nenhum prompt é reenviado.
-- Em v1, retry só recupera após abort confirmado; erro terminal estruturado não precisa abort. Em v2, o hook do servidor veta retry classificado e somente um gatilho `session.execution.failed` da TUI recupera; headless não tem recuperação TUI. `vpn-opencode check` é observacional; supervisor recupera somente falha real de rede/túnel.
-- Tests: `./scripts/verify-docs`, `./scripts/verify-compose`, ShellCheck (CI em `.github/workflows/validate.yml`), `bash -n scripts/*`, `sh -n scripts/vpn-entrypoint.sh`, suite `tests/linux/test-scripts.sh` (45 testes; host-safe — `/usr/bin/env`, portas TCP livres 20000-20100 com `VPN_PORT_RANGE` restrita e stub de `docker`; bloco HTTP exige `socat`, pulado com aviso sem ele) e `node --test tests/opencode/*.test.mjs` (8 testes).
+- `opencode1`/`opencode2` executam no container pela VPN. `scripts/opencode-vpn-install` instala launchers, o helper `opencode-session-sync` e plugins de status do provider.
+- Limites de quota, autenticação e rate-limit do provider são apenas informativos: nenhum plugin, launcher ou helper altera VPN/modelo ou repete prompt/chamada de ferramenta. O supervisor recupera apenas falha confirmada de conectividade e informa retomada manual da sessão verificada.
+- Windows usa sincronização separada do SQLite v2 host/container via staging;
+  falhas de push retornam status não-zero e não aplicam staging anterior. Pester
+  e staging SQLite real no Docker Desktop ainda exigem um host Windows; isso não
+  bloqueia o uso inicial Linux-first.
+- Tests: `./scripts/verify-docs`, `./scripts/verify-compose`, ShellCheck (CI em `.github/workflows/validate.yml`), `bash -n scripts/*`, `sh -n scripts/vpn-entrypoint.sh`, `tests/linux/test-scripts.sh`, `node --test tests/opencode/*.test.mjs tests/control/*.test.cjs` e `pwsh`/Pester em Windows.
 - Build: `docker build --pull=false .` (com `--build-arg HOST_UID=...`/`HOST_GID=...` se a home do host usa IDs diferentes de 1000)
 
 ## Constraints And Risks
 
+- O remote `origin` aponta para `https://github.com/kivervinicius/vpn-dev-workspace.git` (repo público). SSH não funciona neste host (`Permission denied (publickey)`); push exigiria token HTTPS ou chave registrada. `master` local e `origin/master` divergem 38/38 por conta da rewrite de privacidade — `origin/master` ainda contém IPs/hostnames reais que o local redigiu; não force-push sem decisão explícita.
 - O Gluetun é a única superfície de rede publicada. A faixa TCP padrão é `10000-10010` (estreita; `10001` painel, `10002` proxy) e o bind padrão é local; bind em LAN exige `OPENCODE_GUI_PASSWORD_FILE`.
 - A recuperação automática usa a API autenticada do Gluetun e não recebe o socket Docker.
 - Todos os serviços possuem o perfil Compose interno `vpn`, selecionado pelo `vpn-switch`; isso impede a inicialização do Gluetun sem os segredos do provedor.
 - A home integral do host é montada no terminal, em leitura e escrita, para que ele seja uma extensão direta do ambiente local; não selecione uma home de outro usuário.
 - Acesso à rede interna é opt-in: `FIREWALL_SUBNETS` (o `vpn-switch` injeta a sub-rede da rota padrão do host somente no Linux nativo; PowerShell e WSL2 exigem valor explícito; inclua a sub-rede do DNS interno se ele apontar fora da LAN), `INTERNAL_DNS` + `INTERNAL_DNS_EXEMPT_HOSTNAMES` (nomes explícitos, sem curingas; deixe `INTERNAL_DNS_RESOLVERS` vazio nesse modo), `INTERNAL_TEST_HOST`/`INTERNAL_TEST_PORT` no `vpn-check`. Não incluir a faixa privada do túnel em `FIREWALL_SUBNETS`.
 - Com `SSH_AUTH_SOCK`/`RUN_USER_DIR` definidos, o container lê o agente SSH e a sessão do usuário do host; inicie apenas o seu próprio ambiente.
-- O `PATH` do terminal prioriza `${HOST_HOME_DIR}/.opencode/bin` (binário do host reflete de imediato); `OPENCODE_VERSION` no Dockerfile é o fallback.
+- O `PATH` do terminal prioriza `${HOST_HOME_DIR}/.opencode/bin` (binário do host reflete de imediato); `OPENCODE_VERSION=1.19.6` no Dockerfile é o fallback verificado.
 - `SERVER_HOSTNAMES` (`VPN_SERVER_HOSTNAMES`) vale para todos os perfis de provedor (incl. `protonvpn-wireguard`); `custom-*` usam config própria. Perfis `*-openvpn` aceitam `OPENVPN_PROTOCOL` (udp/tcp).
 - O serviço `terminal` usa `init: true` (colhe zumbis de shells/processos filhos).
 

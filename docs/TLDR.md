@@ -52,11 +52,11 @@ Desktop App → `http://127.0.0.1:10001`, login `opencode`, senha em `.secrets/o
 ## Rede interna (opt-in)
 
 ```ini
-FIREWALL_SUBNETS=192.168.1.0/24
-INTERNAL_DNS=192.168.1.1:53
+FIREWALL_SUBNETS=192.168.240.10
+INTERNAL_DNS=192.168.240.10:53
 INTERNAL_DNS_RESOLVERS=
-INTERNAL_DNS_EXEMPT_HOSTNAMES=dev.go.omega.local
-LOCAL_HOSTS=gitlab.omega=192.168.30.5
+INTERNAL_DNS_EXEMPT_HOSTNAMES=dev.go.internal.example
+LOCAL_HOSTS=gitlab.internal.example=192.168.240.10
 ```
 
 Detalhes: `README.md` (referência) · `examples/uso-basico.md` (passo a passo) · `examples/cenarios-avancados.md` (receitas) · `DEV/RUNBOOKS/` (operação).

@@ -29,15 +29,33 @@ services:
       - type: bind
         source: ${WINDOWS_WORKSPACE_DIR:?WINDOWS_WORKSPACE_DIR is required}
         target: /workspace
+      - ./apps/control-plane:/opt/vpn-control:ro
+      - ./opencode:/opt/vpn-control-sources/opencode:ro
+      - ./scripts/vpn-state:/usr/local/bin/vpn-state:ro
+      - ./scripts/opencode-compat:/usr/local/bin/opencode-compat:ro
+      - ./scripts/vpn-events:/usr/local/bin/vpn-events:ro
+      - ./scripts/vpn-backup:/usr/local/bin/vpn-backup:ro
+      - ./scripts/vpn-provider-probe:/usr/local/bin/vpn-provider-probe:ro
       - ./scripts/vpn-status:/usr/local/bin/vpn-status:ro
       - ./scripts/vpn-reconnect:/usr/local/bin/vpn-reconnect:ro
       - ./scripts/vpn-check:/usr/local/bin/vpn-check:ro
       - ./scripts/vpn-top:/usr/local/bin/vpn-top:ro
       - ./scripts/vpn-server-rotate:/usr/local/bin/vpn-server-rotate:ro
       - ./scripts/vpn-opencode:/usr/local/bin/vpn-opencode:ro
+      - ./scripts/dotenv-read.sh:/usr/local/bin/dotenv-read.sh:ro
       - ./scripts/vpn-control-lock.sh:/usr/local/bin/vpn-control-lock.sh:ro
+      - ./scripts/vpn-control-api.sh:/usr/local/bin/vpn-control-api.sh:ro
+      - ./scripts/vpn-opencode-processes:/usr/local/bin/vpn-opencode-processes:ro
       - ./scripts/opencode-limit-recover:/usr/local/bin/opencode-limit-recover:ro
+      - ./scripts/opencode2-service:/usr/local/bin/opencode2-service:ro
+      - ./scripts/opencode-session-sync:/usr/local/bin/opencode-session-sync:ro
+      - ./scripts/opencode-session-sync.mjs:/usr/local/bin/opencode-session-sync.mjs:ro
       - vpn_control_state:/var/lib/vpn-control
+      - type: bind
+        source: ${VPN_CONTROL_LOCK_DIR:-./.vpn-control-lock}
+        target: /run/vpn-control-lock
+        bind:
+          create_host_path: true
       - ./scripts/vpn-hosts-import:/usr/local/bin/vpn-hosts-import:ro
       - ./scripts/vpn-hosts-apply:/usr/local/bin/vpn-hosts-apply:ro
       - ./scripts/vpn-ssh-agent-relay:/usr/local/bin/vpn-ssh-agent-relay:ro
@@ -78,11 +96,18 @@ services:
         source: ${WINDOWS_WORKSPACE_DIR:?WINDOWS_WORKSPACE_DIR is required}
         target: /workspace
       - ./scripts/opencode-supervisor:/usr/local/bin/opencode-supervisor:ro
+      - ./scripts/opencode2-service:/usr/local/bin/opencode2-service:ro
       - ./scripts/vpn-check:/usr/local/bin/vpn-check:ro
       - ./scripts/vpn-reconnect:/usr/local/bin/vpn-reconnect:ro
       - ./scripts/vpn-server-rotate:/usr/local/bin/vpn-server-rotate:ro
       - ./scripts/vpn-control-lock.sh:/usr/local/bin/vpn-control-lock.sh:ro
+      - ./scripts/vpn-control-api.sh:/usr/local/bin/vpn-control-api.sh:ro
       - vpn_control_state:/var/lib/vpn-control
+      - type: bind
+        source: ${VPN_CONTROL_LOCK_DIR:-./.vpn-control-lock}
+        target: /run/vpn-control-lock
+        bind:
+          create_host_path: true
       - ./scripts/vpn-ssh-agent-relay:/usr/local/bin/vpn-ssh-agent-relay:ro
       - ./scripts/vpn-home-link:/usr/local/bin/vpn-home-link:ro
       - ./config/alsa-null.conf:/etc/alsa-null.conf:ro

@@ -2,21 +2,21 @@
 # vpn-hosts-import: extrai entradas do /etc/hosts do host filtradas por domínio
 # e imprime a linha pronta para LOCAL_HOSTS (só sugere — nada é escrito sozinho).
 #
-# Uso: vpn-hosts-import --domain omega [--hosts-file /etc/hosts]
-# Ex:  vpn-hosts-import --domain omega
-#      # LOCAL_HOSTS=gitlab.omega=192.168.30.5,registry.omega=192.168.30.6
+# Uso: vpn-hosts-import --domain internal.example [--hosts-file /etc/hosts]
+# Ex:  vpn-hosts-import --domain internal.example
+#      # LOCAL_HOSTS=gitlab.internal.example=192.168.240.10,registry.internal.example=192.168.240.10
 set -Eeuo pipefail
 
 usage() {
   echo "Uso: vpn-hosts-import --domain <sufixo> [--hosts-file <caminho>]" >&2
-  echo "Ex:  vpn-hosts-import --domain omega" >&2
+  echo "Ex:  vpn-hosts-import --domain internal.example" >&2
   exit 2
 }
 
 help() {
   echo "Uso: vpn-hosts-import --domain <sufixo> [--hosts-file <caminho>]" >&2
   echo "Extrai entradas do hosts do host filtradas por domínio e imprime LOCAL_HOSTS." >&2
-  echo "Ex:  vpn-hosts-import --domain omega" >&2
+  echo "Ex:  vpn-hosts-import --domain internal.example" >&2
   exit 0
 }
 

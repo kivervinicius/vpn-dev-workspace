@@ -12,12 +12,14 @@ BeforeAll {
 @echo off
 echo %*>>"%MOCK_DOCKER_LOG%"
 if "%~1"=="compose" if "%~2"=="version" echo %MOCK_COMPOSE_VERSION%
-exit /b 0
+if not defined MOCK_DOCKER_EXIT_CODE set MOCK_DOCKER_EXIT_CODE=0
+exit /b %MOCK_DOCKER_EXIT_CODE%
 '@ | Set-Content -LiteralPath (Join-Path $script:MockBin 'docker.cmd') -Encoding ASCII
     $script:OldPath = $env:Path
     $env:Path = $script:MockBin + ';' + $env:Path
     $env:MOCK_DOCKER_LOG = $script:MockLog
     $env:MOCK_COMPOSE_VERSION = 'v2.24.4'
+    $env:MOCK_DOCKER_EXIT_CODE = '0'
 
     function Invoke-VpnTest {
         param([string[]]$Arguments)
@@ -32,6 +34,22 @@ AfterAll {
 }
 
 Describe 'vpn.ps1 Windows interface' {
+    It 'lê valores .env citados, comentários, duplicatas e rejeita aspas inválidas' {
+        . (Join-Path $script:ProjectRoot 'scripts\dotenv-read.ps1')
+        $envFile = Join-Path $script:TempRoot 'parser.env'
+        @'
+export QUOTED="value # kept" # comment
+DUPLICATE=old
+DUPLICATE='new value'
+ESCAPED="line\nnext \"quoted\""
+'@ | Set-Content -LiteralPath $envFile -Encoding UTF8
+        (Read-DotEnvValue -Path $envFile -Name 'QUOTED') | Should -Be 'value # kept'
+        (Read-DotEnvValue -Path $envFile -Name 'DUPLICATE') | Should -Be 'new value'
+        (Read-DotEnvValue -Path $envFile -Name 'ESCAPED') | Should -Be "line`nnext `"quoted`""
+        'BROKEN="unterminated' | Set-Content -LiteralPath $envFile -Encoding UTF8
+        { Read-DotEnvValue -Path $envFile -Name 'BROKEN' } | Should -Throw
+    }
+
     It 'rejeita perfil inválido antes de chamar Docker' {
         $result = Invoke-VpnTest @('start', 'perfil-inexistente')
         $result.Code | Should -Be 2
@@ -40,15 +58,15 @@ Describe 'vpn.ps1 Windows interface' {
 
     It 'aceita arquivo hosts em caminho com espaços' {
         $hostsFile = Join-Path $script:TempRoot 'hosts with spaces'
-        "10.0.0.5 gitlab.omega`n" | Set-Content -LiteralPath $hostsFile -Encoding ASCII
-        $result = Invoke-VpnTest @('hosts-import', '--domain', 'omega', '--hosts-file', $hostsFile)
+        "192.168.240.10 gitlab.internal.example`n" | Set-Content -LiteralPath $hostsFile -Encoding ASCII
+        $result = Invoke-VpnTest @('hosts-import', '--domain', 'internal.example', '--hosts-file', $hostsFile)
         $result.Code | Should -Be 0
-        $result.Output | Should -Match 'LOCAL_HOSTS=gitlab.omega=10.0.0.5'
+        $result.Output | Should -Match 'LOCAL_HOSTS=gitlab.internal.example=192.168.240.10'
     }
 
     It 'rejeita hosts locais inválidos' {
         $old = $env:LOCAL_HOSTS
-        $env:LOCAL_HOSTS = 'nome inválido=10.0.0.5'
+        $env:LOCAL_HOSTS = 'nome inválido=192.168.240.10'
         try {
             $result = Invoke-VpnTest @('hosts-apply')
             $result.Code | Should -Be 2
@@ -66,6 +84,54 @@ Describe 'vpn.ps1 Windows interface' {
         $result = Invoke-VpnTest @('start', 'nordvpn-openvpn')
         $result.Code | Should -Be 1
         $result.Output | Should -Match 'arquivo de segredo ausente'
+    }
+
+    It 'valida XKIRO_API_KEY_FILE também no checklist Windows' {
+        $secret = Join-Path $script:TempRoot 'secret-ok'
+        'conteudo-de-teste' | Set-Content -LiteralPath $secret -Encoding ASCII
+        $oldApi = $env:GLUETUN_API_KEY_FILE
+        $oldUser = $env:NORDVPN_USER_FILE
+        $oldPassword = $env:NORDVPN_PASSWORD_FILE
+        $oldXkiro = $env:XKIRO_API_KEY_FILE
+        $env:GLUETUN_API_KEY_FILE = $secret
+        $env:NORDVPN_USER_FILE = $secret
+        $env:NORDVPN_PASSWORD_FILE = $secret
+        $env:XKIRO_API_KEY_FILE = Join-Path $script:TempRoot 'xkiro-missing'
+        try {
+            $result = Invoke-VpnTest @('start', 'nordvpn-openvpn')
+            $result.Code | Should -Be 1
+            $result.Output | Should -Match 'XKIRO_API_KEY_FILE aponta para arquivo ausente'
+        } finally {
+            if ($null -eq $oldApi) { Remove-Item Env:GLUETUN_API_KEY_FILE -ErrorAction SilentlyContinue } else { $env:GLUETUN_API_KEY_FILE = $oldApi }
+            if ($null -eq $oldUser) { Remove-Item Env:NORDVPN_USER_FILE -ErrorAction SilentlyContinue } else { $env:NORDVPN_USER_FILE = $oldUser }
+            if ($null -eq $oldPassword) { Remove-Item Env:NORDVPN_PASSWORD_FILE -ErrorAction SilentlyContinue } else { $env:NORDVPN_PASSWORD_FILE = $oldPassword }
+            if ($null -eq $oldXkiro) { Remove-Item Env:XKIRO_API_KEY_FILE -ErrorAction SilentlyContinue } else { $env:XKIRO_API_KEY_FILE = $oldXkiro }
+        }
+    }
+
+    It 'rejeita VPN_PORT_RANGE acima de 65535 antes de iniciar os containers' {
+        $secret = Join-Path $script:TempRoot 'secret-ok'
+        'conteudo-de-teste' | Set-Content -LiteralPath $secret -Encoding ASCII
+        $names = @('GLUETUN_API_KEY_FILE', 'NORDVPN_USER_FILE', 'NORDVPN_PASSWORD_FILE', 'XKIRO_API_KEY_FILE', 'HOST_BIND_ADDRESS', 'VPN_PORT_RANGE', 'VPN_HTTP_PROXY')
+        $old = @{}
+        foreach ($name in $names) { $old[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
+        $env:GLUETUN_API_KEY_FILE = $secret
+        $env:NORDVPN_USER_FILE = $secret
+        $env:NORDVPN_PASSWORD_FILE = $secret
+        $env:XKIRO_API_KEY_FILE = ''
+        $env:HOST_BIND_ADDRESS = '127.0.0.1'
+        $env:VPN_PORT_RANGE = '65536'
+        $env:VPN_HTTP_PROXY = 'off'
+        try {
+            $result = Invoke-VpnTest @('start', 'nordvpn-openvpn')
+            $result.Code | Should -Be 2
+            $result.Output | Should -Match 'VPN_PORT_RANGE fora de 1-65535'
+        } finally {
+            foreach ($name in $names) {
+                if ($null -eq $old[$name]) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
+                else { [Environment]::SetEnvironmentVariable($name, $old[$name], 'Process') }
+            }
+        }
     }
 
     It 'rejeita WORKSPACE_DIR inexistente antes de tocar a ponte SSH' {
@@ -158,6 +224,37 @@ Describe 'vpn.ps1 Windows interface' {
         }
     }
 
+    It 'rejeita proxy em bind LAN sem VPN_HTTP_PROXY_PASSWORD_FILE' {
+        $secret = Join-Path $script:TempRoot 'secret-ok'
+        $guiPassword = Join-Path $script:TempRoot 'gui-password-proxy'
+        'conteudo-de-teste' | Set-Content -LiteralPath $secret -Encoding ASCII
+        'senha-de-teste' | Set-Content -LiteralPath $guiPassword -Encoding ASCII
+        $names = @('GLUETUN_API_KEY_FILE', 'NORDVPN_USER_FILE', 'NORDVPN_PASSWORD_FILE', 'XKIRO_API_KEY_FILE', 'HOST_BIND_ADDRESS', 'OPENCODE_GUI_PASSWORD_FILE', 'VPN_PORT_RANGE', 'VPN_HTTP_PROXY', 'VPN_HTTP_PROXY_PORT', 'VPN_HTTP_PROXY_USER', 'VPN_HTTP_PROXY_PASSWORD_FILE')
+        $old = @{}
+        foreach ($name in $names) { $old[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
+        $env:GLUETUN_API_KEY_FILE = $secret
+        $env:NORDVPN_USER_FILE = $secret
+        $env:NORDVPN_PASSWORD_FILE = $secret
+        $env:XKIRO_API_KEY_FILE = ''
+        $env:HOST_BIND_ADDRESS = '192.168.50.10'
+        $env:OPENCODE_GUI_PASSWORD_FILE = $guiPassword
+        $env:VPN_PORT_RANGE = '39999'
+        $env:VPN_HTTP_PROXY = 'on'
+        $env:VPN_HTTP_PROXY_PORT = '39999'
+        $env:VPN_HTTP_PROXY_USER = ''
+        $env:VPN_HTTP_PROXY_PASSWORD_FILE = Join-Path $script:TempRoot 'proxy-password-missing'
+        try {
+            $result = Invoke-VpnTest @('start', 'nordvpn-openvpn')
+            $result.Code | Should -Be 2
+            $result.Output | Should -Match 'proxy HTTP exposto na LAN exige VPN_HTTP_PROXY_USER e VPN_HTTP_PROXY_PASSWORD_FILE'
+        } finally {
+            foreach ($name in $names) {
+                if ($null -eq $old[$name]) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
+                else { [Environment]::SetEnvironmentVariable($name, $old[$name], 'Process') }
+            }
+        }
+    }
+
     It 'encaminha comandos simulados ao Compose Windows' {
         Remove-Item -LiteralPath $script:MockLog -Force -ErrorAction SilentlyContinue
         $result = Invoke-VpnTest @('status', '--json')
@@ -182,6 +279,29 @@ Describe 'vpn.ps1 Windows interface' {
             $log | Should -Match 'push'
         } finally {
             if ($null -eq $oldHomeDir) { Remove-Item Env:HOST_HOME_DIR -ErrorAction SilentlyContinue } else { $env:HOST_HOME_DIR = $oldHomeDir }
+        }
+    }
+
+    It 'nao aplica staging anterior quando o push do container falha' {
+        $oldHomeDir = $env:HOST_HOME_DIR
+        $oldDockerCode = $env:MOCK_DOCKER_EXIT_CODE
+        $syncOut = Join-Path $script:ProjectRoot '.vpn\sync\out'
+        $hostShare = Join-Path $script:TempRoot '.local\share\opencode'
+        New-Item -ItemType Directory -Path $syncOut, $hostShare -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $syncOut 'opencode.db') -Value 'stale-staging' -Encoding ASCII
+        Set-Content -LiteralPath (Join-Path $hostShare 'opencode.db') -Value 'host-before' -Encoding ASCII
+        $env:HOST_HOME_DIR = $script:TempRoot
+        $env:MOCK_DOCKER_EXIT_CODE = '23'
+        try {
+            $result = Invoke-VpnTest @('sessions-sync', '--push')
+            $result.Code | Should -Be 1
+            $result.Output | Should -Match 'exportacao do container falhou'
+            Get-Content -LiteralPath (Join-Path $hostShare 'opencode.db') -Raw | Should -Match 'host-before'
+            Test-Path -LiteralPath (Join-Path $hostShare 'opencode.db.bak') | Should -BeFalse
+        } finally {
+            $env:MOCK_DOCKER_EXIT_CODE = $oldDockerCode
+            if ($null -eq $oldHomeDir) { Remove-Item Env:HOST_HOME_DIR -ErrorAction SilentlyContinue } else { $env:HOST_HOME_DIR = $oldHomeDir }
+            Remove-Item -LiteralPath (Join-Path $script:ProjectRoot '.vpn\sync') -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
 
