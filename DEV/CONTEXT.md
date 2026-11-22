@@ -14,6 +14,9 @@
   rollback tags and preserved workspace changes are recorded in `HANDOFF.md`.
 - Windows Pester passed in CI. Real Docker Desktop SQLite staging still
   requires a Windows host before claiming that runtime path validated.
+- `/tmp/vpn-v1v2-integration` remains an inactive checkout because it has
+  ignored local generated host data and a lock file; the Compose runtime uses
+  the main checkout.
 - Update this file when commands, architecture, environment, risks, or active decisions change.
 
 ## Commands

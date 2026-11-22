@@ -26,6 +26,11 @@ old local master. Three old Docker images remain tagged
 `vpn-v1v2-integration:rollback-*-before-1.1.0-20261122`. Current local images
 also have `:1.1.0` tags; no image was published to a registry.
 
+The old `/tmp/vpn-v1v2-integration` worktree remains on the pushed integration
+branch because it contains ignored `.hosts.local.gen` and
+`.vpn-control-lock/operation.lock` files. It is inactive; the running Compose
+project mounts the main checkout.
+
 ## Implemented
 
 - Cross-version sessions use native JSON export/import, schema conversion,
