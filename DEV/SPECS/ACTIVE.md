@@ -1,5 +1,9 @@
 # Active Spec - vpn-dev-workspace
 
+O [plano de troca dinâmica e reenvio](PLAN-OPENCODE-MODEL-FALLBACK.md) define
+a próxima mudança do OpenCode v2, ainda por implementar. A política de quota
+abaixo descreve o comportamento atual.
+
 A próxima entrega segue o [Plano de reintegração](PLAN-REINTEGRACAO.md), com triagem dos dois stashes e primeiro lote de diagnóstico VPN.
 
 ## Goal
@@ -35,6 +39,7 @@ Desktop continua pendente em Windows.
 - Release 1.3.0 publicada no commit `f9d5ccb`; CI run `45115003447` passou os quatro jobs e as imagens locais estão marcadas `:1.3.0`.
 - Release 1.3.1 publicada no commit `c2b45d7`: HTTP 429 estruturado reinicia o perfil VPN atual mesmo se saudável; outros provider limits continuam exigindo túnel confirmado como parado. O cooldown normal não bloqueia o restart 429.
 - Plugins instalados no terminal correspondem à release 1.3.1; o serviço terminal foi recriado com `/projetos:/projetos` e os processos OpenCode anteriores foram encerrados. VPN/Gluetun não foram recriados.
+- Deep review (2026-11-23): 30 achados corrigidos sob autorização explícita do maestro ("ajuste tudo que encontrar") e anexados localmente em `134aadc` (sem push). Aceite: suítes verdes (Linux 73/73, Node 51/51), verify-docs OK, sintaxe OK; ShellCheck/verify-compose pendentes de CI (docker/shellcheck ausentes no ambiente). Plugins instalados exigem reinstall + restart do OpenCode para ativar. Detalhes em HANDOFF/VERIFY.
 - PRs #7/#8 foram comparadas e não devem ser integradas sem rebase seletivo: PR #7 falha `validate`; PR #8 conflita com a política segura de provider.
 - VPN/Gluetun continuam na imagem anterior e saudáveis; o terminal foi recriado para atualizar mounts e helpers. Desktop App real, Windows Docker Desktop/SQLite e `read_only+tmpfs` para serviços graváveis permanecem pendentes.
 

@@ -2,6 +2,8 @@
 
 Plano da próxima entrega: [reintegração do trabalho preservado](SPECS/PLAN-REINTEGRACAO.md).
 
+Plano de [troca dinâmica de modelo e reenvio no OpenCode v2](SPECS/PLAN-OPENCODE-MODEL-FALLBACK.md).
+
 | Path | Purpose |
 |---|---|
 | `README.md` | Visão principal, instalação, configuração e operação do projeto |

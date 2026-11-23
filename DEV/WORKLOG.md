@@ -1,3 +1,25 @@
+## Plano de troca de modelo no OpenCode v2
+
+- Registrado o [plano](SPECS/PLAN-OPENCODE-MODEL-FALLBACK.md) para trocar de
+  modelo com catálogo dinâmico, banner e reenvio automático de turno elegível.
+- Base: código atual de quota e documentação oficial de plugins. Próximo
+  passo: validar deduplicação, admissão e rascunho no v2.3.2 isolado.
+
+## 2026-11-23 — Achados remanescentes do plano de review
+
+- Changed: `vpn-server-rotate` (revert com exit 4 e índice gravado com falha
+  alto), `vpn-reconnect` (polling de `status=stopped`), `vpn-auto-reconnect`
+  (estado em `XDG_STATE_HOME`), `opencode-supervisor` (poda de log sem
+  truncar), `verify-syntax` (ShellCheck ausente só avisa fora do CI),
+  `.env.example`, `docker-compose.yml` (healthcheck fora de `/tmp`), 4 testes
+  Linux e `DEV/VERIFY.md`.
+- Why: itens que ainda podiam mascarar falha de VPN ou deixar o gate local
+  vermelho por ambiente (`VPN_CONTROL_LOCK_FILE` exportado no host).
+- Verified: Linux **73/73**, Node **51/51**, `verify-docs` e `verify-syntax`
+  OK; `verify-compose` segue sem docker neste host. Anexado em `134aadc` (local, sem push).
+- Next context: revert falho agora é exit 4 (3 é no-op); `auto-reconnect`
+  interpreta 4 como erro e pede intervenção.
+
 ## 2026-11-22 – Validação local de quota reconnect
 
 Revisado o fluxo opt-out da TUI ao helper de rotação. O helper agora serializa
@@ -7,6 +29,12 @@ Linux/Node, lint, docs, Compose, build e execução simulada no terminal Docker
 foram usadas; nenhum provider real foi chamado.
 
 # Worklog
+
+## 2026-11-23 — Correções do deep review (30 achados)
+
+- Changed: autorização explícita do maestro ("ajuste tudo que encontrar"). Aplicadas correções para os 30 achados do deep review: parser semver do installer (guarda de baseline morta), rotate no-op rc 3 + revalidação de saúde no auto-reconnect, piso anti-loop de restarts forçados (`OPENCODE_NETWORK_RECOVERY_FORCE_MIN_INTERVAL_SECONDS=60`) e estado gravado só após sucesso, callback único em spawn falho (v1/v2), fail-closed de painel/proxy sem senha em bind LAN (supervisor + entrypoint + env `HOST_BIND_ADDRESS` nos compose), guarda de PID reutilizado e de prosa de desconexão no supervisor, escrita atômica de estado em /tmp, validação de intervalo/IPv6/IP do resolver, retry do PUT running, revert reportado e índice pós-sucesso no rotate, hosts-apply substitui mapeamento antigo, hash em fluxo no backup, prune do journal de eventos, handler de erro no stream estático da UI, timeouts do observer compatíveis com vpn-check, heartbeat + purga de manifests no session-sync, `--profile control` explícito no teardown, trim sem xargs.
+- Verified: Linux **69/69** (+4 testes novos: baseline do installer, rotate no-op, auto-reconnect não declara healthy em no-op, intervalo inválido; teste do lock hermético via `unset` interno — `~/.local/bin/env` do host é wrapper quebrado), Node **51/51** (+3: spawn falho v1/v2, prune), `verify-docs` OK, `bash -n`/`sh -n`/`node --check` OK. ShellCheck e `verify-compose` (docker) ausentes neste ambiente — gate completo fica na CI. Nenhum provider real chamado; túnel ativo não foi mutado.
+- Next context: plugins instalados na home são cópias — rodar `opencode-vpn-install` e reabrir OpenCode para carregar v1/v2 corrigidos; scripts bind-mounted já valem no container. Sem commit/push (não solicitado).
 
 ## 2026-11-23 — Restart do túnel após HTTP 429
 

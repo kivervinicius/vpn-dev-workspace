@@ -1,5 +1,42 @@
 # Active Handoff
 
+## Troca dinâmica de modelo no OpenCode v2 — planejada
+
+O [plano](SPECS/PLAN-OPENCODE-MODEL-FALLBACK.md) define três modelos por turno
+selecionados pelo catálogo e reenvio automático após falha de cota quando o
+turno for elegível. A primeira etapa é validar o evento, a identidade do turno
+e a admissão do reenvio no v2.3.2 isolado com `429` simulado.
+
+## Deep review corrigido — 2026-11-23 (commit local `134aadc`, sem push)
+
+O maestro autorizou "ajuste tudo que encontrar"; os 30 achados do deep review
+foram corrigidos e anexados localmente em `134aadc` (sem push). Destaques: guarda de
+baseline do installer viva; rotate no-op retorna 3 e o auto-reconnect revalida
+saúde (não declara mais healthy falso); restarts forçados têm piso de 60s
+(`OPENCODE_NETWORK_RECOVERY_FORCE_MIN_INTERVAL_SECONDS`) e estado só é gravado
+após sucesso; painel OpenCode e proxy HTTP recusam bind LAN sem senha no
+próprio processo (`HOST_BIND_ADDRESS` agora chega ao supervisor/entrypoint);
+supervisor não mata PID reutilizado nem rotaciona por prosa de log com VPN+app
+saudáveis; journal de eventos poda no teto; UI não cai por erro de stream;
+observer usa timeouts compatíveis com o vpn-check; session-sync tem heartbeat
+de lock e purga de manifests antigos.
+
+Ativação: scripts são bind mounts read-only — já valem nos containers. Os
+plugins v1/v2 instalados na home são cópias: rodar `scripts/opencode-vpn-install`
+e reabrir o OpenCode para carregar o código corrigido. O instalador corrigido
+agora aplica o baseline mínimo de verdade (v2 < 2.2.6 é recusado).
+
+Complemento do plano de achados remanescentes: revert do rotate falho agora é
+exit 4 (3 continua no-op) e o índice de rotação falha alto; `vpn-reconnect`
+confirma `status=stopped` antes do `running`; `vpn-auto-reconnect` usa
+`XDG_STATE_HOME` no host e `/var/lib/vpn-control/auto-reconnect` no Compose
+(healthcheck ajustado); supervisor não apaga o log se a poda falhar.
+`verify-syntax` só avisa sobre ShellCheck ausente fora do CI.
+
+Verificação: Linux 73/73, Node 51/51, verify-docs OK, sintaxe OK; ShellCheck e
+verify-compose (docker) ausentes no ambiente atual — rodar na CI antes de
+publicar. Evidências em `VERIFY.md`.
+
 A release 1.3.1 está publicada no commit `c2b45d7c7b0d0e9a728fa4ee63d8474a23270dc8`.
 CI, tag Git, release GitHub e imagens Docker locais estão registradas neste
 handoff e em `VERIFY.md`.

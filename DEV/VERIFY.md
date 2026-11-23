@@ -1,3 +1,43 @@
+## Plano de troca de modelo no OpenCode v2
+
+- Fluxo atual inspecionado em `server-core.js`, `tui-core.js`, `classify.js` e
+  `policy.js`. A API pública documenta catálogo, troca de modelo e submissão
+  de mensagem. Correlação, admissão e rascunho no v2.3.2 ficam para o E2E do
+  [plano](SPECS/PLAN-OPENCODE-MODEL-FALLBACK.md).
+
+## Deep review — correções aplicadas (2026-11-23)
+
+- Autorização explícita do maestro: "ajuste tudo que encontrar". 30 achados
+  corrigidos (2🔴 22🟡 5🔵 1❓) e anexados localmente em `134aadc` (sem push).
+- Suíte Linux: **73/73** no host com a stack no ar. Novos testes: baseline v2
+  do installer (2.2.5 falha sem arquivos; 2.2.6/2.4.0 instalam; warning acima
+  do testado), rotate com 1 servidor retorna 3 (no-op), auto-reconnect nunca
+  declara `healthy` com rotate no-op e túnel morto, intervalo de rotação não
+  numérico rejeitado com exit 2, piso do force (`force_cooldown_active`),
+  bypass do cooldown normal pelo force, tentativa falha não grava estado.
+  Teste do lock agora hermético (`unset VPN_CONTROL_LOCK_FILE` interno; o
+  `~/.local/bin/env` do host é um wrapper que não executa comandos).
+- Suítes Node: **51/51** (opencode + control). Novos: spawn falho do helper
+  emite exatamente 1 toast de falha em v1 e v2; journal poda linhas antigas
+  (manual e automático no teto de 10MB) em vez de travar.
+- Plano de correção dos achados remanescentes: `vpn-server-rotate` agora sai
+  com 4 quando o revert falha (3 continua sendo no-op sem alternativa) e falha
+  alto se o índice de rotação não puder ser gravado; `vpn-reconnect` espera o
+  Gluetun confirmar `status=stopped` antes do `running`
+  (`VPN_STOP_ATTEMPTS`/`VPN_STOP_DELAY_SECONDS`); `vpn-auto-reconnect` grava
+  estado em `XDG_STATE_HOME/vpn-dev-workspace` com migração do legado `/tmp`
+  (no Compose, volume `/var/lib/vpn-control/auto-reconnect` e healthcheck
+  ajustado); supervisor preserva o log se a poda falhar. Novos testes: revert
+  com exit 4, sequência stop→stopped→start, estado em XDG e healthcheck.
+- `verify-docs` OK; `verify-syntax` OK localmente (ShellCheck ausente agora
+  gera aviso e segue com `bash -n`/`sh -n`/`node --check`; com `CI=true` ainda
+  falha duro); `verify-compose` (8 perfis) fica para a CI por ausência de
+  docker neste ambiente.
+- Nenhum provider real foi chamado; o túnel ativo não foi reiniciado. Mudanças
+  de comportamento: force tem piso de 60s entre restarts; rotate no-op não é
+  mais sucesso; painel/proxy sem senha recusam bind LAN no processo; texto de
+  desconexão com VPN+app saudáveis não rotaciona.
+
 ## Release 1.3.1 — restart HTTP 429 (2026-11-23)
 
 - Alteração local: erro estruturado `rate_limit`/HTTP 429 solicita reinício do

@@ -15,6 +15,10 @@ A reintegração Linux foi consolidada na preparação da release 1.2.0. Consult
   activation and rollback state.
 - Local corrections for 1.3.0 are validated on Linux; exact evidence and
   release/cutover constraints are in `VERIFY.md` and `HANDOFF.md`.
+- Deep review fixes (2026-11-23) are in local commit `134aadc`, not pushed:
+  installer baseline guard, rotate no-op semantics, forced-restart floor,
+  LAN fail-closed auth, supervisor PID/prose guards, journal prune, sync lock
+  heartbeat. Linux 69/69 and Node 51/51; CI gate pending. See `HANDOFF.md`.
 - The `vpn-dev-workspace` Compose project runs from this main checkout at
   `/projetos/vpn-dev-workspace`; terminal mount is `/projetos:/projetos`.
   Gluetun and auto-reconnect are healthy, and host and container `vpn-check`
