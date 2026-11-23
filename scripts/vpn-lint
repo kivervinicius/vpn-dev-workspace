@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Lint local: sintaxe de todos os scripts + ShellCheck (host ou container).
+#
+# O CI exige ShellCheck; localmente ele roda no host quando instalado e, na
+# falta, em container imutável. Sem Docker e sem ShellCheck o lint degrada
+# para a checagem de sintaxe e avisa.
+set -Eeuo pipefail
+
+ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+SHELLCHECK_IMAGE="${SHELLCHECK_IMAGE:-koalaman/shellcheck:v0.10.0}"
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  cat >&2 <<'EOF'
+Uso: vpn-lint [--help]
+Valida sintaxe (bash/sh/zsh/node) e roda ShellCheck nos scripts aplicáveis.
+EOF
+  exit 0
+fi
+
+cd "$ROOT_DIR"
+
+"${ROOT_DIR}/scripts/verify-syntax"
+
+if command -v shellcheck >/dev/null 2>&1; then
+  echo "vpn-lint: ShellCheck executado no host."
+  exit 0
+fi
+
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  echo "vpn-lint: ShellCheck via container ${SHELLCHECK_IMAGE}."
+  mapfile -t scripts_to_check < <(
+    for script in scripts/*; do
+      [[ -f "$script" ]] || continue
+      case "$script" in
+        *.ps1|*.zsh|*.mjs|scripts/_vpn|scripts/vpn-state|scripts/vpn-events|scripts/vpn-observer|scripts/vpn-backup|scripts/vpn-control-ui|scripts/vpn-provider-probe|scripts/opencode-compat) continue ;;
+      esac
+      printf '%s\n' "${script#./}"
+    done
+  )
+  [[ ${#scripts_to_check[@]} -gt 0 ]] || exit 0
+  docker run --rm -v "${ROOT_DIR}:/mnt" -w /mnt "${SHELLCHECK_IMAGE}" \
+    --severity=error "${scripts_to_check[@]}"
+  exit 0
+fi
+
+echo "vpn-lint: ShellCheck indisponível (sem host e sem Docker); só a sintaxe foi validada." >&2
+echo "vpn-lint: o CI continua exigindo ShellCheck." >&2

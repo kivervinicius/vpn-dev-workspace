@@ -15,6 +15,7 @@ docker compose -f docker-compose.yml -f profiles/nordvpn-openvpn.yml exec termin
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
+pwsh -File .\scripts\windows\bootstrap.ps1   # winget idempotente (DryRun p/ só relatar)
 .\scripts\vpn.ps1 start nordvpn-openvpn
 .\scripts\vpn.ps1 terminal
 ```
@@ -22,9 +23,11 @@ Set-ExecutionPolicy -Scope Process Bypass
 ## Checar
 
 ```bash
-vpn-status   # perfil + IP público
-vpn-check    # túnel + DNS
-vpn-top      # painel completo
+vpn-status        # perfil + IP público
+vpn-check         # túnel + DNS
+vpn-check --deep  # + egress IPv6 e DNS exposto
+vpn-top           # painel completo
+vpn-history --since 24h   # IP/latência ao longo do tempo
 ```
 
 ## Dia a dia

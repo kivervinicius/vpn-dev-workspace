@@ -7,12 +7,17 @@ A reintegração Linux foi consolidada na preparação da release 1.2.0. Consult
 - Project: `vpn-dev-workspace`
 - Active handoff: `HANDOFF.md`
 - Active spec: `SPECS/ACTIVE.md`
-- Release 1.3.1 includes the structured HTTP 429 tunnel restart. Exact evidence,
-  CI, tag, and cutover constraints are in `VERIFY.md` and `HANDOFF.md`.
+- Release 1.3.1 historically included an HTTP 429 tunnel restart; the current
+  fallback implementation supersedes that provider policy. Exact release
+  evidence remains in `VERIFY.md` and `HANDOFF.md`.
 - Release 1.3.1 is published from commit `c2b45d7`; CI run `45174698361` passed
   all four jobs. The v1/v2 plugin files match the release inside the terminal;
   it now mounts host `/projetos` at `/projetos`. See `HANDOFF.md` for runtime
   activation and rollback state.
+- OpenCode v2 model fallback is implemented, verified by `make verify` and a
+  local-provider E2E, and installed into the terminal's global plugin directory.
+  The VPN is healthy; existing OpenCode processes were left running and must be
+  restarted to load the new plugin. Current evidence is in `VERIFY.md`.
 - Local corrections for 1.3.0 are validated on Linux; exact evidence and
   release/cutover constraints are in `VERIFY.md` and `HANDOFF.md`.
 - Deep review fixes (2026-11-23) are in local commit `134aadc`, not pushed:
@@ -42,7 +47,7 @@ A reintegração Linux foi consolidada na preparação da release 1.2.0. Consult
 - OpenCode v1/v2: baseline testado v1 **1.19.6** e v2 **2.3.2**. `opencode1` mantém dados isolados em `~/.opencode-v1`; `opencode2` usa a home compartilhada. Launchers interativos sincronizam sessões recentes da workspace usando export/import JSON nativo e IDs vinculados; conteúdo não suportado fica pendente sem perda. Ver `RUNBOOKS/opencode-v1-v2.md`.
 - Atualizações: `opencode-update --check|--apply` (v1 = GitHub 1.x; v2 = npm `@opencode/cli`); timer systemd do usuário `opencode-update.timer` roda diariamente; log em `~/.local/state/opencode-update.log`.
 - `opencode1`/`opencode2` executam no container pela VPN. `scripts/opencode-vpn-install` instala launchers, o helper `opencode-session-sync` e plugins de status do provider.
-- Limites do provider não alteram modelo nem repetem prompt/ferramenta. A TUI reinicia o perfil VPN atual ao receber erro estruturado `rate_limit`/HTTP 429; outros limites só reconectam se Gluetun confirmar `status=stopped`. `Retry-After` continua informativo.
+- OpenCode v2 now switches only on an explicitly model-scoped free quota, using up to three zero-cost compatible models from the live catalog and the native retry for the same turn. Other limits do not change models; quota events never force a VPN/IP restart. Network recovery still requires Gluetun to confirm `status=stopped`.
 - Windows usa sincronização separada do SQLite v2 host/container via staging;
   falhas de push retornam status não-zero e não aplicam staging anterior. Pester
   e staging SQLite real no Docker Desktop ainda exigem um host Windows; isso não

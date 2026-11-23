@@ -59,19 +59,28 @@ permissions.
 
 ## Provider limits and network recovery
 
-Provider quota and rate-limit events never change the model or replay the turn
-or tool calls. The v1 plugin cancels a recognized retry when possible. The v2
-server hook sets `retry: false`. Both TUIs show the structured event and the
-numeric `Retry-After` countdown when present. A structured `rate_limit`/HTTP 429
-restarts the current VPN profile through `vpn-reconnect`, even if Gluetun still
-reports the tunnel healthy. Other provider classes reconnect only when the
-diagnostic explicitly reports `status=stopped`; unknown status does not mutate
-the tunnel. Recovery holds the shared VPN mutation lock from diagnosis through
-reconnect. The normal recovery cooldown does not block a 429 restart; duplicate
-events for the same session/class remain deduplicated by the TUI TTL. The helper
-returns a structured result and the IP reported by Gluetun. The provider limit
-can remain active after the tunnel reconnects. `opencode-limit-recover` remains
-status-only.
+OpenCode v2 handles `provider.free-limit` only when the provider identifies a
+model-scoped free quota. The server checks the live model catalog, requires
+explicit zero pricing plus tool and input compatibility, and tries at most
+three distinct models per turn (including the original). It honors
+`OPENCODE_MODEL_FALLBACK_FAVORITES` first, then sorts remaining eligible IDs
+stably; new models enter automatically and removed models disappear without a
+plugin edit. `OPENCODE_MODEL_FALLBACK_ENABLED=false` disables the behavior.
+When a model hits its quota, `session.switchModel` updates the session and the
+native retry resolves the next request to the alternative, preserving the same
+turn and conversation history. On success, the TUI toast names the model that
+hit quota and the model that completed the turn. If no eligible model remains,
+the final error toast includes the known `Retry-After` or says to consult the
+provider catalog. Paid models and unknown prices are never selected.
+
+Other provider limits, including a generic HTTP 429, do not switch models or
+force a tunnel/IP restart. The TUI may run the normal network check after a
+visible provider error, but it reconnects only if Gluetun confirms
+`status=stopped`; unknown status never mutates the tunnel. Recovery holds the
+shared VPN mutation lock from diagnosis through reconnect. The v1 plugin keeps
+its existing behavior and does not perform model fallback. Real provider calls
+are not required for the local E2E; its quota and successful response are served
+by a local mock.
 
 Network recovery is separate. `opencode-supervisor` reacts to confirmed network
 disconnection or an unhealthy VPN tunnel, preserves the persistent OpenCode
@@ -125,3 +134,11 @@ opencode2 --version
 The installer backs up existing launchers, sync helpers, and plugins before
 replacing them. Run it after updating the repository's launcher or plugin
 files.
+
+The model fallback configuration is passed to the terminal by Compose. Set
+`OPENCODE_MODEL_FALLBACK_FAVORITES` in `.env` to comma-separated
+`provider/model` IDs, in priority order; leave it empty to use the stable
+catalog order. Set `OPENCODE_MODEL_FALLBACK_ENABLED=false` to return to manual
+model selection. After installing an updated plugin, start a new OpenCode
+server process to load it; do not restart the terminal while active sessions
+are in use.

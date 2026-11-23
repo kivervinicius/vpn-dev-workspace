@@ -1,0 +1,238 @@
+#!/usr/bin/env bash
+# Dispatcher único dos scripts do VPN Dev Workspace.
+#
+# Camada fina: cada subcomando apenas delega para o script existente, sem
+# duplicar lógica de VPN, OpenCode ou diagnóstico.
+set -Eeuo pipefail
+
+ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPTS_DIR="${ROOT_DIR}/scripts"
+ACTIVE_PROFILE_FILE="${VPN_ACTIVE_PROFILE_FILE:-${ROOT_DIR}/.vpn-control-state/active-profile}"
+
+# shellcheck source=scripts/vpn-workdir.sh
+source "${SCRIPTS_DIR}/vpn-workdir.sh"
+
+usage() {
+  cat >&2 <<'EOF'
+Uso: vpn <comando> [args]
+
+Comandos:
+  up [perfil]        Sobe a stack (usa o último perfil ativo se omitido)
+  down | off         Encerra a stack
+  sh [dir]           Abre o Zsh do container terminal no diretório informado
+  run <cmd...>       Executa um comando no container terminal pela VPN
+  ai [1|2] [args]    Abre o OpenCode v1 ou v2 dentro da VPN
+  check | status | top | history | doctor | reconnect
+                     Diagnóstico e estado da VPN
+  rotate [args]      Troca/consulta o servidor VPN
+  logs               Acompanha os logs da stack
+  hosts [args]       Aplica os hosts locais configurados
+  opencode [args]    vpn-opencode (web, serve, supervise, check...)
+  profiles           Lista os perfis disponíveis
+  menu               Menu interativo (usa fzf quando disponível)
+  help               Esta ajuda
+
+Exemplos:
+  cd /projetos/meu-app && vpn sh
+  vpn run npm ci
+  vpn ai 2 --yolo
+  vpn up nordvpn-wireguard
+EOF
+}
+
+need_script() {
+  local script="$1"
+  [[ -x "${SCRIPTS_DIR}/${script}" ]] || {
+    echo "vpn: script ausente ou sem permissão: ${SCRIPTS_DIR}/${script}" >&2
+    exit 2
+  }
+}
+
+list_profiles() {
+  local profile
+  for profile in "${ROOT_DIR}"/profiles/*.yml; do
+    [[ -f "$profile" ]] || continue
+    printf '%s\n' "${profile##*/}" | sed 's/\.yml$//'
+  done
+}
+
+last_profile() {
+  local profile="${VPN_PROFILE:-}"
+  if [[ -z "$profile" && -r "$ACTIVE_PROFILE_FILE" ]]; then
+    profile="$(tr -d '[:space:]' < "$ACTIVE_PROFILE_FILE")"
+  fi
+  printf '%s\n' "$profile"
+}
+
+cmd_up() {
+  local profile="${1:-}"
+  if [[ -z "$profile" ]]; then
+    profile="$(last_profile)"
+  fi
+  if [[ -z "$profile" ]]; then
+    echo "vpn: nenhum perfil ativo; use 'vpn up <perfil>'. Perfis: $(list_profiles | tr '\n' ' ')" >&2
+    exit 2
+  fi
+  need_script vpn-switch
+  exec "${SCRIPTS_DIR}/vpn-switch" "$profile"
+}
+
+cmd_sh() {
+  local dir="${1:-}"
+  local workdir
+  workdir="$(vpn_resolve_workdir "$dir")" || exit 2
+  need_script vpn-shell
+  VPN_SHELL_WORKDIR="$workdir" exec "${SCRIPTS_DIR}/vpn-shell"
+}
+
+cmd_run() {
+  [[ $# -gt 0 ]] || {
+    echo "vpn: uso: vpn run <comando...>" >&2
+    exit 2
+  }
+  command -v docker >/dev/null 2>&1 || {
+    echo "vpn: Docker é obrigatório para 'vpn run'." >&2
+    exit 2
+  }
+  local workdir
+  workdir="$(vpn_resolve_workdir "")" || exit 2
+  local -a tty_flags=(-T)
+  if [[ -t 0 && -t 1 ]]; then
+    tty_flags=(-it)
+  fi
+  cd "$ROOT_DIR"
+  exec docker compose --profile vpn exec "${tty_flags[@]}" -w "$workdir" terminal "$@"
+}
+
+cmd_ai() {
+  local version="${1:-2}"
+  case "$version" in
+    1|2) shift ;;
+    *) version=2 ;;
+  esac
+  need_script "opencode${version}"
+  exec "${SCRIPTS_DIR}/opencode${version}" "$@"
+}
+
+cmd_menu() {
+  local choice=""
+  if command -v fzf >/dev/null 2>&1; then
+    choice="$(printf '%s\n' \
+      "up        Sobe a stack" \
+      "sh        Shell no container" \
+      "run       Executar comando" \
+      "ai        OpenCode na VPN" \
+      "status    Estado da VPN" \
+      "check     Diagnóstico rápido" \
+      "top       Painel completo" \
+      "doctor    Diagnóstico completo" \
+      "rotate    Trocar servidor" \
+      "logs      Logs da stack" \
+      "down      Encerrar a stack" \
+      | fzf --prompt='vpn> ' --height=40% --reverse)"
+  fi
+  if [[ -z "$choice" ]]; then
+    usage
+    return 0
+  fi
+  case "${choice%% *}" in
+    up) cmd_up "" ;;
+    sh) cmd_sh "" ;;
+    run)
+      echo "vpn: informe o comando após 'run'." >&2
+      exit 2
+      ;;
+    ai) cmd_ai 2 ;;
+    status) need_script vpn-status; exec "${SCRIPTS_DIR}/vpn-status" ;;
+    check) need_script vpn-check; exec "${SCRIPTS_DIR}/vpn-check" ;;
+    top) need_script vpn-top; exec "${SCRIPTS_DIR}/vpn-top" ;;
+    doctor) need_script vpn-doctor; exec "${SCRIPTS_DIR}/vpn-doctor" ;;
+    rotate) need_script vpn-server-rotate; exec "${SCRIPTS_DIR}/vpn-server-rotate" ;;
+    logs)
+      cd "$ROOT_DIR"
+      exec docker compose --profile vpn --profile opencode logs -f
+      ;;
+    down) need_script vpn-switch; exec "${SCRIPTS_DIR}/vpn-switch" down ;;
+    *) usage ;;
+  esac
+}
+
+command="${1:-help}"
+[[ $# -gt 0 ]] && shift
+
+case "$command" in
+  up)
+    cmd_up "$@"
+    ;;
+  down|off)
+    need_script vpn-switch
+    exec "${SCRIPTS_DIR}/vpn-switch" down
+    ;;
+  sh|shell)
+    cmd_sh "$@"
+    ;;
+  run)
+    cmd_run "$@"
+    ;;
+  ai)
+    cmd_ai "$@"
+    ;;
+  check)
+    need_script vpn-check
+    exec "${SCRIPTS_DIR}/vpn-check" "$@"
+    ;;
+  status)
+    need_script vpn-status
+    exec "${SCRIPTS_DIR}/vpn-status" "$@"
+    ;;
+  top)
+    need_script vpn-top
+    exec "${SCRIPTS_DIR}/vpn-top" "$@"
+    ;;
+  history|hist)
+    need_script vpn-history
+    exec "${SCRIPTS_DIR}/vpn-history" "$@"
+    ;;
+  doctor)
+    need_script vpn-doctor
+    exec "${SCRIPTS_DIR}/vpn-doctor" "$@"
+    ;;
+  reconnect)
+    need_script vpn-reconnect
+    exec "${SCRIPTS_DIR}/vpn-reconnect" "$@"
+    ;;
+  rotate)
+    need_script vpn-server-rotate
+    exec "${SCRIPTS_DIR}/vpn-server-rotate" "$@"
+    ;;
+  logs)
+    command -v docker >/dev/null 2>&1 || {
+      echo "vpn: Docker é obrigatório para 'vpn logs'." >&2
+      exit 2
+    }
+    cd "$ROOT_DIR"
+    exec docker compose --profile vpn --profile opencode logs -f
+    ;;
+  hosts)
+    need_script vpn-hosts-apply
+    exec "${SCRIPTS_DIR}/vpn-hosts-apply" "$@"
+    ;;
+  opencode)
+    need_script vpn-opencode
+    exec "${SCRIPTS_DIR}/vpn-opencode" "$@"
+    ;;
+  profiles)
+    list_profiles
+    ;;
+  menu)
+    cmd_menu
+    ;;
+  help|-h|--help)
+    usage
+    ;;
+  *)
+    echo "vpn: comando desconhecido: ${command}" >&2
+    usage
+    exit 2
+    ;;
+esac

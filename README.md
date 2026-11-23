@@ -35,6 +35,8 @@ Encerrar: `./scripts/vpn-switch stop`. Versão imprimível de 1 página: [docs/T
 | Saúde rápida | `vpn-status`, `vpn-check`, `vpn-top` |
 | Reconectar / trocar servidor | `vpn-reconnect`, `vpn-server-rotate --list` |
 | Diagnosticar tudo | `./scripts/vpn-doctor` (ou `make doctor`) |
+| Diagnóstico para anexar em issue | `./scripts/vpn-doctor --bundle diag.tar.gz --redact-ips` |
+| Histórico de IP/latência | `vpn-history --record`, `vpn-history --since 7d` |
 | OpenCode na VPN | `./scripts/vpn-opencode web\|serve\|supervise` |
 | Rede da casa/empresa | `FIREWALL_SUBNETS` + `INTERNAL_DNS` + `LOCAL_HOSTS` |
 
@@ -201,7 +203,7 @@ O `vpn-reconnect` aguarda o IP público do Gluetun após a reconexão (o endpoin
 
 O Gluetun usa `ifconfig.co` para obter o IP público. A imagem local é construída a partir da versão fixada do Gluetun com um patch que tenta a coleta até três vezes, com dois segundos entre tentativas; não reinicia o túnel para repetir a consulta. A disponibilidade e os limites desse serviço externo ainda podem afetar a verificação de saúde e a reconexão. O build exige acesso à fonte fixada e às dependências Go, e executa os testes do patch.
 
-Para automação: `vpn-status --json|-q`, `vpn-check --json|-q [--only tunnel|dns|internal|hosts]`, `vpn-top --json|--no-color`; todo script responde `--help`. O `vpn-check` sai `0` saudável / `1` com falha (a contagem vai na mensagem/JSON).
+Para automação: `vpn-status --json|-q`, `vpn-check --json|-q [--only tunnel|dns|internal|hosts] [--deep]`, `vpn-top --json|--no-color`, `vpn-history --json|--since 24h|--limit N`; todo script responde `--help`. O `vpn-check` sai `0` saudável / `1` com falha (a contagem vai na mensagem/JSON). O `--deep` acrescenta a checagem de egress IPv6 e de resolver DNS exposto, e o `vpn-doctor --bundle <arquivo> [--redact-ips]` gera um `.tar.gz` sanitizado por allowlist (sem `.secrets/`, `auth.json` nem valores do `.env`) para anexar em issues.
 
 ### 4.1 Rotação automática de servidor (opt-in)
 
@@ -312,8 +314,7 @@ O helper `vpn-opencode` roda o OpenCode dentro do container (tráfego de LLM 100
 - Verificação: `vpn-opencode check [--port P] [--json|-q]` distingue `ok|down|quota` (exit `0` ok / `1` down|quota); `vpn-top` mostra a seção OpenCode.
 - Supervisor persistente (recomendado): `vpn-opencode supervise --mode serve` inicia o serviço `opencode-supervisor`. Ele roda no mesmo namespace da VPN, usa a mesma home/workspace e **não** recebe o socket Docker.
 - Recuperação automática: queda do processo com VPN saudável reinicia apenas o OpenCode; somente desconexão real ou túnel unhealthy acionam recuperação VPN pelo supervisor. O `vpn-opencode check` é observacional e não inicia rotação; limites de provider não são falhas de túnel.
-- Plugins v1/v2 classificam somente eventos e campos estruturados. Provider quota, autenticação e rate-limit **não trocam o modelo nem repetem** automaticamente o turno ou chamadas de ferramenta. O v1 cancela retries reconhecidos quando possível; o hook de servidor v2 define `retry: false`; a TUI pode mostrar a contagem regressiva numérica de `Retry-After`. Texto arbitrário e logs não acionam ações. Para executar no host fora do túnel, use `OPENCODE_ALLOW_HOST=1 opencode1|opencode2`.
-- **Restart do túnel em HTTP 429:** quando a TUI recebe erro estruturado `rate_limit`/HTTP 429, reinicia o perfil VPN atual mesmo se o túnel estiver saudável. O helper compartilha o lock VPN e informa o IP após reconectar. Outros limites só reconectam quando Gluetun confirma `status=stopped`. O cooldown normal não bloqueia restart 429; duplicatas da mesma sessão/classe seguem deduplicadas pelo TTL. O provider ainda pode limitar a conta após o restart; nenhum evento troca modelo ou repete prompt/ferramenta. Detalhes em `DEV/RUNBOOKS/opencode-v1-v2.md`.
+- Plugins v1/v2 classificam somente eventos e campos estruturados. No OpenCode v2, `provider.free-limit` troca para um modelo gratuito explicitamente elegível do catálogo e usa o retry nativo para continuar o mesmo turno, até três modelos distintos contando o original. Modelos pagos, sem preço conhecido ou incompatíveis com as ferramentas/anexos ficam fora. O toast de sucesso informa os modelos usados; ao esgotar alternativas, a TUI mostra a cota e o `Retry-After` quando conhecido. Outros limites, incluindo HTTP 429 sem escopo por modelo, não trocam modelo. Quotas nunca forçam restart de túnel ou troca de IP; recovery de rede só age após Gluetun confirmar túnel parado. Para priorizar modelos, configure `OPENCODE_MODEL_FALLBACK_FAVORITES` no `.env`; a lista elegível continua dinâmica. Para desligar, use `OPENCODE_MODEL_FALLBACK_ENABLED=false`. O v1 não faz fallback de modelo. Texto arbitrário e logs não acionam ações. Para executar no host fora do túnel, use `OPENCODE_ALLOW_HOST=1 opencode1|opencode2`.
 - Falhas confirmadas de conectividade continuam separadas dos limites do provider. O `opencode-supervisor` recupera apenas desconexão de rede ou túnel unhealthy. Ele salva o ID da sessão mais recente, verifica que a sessão exata ainda pode ser exportada e informa `opencode2 --session <id>` para retomada manual; prompts e ferramentas nunca são repetidos automaticamente.
 - Proteção anti-loop do supervisor (`OPENCODE_RECOVERY_MAX_ROTATIONS`, `OPENCODE_RECOVERY_WINDOW_SECONDS` e `OPENCODE_RECOVERY_COOLDOWN_SECONDS`) limita recuperação de conectividade, separada dos limites do plugin.
 - `vpn-opencode watch` permanece como compatibilidade: inicia o supervisor persistente e acompanha seus logs.
@@ -345,6 +346,11 @@ script PowerShell. Ele não exige Ubuntu, Debian ou outra distribuição WSL
 instalada: o Docker Desktop fornece o motor Linux e o projeto Windows é
 montado em `/workspace`. A home Linux fica no volume Docker persistente
 `vpn_windows_home`, separada da home Windows.
+
+Para preparar as dependências, use o bootstrap idempotente (winget):
+`pwsh -File .\scripts\windows\bootstrap.ps1 -DryRun` só relata; sem `-DryRun`
+instala Docker Desktop, Git e Node.js LTS que estiverem ausentes. Para Tab no
+`vpn.ps1`, faça dot-source de `.\scripts\windows\vpn-completion.ps1` no perfil.
 
 Por padrão o `/workspace` recebe a raiz do repositório. Defina `WORKSPACE_DIR`
 no `.env` para montar outra pasta do host como workspace — é a mesma variável

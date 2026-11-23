@@ -9,10 +9,16 @@ secrets/
 .vpn-control-lock/
 
 # Sessões locais que não devem ir pro Git caso copiem para dentro
-.opencode/
+.opencode/*
+!.opencode/commands/
+!.opencode/skills/
+!.opencode/opencode.jsonc
 .config/
 .local/
 .cache/
+
+# Estado local de controle da VPN (perfil ativo, índices, locks)
+.vpn-control-state/
 
 # Dependências
 node_modules/
@@ -22,3 +28,5 @@ node_modules/
 *.log
 *.deb
 secrets.zip
+.omx/
+testResults.xml

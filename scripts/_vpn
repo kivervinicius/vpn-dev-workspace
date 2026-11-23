@@ -1,0 +1,51 @@
+#compdef vpn
+# Completion zsh para o dispatcher `vpn`.
+# Instalação: ln -s <repo>/scripts/_vpn ~/.zsh/completions/_vpn
+
+_vpn_commands=(
+  'up:Sobe a stack (usa o último perfil ativo)'
+  'down:Encerra a stack'
+  'off:Encerra a stack'
+  'sh:Abre o Zsh do container terminal'
+  'run:Executa um comando no container terminal'
+  'ai:Abre o OpenCode v1/v2 dentro da VPN'
+  'check:Diagnóstico rápido da VPN'
+  'status:Estado da VPN'
+  'top:Painel completo da VPN'
+  'history:Histórico de IP e latência'
+  'doctor:Diagnóstico completo'
+  'reconnect:Reconecta o túnel'
+  'rotate:Troca ou consulta o servidor'
+  'logs:Logs da stack'
+  'hosts:Aplica os hosts locais'
+  'opencode:Comandos do vpn-opencode'
+  'profiles:Lista os perfis'
+  'menu:Menu interativo'
+  'help:Ajuda'
+)
+
+_vpn_profiles() {
+  local -a profiles
+  local root="${0:A:h:h}"
+  local file
+  for file in "$root"/profiles/*.yml(N); do
+    profiles+=("${file:t:r}")
+  done
+  _describe -t profiles 'perfil VPN' profiles
+}
+
+_vpn() {
+  if (( CURRENT == 2 )); then
+    _describe -t commands 'comando vpn' _vpn_commands
+    case "$words[2]" in
+      up) _vpn_profiles ;;
+    esac
+  elif (( CURRENT == 3 )); then
+    case "$words[2]" in
+      up) _vpn_profiles ;;
+      ai) _values 'versão do OpenCode' 1 2 ;;
+    esac
+  fi
+}
+
+_vpn "$@"

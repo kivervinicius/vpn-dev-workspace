@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Hook local opcional. Ative com: git config core.hooksPath .githooks
+# Sem commit automático: o hook apenas bloqueia problemas óbvios.
+set -Eeuo pipefail
+
+ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --redact --no-banner
+else
+  echo "hook: gitleaks ausente; varredura de segredos ignorada." >&2
+fi
+
+for script in scripts/*; do
+  [[ -f "$script" ]] || continue
+  case "$script" in
+    *.ps1|*.zsh|*.mjs|scripts/vpn-state|scripts/vpn-events|scripts/vpn-observer|scripts/vpn-backup|scripts/vpn-control-ui|scripts/vpn-provider-probe|scripts/opencode-compat) continue ;;
+  esac
+  bash -n "$script"
+done
+
+sh -n scripts/vpn-entrypoint.sh
+
+while IFS= read -r -d '' file; do
+  node --check "$file"
+done < <(find apps opencode tests -type f \( -name '*.js' -o -name '*.mjs' -o -name '*.cjs' \) -print0)
+
+git diff --check

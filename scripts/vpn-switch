@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly COMPOSE_FILE="${ROOT_DIR}/docker-compose.yml"
+readonly ACTIVE_PROFILE_FILE="${VPN_ACTIVE_PROFILE_FILE:-${ROOT_DIR}/.vpn-control-state/active-profile}"
 source "${ROOT_DIR}/scripts/dotenv-read.sh"
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
@@ -320,6 +321,8 @@ for _ in {1..60}; do
   case "$health" in
     healthy)
       echo "Perfil ${profile} conectado."
+      mkdir -p "$(dirname -- "$ACTIVE_PROFILE_FILE")" 2>/dev/null || true
+      printf '%s\n' "$profile" > "$ACTIVE_PROFILE_FILE" 2>/dev/null || true
       "${ROOT_DIR}/scripts/vpn-hosts-apply"
       exit 0
       ;;

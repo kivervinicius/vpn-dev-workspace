@@ -1,9 +1,72 @@
-## Plano de troca de modelo no OpenCode v2
+# Verify
 
-- Fluxo atual inspecionado em `server-core.js`, `tui-core.js`, `classify.js` e
-  `policy.js`. A API pública documenta catálogo, troca de modelo e submissão
-  de mensagem. Correlação, admissão e rascunho no v2.3.2 ficam para o E2E do
-  [plano](SPECS/PLAN-OPENCODE-MODEL-FALLBACK.md).
+## Fechamento no Linux — 2026-11-23
+
+- `./scripts/verify-compose`: rc 0 — 8 perfis + `compose.windows.yml` (CLI
+  standalone do Compose v2.29.7, sem daemon).
+- `./scripts/vpn-lint`: rc 0 com ShellCheck 0.10.0 local (sintaxe + lint).
+- `./tests/linux/test-scripts.sh`: **81/81** (inclui a conferência de aplicação
+  dos dois patches do Gluetun por tag).
+- `node --test tests/opencode/*.test.mjs tests/control/*.test.cjs`: **59/59**
+  (4 testes novos de `/api/v1/history`).
+- Pester: **19/19** no Linux (Pester 6.2.0, stub POSIX de `docker`).
+- `node tests/opencode/model-fallback-e2e.mjs`: PASS no host — retry nativo
+  trocou de modelo duas vezes; provider local, nenhuma chamada real.
+- Gluetun: `go test ./internal/publicip/...` **verde** no fonte
+  `v3.41.4-rc2` com o patch preparado (`publicip-recovery-rc2.patch`).
+  `make gluetun-patch` rc 0 para `v3.41.3` (patch vigente) e `v3.41.4-rc2`.
+- `vpn-check --deep --json`: 8/8 no runtime saudável.
+- Issue pública [#9](https://github.com/kivervinicius/vpn-dev-workspace/issues/9)
+  criada via API com o token local do `gh` (nenhum segredo em log).
+
+## DX, diagnóstico e histórico — 2026-11-23
+
+- `./tests/linux/test-scripts.sh`: **80/80** (novos: `vpn-history` grava/filtra/
+  rotaciona, dispatcher `vpn`, `vpn_resolve_workdir`, além do `--help` de
+  `vpn` e `vpn-history`).
+- `node --test tests/opencode/*.test.mjs tests/control/*.test.cjs`: **55/55**.
+- `./scripts/verify-syntax`: rc 0 (Bash, `zsh -n` no completion `_vpn`, Node).
+  ShellCheck ausente no host → aviso; a CI falha duro sem ele.
+- `./scripts/verify-docs`: rc 0.
+- `vpn-check --json` 6/6 e `vpn-check --deep --json` 8/8 no runtime saudável
+  (`egress IPv6` e `DNS sem exposição externa` OK).
+- `vpn-doctor --bundle /tmp/x.tar.gz --redact-ips`: 9 arquivos por allowlist
+  (`manifest`, `doctor.tsv/json`, `environment`, `env-keys` só nomes,
+  `compose-ps`, `vpn-check.json`, logs 100 linhas), sem `.secrets/`.
+- `vpn-history` verificado com API desligada: 2 registros, `--since 24h` = 2,
+  `--limit 1` = 1, `--since bogus` = rc 2, rotação com `MAX_LINES=2` = 2
+  linhas. `vpn-top` renderiza a seção Histórico e `--json .history`.
+- `scripts/windows/*.ps1`: parse OK no pwsh 7 local e dot-source do completion
+  sem erro. Pester não está instalado aqui; a suíte roda em `windows-latest`.
+- Não validado neste host: `verify-compose` (rc 127, docker ausente), builds
+  das imagens, E2E do fallback em container e Pester real.
+- Observado uma vez: o caso `check: HTTP 429 genérico -> rate-limit` falhou por
+  corrida do stub `socat` (porta/sleep); passou em 6 execuções seguintes.
+  Suspeita de flake pré-existente, não relacionada a estas mudanças.
+
+## Fallback de modelo no OpenCode v2 — 2026-11-23
+
+- `make verify`: **passou** — Linux **74/74**, Node/control **53/53**,
+  `verify-compose` (8 perfis), `verify-docs`, sintaxe e builds das imagens
+  terminal/Gluetun. ShellCheck não está instalado no host; `verify-syntax`
+  registrou aviso e deixou essa etapa para a CI.
+- `node --test tests/opencode/vpn-recovery.test.mjs`: **19/19**.
+- `docker exec -w /projetos/vpn-dev-workspace vpn-dev-workspace-terminal-1 node tests/opencode/model-fallback-e2e.mjs`:
+  passou em OpenCode **2.3.2** real, com home descartável e provider HTTP de
+  loopback. O modelo A retornou quota estruturada, B também; o retry nativo
+  trocou para C, que concluiu o mesmo turno. Nenhuma chamada a provider externo.
+- E2E confirmou uso de catálogo dinâmico, sem modelo real hard-coded; favoritos
+  de fixture escolheram A/B/C para a simulação. Teste unitário cobre preço por
+  faixa/cache, imagens/PDF/áudio/vídeo, duplicata, escolha manual e toast final.
+- Após a instalação do plugin global, o E2E foi repetido e passou novamente.
+  `diff -qr` confirmou que a cópia em
+  `/home/desenvolvedor/.config/opencode/plugins/vpn-recovery` é idêntica à
+  fonte do repositório.
+- `vpn-check --json` passou as seis verificações. Não houve restart da VPN,
+  troca de IP nem chamada ao helper de restart.
+- Cinco processos `opencode --yolo` e o serviço OpenCode permaneceram ativos;
+  não foram interrompidos. Como eles já tinham carregado o plugin antigo, a
+  nova versão será usada quando o OpenCode for iniciado novamente.
 
 ## Deep review — correções aplicadas (2026-11-23)
 

@@ -47,7 +47,7 @@ expect_code() {
 echo "=== Iniciando Suíte de Testes Linux ==="
 
 # 1. Checagem de --help em todos os scripts
-for s in vpn-switch vpn-check vpn-status vpn-top vpn-server-rotate vpn-auto-reconnect vpn-opencode vpn-hosts-import vpn-hosts-apply vpn-hosts-gen opencode-supervisor opencode-vpn-install opencode-limit-recover opencode-network-recover opencode-session-sync opencode-session-sync.mjs vpn-doctor vpn-setup vpn-shell verify-compose verify-docs verify-syntax; do
+for s in vpn vpn-switch vpn-check vpn-status vpn-top vpn-server-rotate vpn-auto-reconnect vpn-opencode vpn-hosts-import vpn-hosts-apply vpn-hosts-gen opencode-supervisor opencode-vpn-install opencode-limit-recover opencode-network-recover opencode-session-sync opencode-session-sync.mjs vpn-doctor vpn-setup vpn-shell vpn-history verify-compose verify-docs verify-syntax; do
   if [[ -f "${SCRIPTS_DIR}/${s}" ]]; then
     if [[ "$s" == *.mjs ]]; then
       run_test "Script ${s} responde a --help com exit 0" node "${SCRIPTS_DIR}/${s}" --help
@@ -1322,6 +1322,93 @@ test_compose_auto_reconnect_healthcheck_path() {
   ! grep -q '/tmp/vpn-auto-reconnect.state' "$compose"
 }
 run_test "healthcheck do Compose lê o estado fora de /tmp" test_compose_auto_reconnect_healthcheck_path
+
+test_vpn_history_records_and_filters() {
+  local tmp history rc=0 out
+  tmp="$(mktemp -d)"
+  history="${tmp}/history.jsonl"
+  record() {
+    VPN_HISTORY_FILE="$history" GLUETUN_API_KEY_FILE="${tmp}/sem-chave" \
+      VPN_LATENCY_TARGET=127.0.0.1:1 bash "${SCRIPTS_DIR}/vpn-history" --record >/dev/null
+  }
+  record || rc=1
+  record || rc=1
+  [[ "$(wc -l < "$history")" -eq 2 ]] || { echo "esperado 2 linhas JSONL" >&2; rc=1; }
+  out="$(VPN_HISTORY_FILE="$history" bash "${SCRIPTS_DIR}/vpn-history" --json --since 24h)" || rc=1
+  [[ "$(jq 'length' <<<"$out")" -eq 2 ]] || { echo "since 24h deveria manter 2" >&2; rc=1; }
+  out="$(VPN_HISTORY_FILE="$history" bash "${SCRIPTS_DIR}/vpn-history" --json --limit 1)" || rc=1
+  [[ "$(jq 'length' <<<"$out")" -eq 1 ]] || { echo "limit 1 deveria reduzir para 1" >&2; rc=1; }
+  jq -e 'all(has("timestamp") and has("public_ip") and has("latency_ms"))' <<<"$out" >/dev/null || rc=1
+  VPN_HISTORY_FILE="$history" bash "${SCRIPTS_DIR}/vpn-history" --since bogus >/dev/null 2>&1 && {
+    echo "since inválido deveria falhar" >&2; rc=1; }
+  rm -rf "$tmp"
+  return "$rc"
+}
+run_test "vpn-history grava JSONL, filtra --since e limita --limit" test_vpn_history_records_and_filters
+
+test_vpn_history_rotates() {
+  local tmp history rc=0
+  tmp="$(mktemp -d)"
+  history="${tmp}/history.jsonl"
+  for _ in 1 2 3 4 5; do
+    VPN_HISTORY_FILE="$history" VPN_HISTORY_MAX_LINES=2 \
+      GLUETUN_API_KEY_FILE="${tmp}/sem-chave" VPN_LATENCY_TARGET=127.0.0.1:1 \
+      bash "${SCRIPTS_DIR}/vpn-history" --record >/dev/null || rc=1
+  done
+  [[ "$(wc -l < "$history")" -eq 2 ]] || { echo "rotação deveria manter 2 linhas" >&2; rc=1; }
+  rm -rf "$tmp"
+  return "$rc"
+}
+run_test "vpn-history rotaciona respeitando VPN_HISTORY_MAX_LINES" test_vpn_history_rotates
+
+test_vpn_dispatcher() {
+  local rc=0
+  bash "${SCRIPTS_DIR}/vpn" help >/dev/null 2>&1 || { echo "help deveria sair 0" >&2; rc=1; }
+  local code=0
+  bash "${SCRIPTS_DIR}/vpn" comando-inexistente >/dev/null 2>&1 || code=$?
+  [[ "$code" -eq 2 ]] || { echo "comando desconhecido deveria sair 2 (obtido $code)" >&2; rc=1; }
+  local out
+  out="$(VPN_HISTORY_FILE="/tmp/vazio-$$.jsonl" bash "${SCRIPTS_DIR}/vpn" history --json)" || rc=1
+  [[ "$out" == "[]" ]] || { echo "vpn history deveria delegar ao vpn-history: $out" >&2; rc=1; }
+  return "$rc"
+}
+run_test "dispatcher vpn responde help e rejeita comando desconhecido" test_vpn_dispatcher
+
+test_vpn_resolve_workdir() {
+  local tmp out rc=0
+  tmp="$(mktemp -d)"
+  # shellcheck source=scripts/vpn-workdir.sh
+  source "${SCRIPTS_DIR}/vpn-workdir.sh"
+  out="$(VPN_WORKSPACE_ROOTS="$tmp" vpn_resolve_workdir "$tmp")" || rc=1
+  [[ "$out" == "$(cd "$tmp" && pwd -P)" ]] || { echo "raiz válida não resolvida: $out" >&2; rc=1; }
+  VPN_WORKSPACE_ROOTS="$tmp" vpn_resolve_workdir "/" >/dev/null 2>&1 && {
+    echo "diretório fora da raiz deveria falhar" >&2; rc=1; }
+  VPN_WORKSPACE_ROOTS="$tmp" vpn_resolve_workdir "${tmp}/inexistente" >/dev/null 2>&1 && {
+    echo "diretório inexistente deveria falhar" >&2; rc=1; }
+  rm -rf "$tmp"
+  return "$rc"
+}
+run_test "vpn_resolve_workdir valida raiz, existência e limites montados" test_vpn_resolve_workdir
+
+test_gluetun_patch_applies() {
+  local rc=0 code=0
+  code=0
+  bash "${SCRIPTS_DIR}/verify-gluetun-patch" --tag v3.41.3 --patch gluetun/publicip-recovery.patch >/dev/null 2>&1 || code=$?
+  if [[ "$code" -eq 2 ]]; then
+    echo "rede indisponível: verificação do patch ignorada." >&2
+    return 0
+  fi
+  [[ "$code" -eq 0 ]] || { echo "patch atual não aplica em v3.41.3 (rc=$code)" >&2; rc=1; }
+  code=0
+  bash "${SCRIPTS_DIR}/verify-gluetun-patch" --tag v3.41.4-rc2 --patch gluetun/publicip-recovery-rc2.patch >/dev/null 2>&1 || code=$?
+  if [[ "$code" -eq 2 ]]; then
+    echo "rede indisponível: verificação do patch RC ignorada." >&2
+    return "$rc"
+  fi
+  [[ "$code" -eq 0 ]] || { echo "patch RC não aplica em v3.41.4-rc2 (rc=$code)" >&2; rc=1; }
+  return "$rc"
+}
+run_test "patches do Gluetun aplicam no upstream correspondente" test_gluetun_patch_applies
 
 echo "======================================"
 printf "Resultado: %d testes executados, %d passaram, %d falharam.\n" "$total" "$passed" "$failed"

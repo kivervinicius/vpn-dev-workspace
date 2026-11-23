@@ -11,11 +11,13 @@ Managed `serve`, `web`, and `supervise` commands require exactly v2 2.3.2.
 Set `OPENCODE_V2_ALLOW_UNVERIFIED=true` only for an isolated canary; never use
 that exception to silently update a live Desktop service.
 
-Provider quota, account, credit, authentication, and rate-limit events are
-status-only. The plugins do not change the VPN or model, and do not replay a
-prompt or tool call. Network recovery is a separate supervisor path for a
-confirmed disconnect or unhealthy tunnel; it verifies the exact saved session
-and prints a manual resume command.
+Only a model-scoped free quota can switch models in v2. The server selects
+explicitly zero-cost, input/tool-compatible alternatives from the live catalog
+and uses the native retry for the same turn, up to three distinct models
+including the original. Other quotas and generic rate limits do not switch
+models or force a VPN/IP restart. Network recovery is separate and requires a
+confirmed stopped tunnel; the supervisor verifies the exact saved session and
+prints a manual resume command.
 
 ## Automated gates
 
@@ -60,5 +62,5 @@ network recovery path.
 ## Historical records
 
 Older entries in `DEV/VERIFY.md` and `DEV/WORKLOG.md` include experiments where
-429 responses triggered VPN rotation or client retry. Those records describe
-past behavior and are superseded by the current status-only provider policy.
+429 responses triggered VPN rotation. Those records describe prior behavior
+and are superseded by the current model-scoped fallback policy.

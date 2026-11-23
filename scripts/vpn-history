@@ -1,0 +1,201 @@
+#!/usr/bin/env bash
+# vpn-history: histórico local de IP público, servidor e latência do túnel.
+#
+# Gravação é explícita (`--record`) para evitar write amplification: só o
+# auto-reconnect e chamadas manuais registram entradas. O arquivo é JSONL e
+# nunca contém segredos.
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/vpn-control-api.sh
+source "${SCRIPT_DIR}/vpn-control-api.sh"
+
+# Diretório gravável para o histórico: no host o próprio repositório; no
+# container o volume persistente /var/lib/vpn-control; por último o estado XDG.
+default_history_file() {
+  local base
+  # Diretório bind do Compose (mesmo arquivo no host e no container).
+  if [[ -d /var/lib/vpn-control/history && -w /var/lib/vpn-control/history ]]; then
+    printf '%s/history.jsonl\n' /var/lib/vpn-control/history
+    return 0
+  fi
+  for base in "${SCRIPT_DIR}/../.vpn-control-state" "/var/lib/vpn-control"; do
+    if mkdir -p "$base" 2>/dev/null && [[ -w "$base" ]]; then
+      printf '%s/history.jsonl\n' "$(cd -- "$base" && pwd -P)"
+      return 0
+    fi
+  done
+  printf '%s/vpn-dev-workspace/history.jsonl\n' "${XDG_STATE_HOME:-${HOME:-/tmp}/.local/state}"
+}
+
+readonly API_URL="${GLUETUN_API_URL:-$(vpn_control_default_url)}"
+readonly API_KEY_FILE="${GLUETUN_API_KEY_FILE:-$(vpn_control_default_key_file "${SCRIPT_DIR}")}"
+readonly HISTORY_FILE="${VPN_HISTORY_FILE:-$(default_history_file)}"
+readonly HISTORY_MAX_LINES="${VPN_HISTORY_MAX_LINES:-2000}"
+readonly LATENCY_TARGET="${VPN_LATENCY_TARGET:-1.1.1.1:443}"
+readonly CURL_TIMEOUT_ARGS=(--connect-timeout 5 --max-time 10)
+
+usage() {
+  cat >&2 <<'EOF'
+Uso: vpn-history [--record] [--since <24h|7d|Nh>] [--json] [--limit N] [--help]
+
+Opções:
+  --record     Registra o estado atual (IP, servidor, latência) no histórico
+  --since      Filtra entradas por idade (ex: 24h, 7d, 90m)
+  --limit      Limita a quantidade de entradas exibidas
+  --json       Saída em JSON (array de entradas)
+  -h, --help   Exibe esta ajuda
+
+Variáveis:
+  VPN_HISTORY_FILE       caminho do JSONL (default: .vpn-control-state/history.jsonl)
+  VPN_HISTORY_MAX_LINES  máximo de linhas mantidas (default: 2000)
+  VPN_LATENCY_TARGET     alvo TCP da medição de latência (default: 1.1.1.1:443)
+EOF
+  exit 0
+}
+
+record=false
+since=""
+limit=0
+output_json=false
+
+while (($# > 0)); do
+  case "$1" in
+    --record) record=true; shift ;;
+    --json) output_json=true; shift ;;
+    --since) since="${2:-}"; [[ -n "$since" ]] || { echo "Erro: --since exige um valor." >&2; exit 2; }; shift 2 ;;
+    --limit) limit="${2:-}"; [[ "$limit" =~ ^[0-9]+$ ]] || { echo "Erro: --limit exige um número." >&2; exit 2; }; shift 2 ;;
+    -h|--help) usage ;;
+    *) echo "Erro: argumento desconhecido: $1" >&2; exit 2 ;;
+  esac
+done
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || { echo "Erro: dependência ausente: $1" >&2; exit 2; }
+}
+
+need jq
+
+api_get() {
+  vpn_api_curl --fail --silent --show-error "${CURL_TIMEOUT_ARGS[@]}" "$@"
+}
+
+measure_latency() {
+  local target="$1" host port start end ms=""
+  host="${target%%:*}"
+  port="${target##*:}"
+  [[ -n "$host" && -n "$port" ]] || return 1
+  start="$(date +%s%N)"
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 3 bash -c "exec 3<>/dev/tcp/${host}/${port}" 2>/dev/null || return 1
+  else
+    bash -c "exec 3<>/dev/tcp/${host}/${port}" 2>/dev/null || return 1
+  fi
+  end="$(date +%s%N)"
+  ms=$(( (end - start) / 1000000 ))
+  printf '%s' "$ms"
+}
+
+record_entry() {
+  local ip="" server="" provider="" latency="" now
+  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+  if [[ -r "$API_KEY_FILE" ]]; then
+    ip="$(api_get "${API_URL}/v1/publicip/ip" 2>/dev/null | jq -r '.public_ip // empty' || true)"
+    local status_json
+    status_json="$(api_get "${API_URL}/v1/vpn/status" 2>/dev/null || true)"
+    server="$(printf '%s' "$status_json" | jq -r '.server.hostname // .server_name // empty' 2>/dev/null || true)"
+    provider="$(printf '%s' "$status_json" | jq -r '.provider // empty' 2>/dev/null || true)"
+  fi
+
+  latency="$(measure_latency "$LATENCY_TARGET" || true)"
+
+  local entry
+  entry="$(jq -nc \
+    --arg ts "$now" \
+    --arg ip "$ip" \
+    --arg server "$server" \
+    --arg provider "$provider" \
+    --arg latency "$latency" \
+    '{timestamp: $ts, public_ip: $ip, server: $server, provider: $provider, latency_ms: (if $latency == "" then null else ($latency | tonumber) end)}')"
+
+  mkdir -p "$(dirname -- "$HISTORY_FILE")"
+  (
+    umask 077
+    flock 9
+    printf '%s\n' "$entry" >> "$HISTORY_FILE"
+    if [[ -f "$HISTORY_FILE" ]]; then
+      local lines
+      lines="$(wc -l < "$HISTORY_FILE")"
+      if [[ "$lines" -gt "$HISTORY_MAX_LINES" ]]; then
+        tail -n "$HISTORY_MAX_LINES" "$HISTORY_FILE" > "${HISTORY_FILE}.tmp" && mv -f "${HISTORY_FILE}.tmp" "$HISTORY_FILE"
+      fi
+    fi
+  ) 9>"${HISTORY_FILE}.lock"
+
+  printf '%s\n' "$entry"
+}
+
+since_seconds() {
+  local value="$1" amount unit
+  [[ "$value" =~ ^([0-9]+)([hmds])$ ]] || return 1
+  amount="${BASH_REMATCH[1]}"
+  unit="${BASH_REMATCH[2]}"
+  case "$unit" in
+    h) printf '%s' "$(( amount * 3600 ))" ;;
+    m) printf '%s' "$(( amount * 60 ))" ;;
+    d) printf '%s' "$(( amount * 86400 ))" ;;
+    s) printf '%s' "$amount" ;;
+  esac
+}
+
+if $record; then
+  record_entry
+  exit 0
+fi
+
+if [[ ! -s "$HISTORY_FILE" ]]; then
+  if $output_json; then
+    printf '[]\n'
+  else
+    echo "vpn-history: histórico vazio (${HISTORY_FILE}). Registre com: vpn-history --record" >&2
+  fi
+  exit 0
+fi
+
+filter_since=""
+if [[ -n "$since" ]]; then
+  if ! filter_since="$(since_seconds "$since")"; then
+    echo "Erro: --since inválido: ${since} (use 30m, 24h, 7d)." >&2
+    exit 2
+  fi
+fi
+
+now_epoch="$(date +%s)"
+entries="$(jq -c --argjson now "$now_epoch" --argjson since "${filter_since:-0}" '
+  select(.timestamp != null)
+  | (.timestamp | strptime("%Y-%m-%dT%H:%M:%SZ") | mktime) as $ts
+  | select(($now - $ts) <= $since or $since == 0)
+  | . + {epoch: $ts}
+' "$HISTORY_FILE")"
+
+if [[ -n "$limit" && "$limit" -gt 0 ]]; then
+  entries="$(printf '%s\n' "$entries" | tail -n "$limit")"
+fi
+
+if $output_json; then
+  printf '%s\n' "$entries" | jq -cs '[.[] | del(.epoch)]'
+  exit 0
+fi
+
+printf '%s\n' "$entries" | jq -r 'if (.timestamp // "") == "" then empty else "\(.timestamp)  ip=\(.public_ip // "-")  servidor=\(.server // "-")  latencia=\(if .latency_ms == null then "-" else "\(.latency_ms)ms" end)" end'
+
+latencies="$(printf '%s\n' "$entries" | jq -r 'select(.latency_ms != null) | .latency_ms' | tail -n 60)"
+if [[ -n "$latencies" ]]; then
+  spark=""
+  while IFS= read -r value; do
+    [[ -n "$value" ]] || continue
+    if [[ "$value" -lt 50 ]]; then spark="${spark}▁"; elif [[ "$value" -lt 100 ]]; then spark="${spark}▂"; elif [[ "$value" -lt 150 ]]; then spark="${spark}▃"; elif [[ "$value" -lt 250 ]]; then spark="${spark}▄"; elif [[ "$value" -lt 400 ]]; then spark="${spark}▅"; elif [[ "$value" -lt 700 ]]; then spark="${spark}▆"; else spark="${spark}▇"; fi
+  done <<< "$latencies"
+  printf 'latência (últimos %s): %s\n' "$(printf '%s\n' "$latencies" | wc -l | tr -d ' ')" "$spark"
+fi

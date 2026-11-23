@@ -164,6 +164,8 @@ services:
       VPN_CONTROL_REPO_ROOT: /opt/vpn-control-sources
       VPN_CONTROL_STATE_DIR: /var/lib/vpn-control/observability
       VPN_BACKUP_INDEX_FILE: /var/lib/vpn-control/observability/backups.json
+      # Histórico de IP/latência compartilhado com o host (ver vpn-history).
+      VPN_HISTORY_FILE: /var/lib/vpn-control/history/history.jsonl
       # Observabilidade do OpenCode (opt-in; só sonda, nunca reinicia aqui).
       OPENCODE_GUI_PORT: ${OPENCODE_GUI_PORT:-10001}
       OPENCODE_V2_EXPECTED_VERSION: ${OPENCODE_V2_EXPECTED_VERSION:-2.3.2}
@@ -178,6 +180,9 @@ services:
       OPENCODE_NETWORK_RECOVERY_COOLDOWN_SECONDS: ${OPENCODE_NETWORK_RECOVERY_COOLDOWN_SECONDS:-300}
       OPENCODE_NETWORK_RECOVERY_TIMEOUT_SECONDS: ${OPENCODE_NETWORK_RECOVERY_TIMEOUT_SECONDS:-300}
       OPENCODE_QUOTA_NOTIFY_TTL_SECONDS: ${OPENCODE_QUOTA_NOTIFY_TTL_SECONDS:-300}
+      OPENCODE_MODEL_FALLBACK_ENABLED: ${OPENCODE_MODEL_FALLBACK_ENABLED:-true}
+      OPENCODE_MODEL_FALLBACK_FAVORITES: ${OPENCODE_MODEL_FALLBACK_FAVORITES:-}
+      OPENCODE_MODEL_FALLBACK_UNKNOWN_COOLDOWN_SECONDS: ${OPENCODE_MODEL_FALLBACK_UNKNOWN_COOLDOWN_SECONDS:-3600}
       # Sessão SSH do host, quando existir (senão /dev/null, inofensivo).
       SSH_AUTH_SOCK: /run/vpn-ssh-agent.sock
     volumes:
@@ -199,6 +204,7 @@ services:
       - ./scripts/vpn-reconnect:/usr/local/bin/vpn-reconnect:ro
       - ./scripts/opencode-network-recover:/usr/local/bin/opencode-network-recover:ro
       - ./scripts/vpn-check:/usr/local/bin/vpn-check:ro
+      - ./scripts/vpn-history:/usr/local/bin/vpn-history:ro
       - ./scripts/vpn-top:/usr/local/bin/vpn-top:ro
       - ./scripts/vpn-server-rotate:/usr/local/bin/vpn-server-rotate:ro
       - ./scripts/vpn-opencode:/usr/local/bin/vpn-opencode:ro
@@ -214,6 +220,13 @@ services:
       # Sem arquivo o painel abre sem senha: só use com HOST_BIND_ADDRESS=127.0.0.1.
       - ${OPENCODE_GUI_PASSWORD_FILE:-/dev/null}:/run/secrets/opencode_gui_password:ro
       - vpn_control_state:/var/lib/vpn-control
+      # Mesmo diretório do host: o histórico gravado no container aparece em
+      # `vpn-top`/`vpn-history` no host (e vice-versa).
+      - type: bind
+        source: ${VPN_HISTORY_DIR:-./.vpn-control-state}
+        target: /var/lib/vpn-control/history
+        bind:
+          create_host_path: true
       - type: bind
         source: ${VPN_CONTROL_LOCK_DIR:-./.vpn-control-lock}
         target: /run/vpn-control-lock
@@ -266,6 +279,8 @@ services:
       VPN_ROTATE_STATE_FILE: /var/lib/vpn-control/vpn-rotate.index
       # Estado do auto-reconnect no volume persistente (antes ficava em /tmp).
       VPN_AUTO_RECONNECT_STATE_DIR: /var/lib/vpn-control/auto-reconnect
+      # Histórico de IP/latência: mesmo arquivo visto pelo host (./.vpn-control-state).
+      VPN_HISTORY_FILE: /var/lib/vpn-control/history/history.jsonl
       # Hosts locais mapeados (opt-in): o vpn-check valida cada nome=ip.
       LOCAL_HOSTS: ${LOCAL_HOSTS:-}
       # Sonda do OpenCode (opt-in; alerta puro, sem reconnect do túnel).
@@ -275,6 +290,7 @@ services:
       - ./scripts/vpn-status:/usr/local/bin/vpn-status:ro
       - ./scripts/vpn-reconnect:/usr/local/bin/vpn-reconnect:ro
       - ./scripts/vpn-check:/usr/local/bin/vpn-check:ro
+      - ./scripts/vpn-history:/usr/local/bin/vpn-history:ro
       - ./scripts/vpn-server-rotate:/usr/local/bin/vpn-server-rotate:ro
       - ./scripts/vpn-auto-reconnect:/usr/local/bin/vpn-auto-reconnect:ro
       - ./scripts/vpn-opencode:/usr/local/bin/vpn-opencode:ro
@@ -282,6 +298,13 @@ services:
       - ./scripts/vpn-control-lock.sh:/usr/local/bin/vpn-control-lock.sh:ro
       - ./scripts/vpn-control-api.sh:/usr/local/bin/vpn-control-api.sh:ro
       - vpn_control_state:/var/lib/vpn-control
+      # Mesmo diretório do host: o histórico gravado no container aparece em
+      # `vpn-top`/`vpn-history` no host (e vice-versa).
+      - type: bind
+        source: ${VPN_HISTORY_DIR:-./.vpn-control-state}
+        target: /var/lib/vpn-control/history
+        bind:
+          create_host_path: true
       - type: bind
         source: ${VPN_CONTROL_LOCK_DIR:-./.vpn-control-lock}
         target: /run/vpn-control-lock
@@ -374,6 +397,13 @@ services:
       - ./scripts/vpn-control-lock.sh:/usr/local/bin/vpn-control-lock.sh:ro
       - ./scripts/vpn-control-api.sh:/usr/local/bin/vpn-control-api.sh:ro
       - vpn_control_state:/var/lib/vpn-control
+      # Mesmo diretório do host: o histórico gravado no container aparece em
+      # `vpn-top`/`vpn-history` no host (e vice-versa).
+      - type: bind
+        source: ${VPN_HISTORY_DIR:-./.vpn-control-state}
+        target: /var/lib/vpn-control/history
+        bind:
+          create_host_path: true
       - type: bind
         source: ${VPN_CONTROL_LOCK_DIR:-./.vpn-control-lock}
         target: /run/vpn-control-lock

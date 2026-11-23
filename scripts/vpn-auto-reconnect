@@ -34,13 +34,8 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   exit 0
 fi
 
-# Migração única do legado em /tmp; nunca segue symlink plantado por outro usuário.
-if [[ ! -e "$STATE_FILE" && ! -L "$STATE_FILE" && -f "$LEGACY_STATE_FILE" && ! -L "$LEGACY_STATE_FILE" ]]; then
-  mkdir -p -- "$STATE_DIR" 2>/dev/null && cp -- "$LEGACY_STATE_FILE" "$STATE_FILE" 2>/dev/null || true
-fi
-
-trap 'echo "vpn-auto-reconnect: encerrando (sinal recebido)."; exit 0' TERM INT
-
+# Validate configuration before resolving helpers or touching state. This makes
+# invalid settings fail deterministically even on hosts without the VPN tools.
 validate_interval() {
   local name="$1" value="$2"
   [[ "$value" =~ ^[1-9][0-9]*$ ]] || {
@@ -48,6 +43,30 @@ validate_interval() {
     exit 2
   }
 }
+
+validate_interval VPN_RECONNECT_INTERVAL_SECONDS "$RECONNECT_INTERVAL_SECONDS"
+validate_interval VPN_RECONNECT_RETRY_SECONDS "$RETRY_SECONDS"
+validate_interval VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE "$ATTEMPTS_BEFORE_ROTATE"
+# Regex antes de qualquer (( )): valor não numérico em aritmética sob set -u
+# derruba o daemon com erro obscuro ("abc: unbound variable").
+[[ "$ROTATE_INTERVAL_SECONDS" =~ ^[0-9]+$ ]] || {
+  echo "Erro: VPN_ROTATE_INTERVAL_SECONDS deve ser inteiro >= 0 (recebido: ${ROTATE_INTERVAL_SECONDS})." >&2
+  exit 2
+}
+if ((ROTATE_INTERVAL_SECONDS > 0)); then
+  validate_interval VPN_ROTATE_INTERVAL_SECONDS "$ROTATE_INTERVAL_SECONDS"
+fi
+[[ "$OPENCODE_PORT" =~ ^[1-9][0-9]{0,4}$ && "$OPENCODE_PORT" -le 65535 ]] || {
+  echo "Erro: OPENCODE_GUI_PORT inválida: $OPENCODE_PORT (1-65535)." >&2
+  exit 2
+}
+
+# Migração única do legado em /tmp; nunca segue symlink plantado por outro usuário.
+if [[ ! -e "$STATE_FILE" && ! -L "$STATE_FILE" && -f "$LEGACY_STATE_FILE" && ! -L "$LEGACY_STATE_FILE" ]]; then
+  mkdir -p -- "$STATE_DIR" 2>/dev/null && cp -- "$LEGACY_STATE_FILE" "$STATE_FILE" 2>/dev/null || true
+fi
+
+trap 'echo "vpn-auto-reconnect: encerrando (sinal recebido)."; exit 0' TERM INT
 
 # Escrita atômica via mktemp+rename: rename substitui um symlink plantado no
 # diretório de estado em vez de seguir o alvo (sem sobrescrita por usuário local).
@@ -140,6 +159,12 @@ recover_until_healthy() {
       set_state healthy
       consecutive_failures=0
       echo "VPN saudável: IP público confirmado."
+      # Histórico é opcional: falhar aqui nunca pode derrubar a recuperação.
+      if command -v vpn-history >/dev/null 2>&1; then
+        vpn-history --record >/dev/null 2>&1 || true
+      elif [[ -x "/usr/local/bin/vpn-history" ]]; then
+        /usr/local/bin/vpn-history --record >/dev/null 2>&1 || true
+      fi
       return 0
     else
       reconnect_rc=$?
@@ -212,23 +237,6 @@ maybe_periodic_rotate() {
       echo "Aviso: rotação periódica falhou; tentando no próximo ciclo." >&2
     fi
   fi
-}
-
-validate_interval VPN_RECONNECT_INTERVAL_SECONDS "$RECONNECT_INTERVAL_SECONDS"
-validate_interval VPN_RECONNECT_RETRY_SECONDS "$RETRY_SECONDS"
-validate_interval VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE "$ATTEMPTS_BEFORE_ROTATE"
-# Regex antes de qualquer (( )): valor não numérico em aritmética sob set -u
-# derruba o daemon com erro obscuro ("abc: unbound variable").
-[[ "$ROTATE_INTERVAL_SECONDS" =~ ^[0-9]+$ ]] || {
-  echo "Erro: VPN_ROTATE_INTERVAL_SECONDS deve ser inteiro >= 0 (recebido: ${ROTATE_INTERVAL_SECONDS})." >&2
-  exit 2
-}
-if ((ROTATE_INTERVAL_SECONDS > 0)); then
-  validate_interval VPN_ROTATE_INTERVAL_SECONDS "$ROTATE_INTERVAL_SECONDS"
-fi
-[[ "$OPENCODE_PORT" =~ ^[1-9][0-9]{0,4}$ && "$OPENCODE_PORT" -le 65535 ]] || {
-  echo "Erro: OPENCODE_GUI_PORT inválida: $OPENCODE_PORT (1-65535)." >&2
-  exit 2
 }
 
 set_state starting

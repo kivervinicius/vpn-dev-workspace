@@ -4,6 +4,8 @@ Plano da próxima entrega: [reintegração do trabalho preservado](SPECS/PLAN-RE
 
 Plano de [troca dinâmica de modelo e reenvio no OpenCode v2](SPECS/PLAN-OPENCODE-MODEL-FALLBACK.md).
 
+Plano do [goal de DX, segurança e observabilidade](SPECS/PLAN-GOAL-VPN-DX-SEGURANCA.md) (implementado; issue pública [#9](https://github.com/kivervinicius/vpn-dev-workspace/issues/9)).
+
 | Path | Purpose |
 |---|---|
 | `README.md` | Visão principal, instalação, configuração e operação do projeto |
@@ -22,6 +24,7 @@ Plano de [troca dinâmica de modelo e reenvio no OpenCode v2](SPECS/PLAN-OPENCOD
 | `RUNBOOKS/opencode-desktop-vpn.md` | Como conectar o OpenCode Desktop/Web pela VPN (passos validados) |
 | `RUNBOOKS/opencode-v1-v2.md` | Launchers v1/v2, transferências de sessão, política de limites e retomada de rede |
 | `RUNBOOKS/troubleshooting-vpn.md` | Diagnóstico e resolução de problemas da VPN |
+| `RUNBOOKS/dx-diagnostics-history.md` | Dispatcher `vpn`, `--deep`, bundle sanitizado, histórico e patches do Gluetun |
 | `compose.windows.yml` | Override Docker Compose para PowerShell/Docker Desktop no Windows |
 | `BACKLOG.md` | Pendências triadas com prioridade |
 | `TASKS/` | (intencionalmente vazio) planos e artefatos de tarefas |

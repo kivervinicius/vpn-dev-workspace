@@ -1,11 +1,50 @@
 # Active Handoff
 
-## Troca dinâmica de modelo no OpenCode v2 — planejada
+## DX, segurança e histórico — goal fechado no Linux (2026-11-23)
 
-O [plano](SPECS/PLAN-OPENCODE-MODEL-FALLBACK.md) define três modelos por turno
-selecionados pelo catálogo e reenvio automático após falha de cota quando o
-turno for elegível. A primeira etapa é validar o evento, a identidade do turno
-e a admissão do reenvio no v2.3.2 isolado com `429` simulado.
+Plano: [PLAN-GOAL-VPN-DX-SEGURANCA.md](SPECS/PLAN-GOAL-VPN-DX-SEGURANCA.md).
+Issue pública: [#9](https://github.com/kivervinicius/vpn-dev-workspace/issues/9).
+
+Entregue e verificado: dispatcher `scripts/vpn` (+ completion zsh, helper de
+workdir, `vpn-lint`), atalhos do `Makefile` (`status/ai/lint/verify-fast/shell
+DIR=/up/test-windows/gluetun-patch`), `vpn-check --deep`,
+`vpn-doctor --bundle [--redact-ips]`, `vpn-history` (JSONL com `flock` e
+rotação, gravado pelo auto-reconnect), seção Histórico no `vpn-top`, gráfico
+de latência no control-plane (`/api/v1/history` + sparkline), bootstrap e
+completion PowerShell, CI com checkout por SHA + `actionlint`/`zizmor`, e
+`gluetun/publicip-recovery-rc2.patch` preparado (sem cutover).
+
+Estado: nada commitado nem enviado. Linux 81/81, Node/control 59/59, Pester
+19/19 (Linux), `verify-compose`/`verify-syntax`/`verify-docs` rc 0, ShellCheck
+verde, E2E do fallback verde no host, `go test` do patch RC2 verde.
+
+Fechado nesta rodada (antes pendente): issue publicada, gráfico do
+control-plane, Pester no Linux, E2E do fallback, conferência dos patches.
+
+Pendente (exige daemon Docker ou runtime Windows):
+1. `docker compose up -d` para recriar `terminal`, `vpn-auto-reconnect` e
+   `opencode-supervisor` e carregar o bind de `vpn-history`.
+2. `make verify` completo (build das duas imagens) e `make verify-fast` com
+   Docker real.
+3. Gluetun `v3.41.4` stable: não existe (só rc1/rc2); quando sair, rebasear o
+   patch, atualizar digest da base e fazer cutover com rollback.
+4. `hadolint`, `lychee` e `markdownlint` na CI (baseline ainda não definido).
+
+
+## Fallback de modelo no OpenCode v2 — implementado e validado
+
+O [plano](SPECS/PLAN-OPENCODE-MODEL-FALLBACK.md) usa o retry nativo do OpenCode
+2.3.2 para continuar o mesmo turno em até três modelos gratuitos compatíveis,
+escolhidos pelo catálogo em tempo de execução. `make verify` passou (Linux
+74/74, Node 53/53, oito perfis Compose, docs, sintaxe e builds Docker; ShellCheck
+não está instalado localmente e foi ignorado com aviso). O E2E no Docker passou
+com provider HTTP local: A e B devolveram `429`, C concluiu. A cópia global do
+plugin foi instalada e comparada com a fonte. Nenhuma quota real foi usada.
+
+O `vpn-check --json` confirmou seis verificações saudáveis. Cinco processos
+`opencode --yolo` e o serviço OpenCode continuam ativos; nenhum foi reiniciado.
+Eles mantêm o plugin carregado em memória, portanto a nova lógica passa a ser
+usada ao iniciar novamente o OpenCode em uma janela apropriada.
 
 ## Deep review corrigido — 2026-11-23 (commit local `134aadc`, sem push)
 
@@ -33,9 +72,10 @@ confirma `status=stopped` antes do `running`; `vpn-auto-reconnect` usa
 (healthcheck ajustado); supervisor não apaga o log se a poda falhar.
 `verify-syntax` só avisa sobre ShellCheck ausente fora do CI.
 
-Verificação: Linux 74/74, Node 51/51, verify-docs OK, sintaxe OK; ShellCheck e
-verify-compose (docker) ausentes no ambiente atual — rodar na CI antes de
-publicar. Evidências em `VERIFY.md`.
+Verificação final atual: Linux 74/74, Node 53/53, verify-docs, verify-compose
+(oito perfis), sintaxe e builds Docker passaram. ShellCheck não está instalado
+localmente; a verificação de sintaxe registrou aviso e a CI continua sendo a
+checagem estrita do ShellCheck. Evidências em `VERIFY.md`.
 
 A release 1.3.1 está publicada no commit `c2b45d7c7b0d0e9a728fa4ee63d8474a23270dc8`.
 CI, tag Git, release GitHub e imagens Docker locais estão registradas neste

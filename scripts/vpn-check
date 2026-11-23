@@ -9,22 +9,25 @@ readonly CURL_TIMEOUT_ARGS=(--connect-timeout 5 --max-time 10)
 readonly DNS_TEST_HOSTS="${VPN_DNS_TEST_HOSTS:-github.com,cloudflare.com}"
 
 usage() {
-  echo "Uso: vpn-check [--json] [-q|--quiet] [--only tunnel|dns|internal|hosts] [--api-url <url>]" >&2
+  echo "Uso: vpn-check [--json] [-q|--quiet] [--deep] [--only tunnel|dns|internal|hosts|deep] [--api-url <url>]" >&2
   echo "  --json     saída máquina ({healthy, fails, checks[]})" >&2
   echo "  -q,--quiet sem linhas por check (só exit code)" >&2
   echo "  --only     roda só um grupo (para health leve: --only tunnel)" >&2
+  echo "  --deep     inclui egress IPv6 e exposição de DNS na interface" >&2
   exit 0
 }
 
 output_json=false
 quiet=false
 only="all"
+deep=false
 api_url="$API_URL"
 while (($# > 0)); do
   case "$1" in
     --json) output_json=true; shift ;;
     -q|--quiet) quiet=true; shift ;;
-    --only) only="${2:-}"; [[ "$only" =~ ^(tunnel|dns|internal|hosts)$ ]] || { echo "Erro: --only exige tunnel|dns|internal|hosts." >&2; exit 2; }; shift 2 ;;
+    --deep) deep=true; shift ;;
+    --only) only="${2:-}"; [[ "$only" =~ ^(tunnel|dns|internal|hosts|deep)$ ]] || { echo "Erro: --only exige tunnel|dns|internal|hosts|deep." >&2; exit 2; }; shift 2 ;;
     --api-url) api_url="${2:-}"; [[ -n "$api_url" ]] || { echo "Erro: --api-url exige um valor." >&2; exit 2; }; shift 2 ;;
     -h|--help) usage ;;
     *) echo "Erro: argumento desconhecido: $1" >&2; exit 2 ;;
@@ -32,6 +35,7 @@ while (($# > 0)); do
 done
 
 run_group() { [[ "$only" == "all" || "$only" == "$1" ]]; }
+run_deep_checks() { [[ "$deep" == true || "$only" == "deep" ]]; }
 
 need() {
   command -v "$1" >/dev/null 2>&1 || { echo "Erro: dependência ausente: $1" >&2; exit 2; }
@@ -199,6 +203,44 @@ if [[ -n "$local_hosts" ]] && run_group hosts; then
       fi
     done
   done
+fi
+
+if run_deep_checks; then
+# Egress IPv6: deve falhar (ou não existir) quando o túnel não carrega IPv6.
+ipv6_url="${VPN_IPV6_TEST_URL:-https://api6.ipify.org}"
+ipv6_address=""
+if ipv6_address="$(curl -6 --fail --silent --show-error --connect-timeout 5 --max-time 10 "$ipv6_url" 2>/dev/null)"; then
+  tunnel_ipv6="$(api_get "${api_url}/v1/publicip/ip" 2>/dev/null | jq -r '.public_ipv6 // empty' || true)"
+  if [[ -n "$tunnel_ipv6" && "$tunnel_ipv6" == "$ipv6_address" ]]; then
+    report "egress IPv6 pelo túnel" ok
+  elif [[ -z "$tunnel_ipv6" ]]; then
+    report "egress IPv6 pelo túnel" "IPv6 saiu (${ipv6_address}) e o túnel não expõe IPv6 para comparar"
+  else
+    report "egress IPv6 pelo túnel" "IPv6 divergente: saída ${ipv6_address}, túnel ${tunnel_ipv6}"
+  fi
+else
+  report "egress IPv6 pelo túnel" ok
+fi
+
+# DNS: o resolver em escuta não pode estar exposto em interface externa.
+if command -v ss >/dev/null 2>&1; then
+  dns_listeners="$(ss -lnut 2>/dev/null | awk 'NR > 1 && $5 ~ /:53$/ {print $5}' | sort -u || true)"
+  external_dns=""
+  while IFS= read -r listener; do
+    [[ -n "$listener" ]] || continue
+    case "$listener" in
+      127.0.0.1:*|\[::1\]:*) ;;
+      *) external_dns="${external_dns}${listener} " ;;
+    esac
+  done <<< "$dns_listeners"
+  if [[ -n "${external_dns// /}" ]]; then
+    report "DNS sem exposição externa" "resolver em escuta pública: ${external_dns% }"
+  else
+    report "DNS sem exposição externa" ok
+  fi
+else
+  report "DNS sem exposição externa" ok
+fi
 fi
 
 if $output_json; then

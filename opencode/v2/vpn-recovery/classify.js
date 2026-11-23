@@ -11,8 +11,9 @@ const ERROR_CLASSES = new Map([
 ])
 
 // O runtime OpenCode mapeia o erro do provider para tipos estáveis
-// (packages/core/src/session/to-session-error.ts). Os limites são informativos;
-// rate limits disparam reinício do túnel na TUI, sem repetir o turno.
+// (packages/core/src/session/to-session-error.ts). A TUI só aciona recuperação
+// de rede se o túnel estiver parado; o servidor troca modelo apenas em cota
+// gratuita explicitamente identificada para aquele modelo.
 const RUNTIME_ERROR_CLASSES = new Map([
   ["provider.free-limit", "free_tier_limit"],
   ["provider.rate-limit", "rate_limit"],

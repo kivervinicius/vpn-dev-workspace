@@ -37,7 +37,7 @@ fi
 for script in scripts/*; do
   [[ -f "$script" ]] || continue
   case "$script" in
-    *.ps1|*.zsh|*.mjs|scripts/vpn-state|scripts/vpn-events|scripts/vpn-observer|scripts/vpn-backup|scripts/vpn-control-ui|scripts/vpn-provider-probe|scripts/opencode-compat) continue ;;
+    *.ps1|*.zsh|*.mjs|scripts/_vpn|scripts/vpn-state|scripts/vpn-events|scripts/vpn-observer|scripts/vpn-backup|scripts/vpn-control-ui|scripts/vpn-provider-probe|scripts/opencode-compat) continue ;;
   esac
   if $shellcheck_available; then shellcheck -S error "$script"; fi
   bash -n "$script"
@@ -45,7 +45,7 @@ done
 
 sh -n scripts/vpn-entrypoint.sh
 
-for script in scripts/*.zsh; do
+for script in scripts/_vpn scripts/*.zsh; do
   [[ -f "$script" ]] || continue
   zsh -n "$script"
 done

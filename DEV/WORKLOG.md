@@ -1,9 +1,82 @@
-## Plano de troca de modelo no OpenCode v2
+## 2026-11-23 — Fechamento do goal DX no Linux
 
-- Registrado o [plano](SPECS/PLAN-OPENCODE-MODEL-FALLBACK.md) para trocar de
-  modelo com catálogo dinâmico, banner e reenvio automático de turno elegível.
-- Base: código atual de quota e documentação oficial de plugins. Próximo
-  passo: validar deduplicação, admissão e rascunho no v2.3.2 isolado.
+- Changed: gráfico de latência no control-plane (`/api/v1/history` + sparkline
+  SVG em `public/app.js`/`index.html`/`app.css`); suíte Pester da interface
+  Windows passou a rodar no Linux (stub POSIX de `docker`, `PATH` com
+  separador correto); `scripts/verify-gluetun-patch` + patch
+  `gluetun/publicip-recovery-rc2.patch` (preparação do RC, sem cutover);
+  `make test-windows` e `make gluetun-patch`; runbook
+  `DEV/RUNBOOKS/dx-diagnostics-history.md`; issue pública #9 publicada.
+- Why: fechar as lacunas que dependiam de daemon Docker ou de host Windows —
+  no Linux era possível testar Compose (CLI standalone), Pester, o E2E do
+  fallback e a aplicação dos patches do Gluetun.
+- Verified: `verify-compose` rc 0 (8 perfis + Windows); ShellCheck 0.10.0
+  verde; Linux 81/81; Node/control 59/59; Pester **19/19** no Linux;
+  `vpn-check --deep` 8/8; `go test ./internal/publicip/...` verde no fonte
+  `v3.41.4-rc2`; E2E do fallback passou no host (provider local, zero chamada
+  real); patches aplicam por `make gluetun-patch`. Issue #9 criada com labels
+  `enhancement`, `docker`, `github_actions`.
+- Activation: `docker compose up -d` recria os serviços para o bind de
+  `vpn-history`; o control-plane lê o mesmo arquivo de histórico.
+
+## 2026-11-23 — DX: dispatcher, diagnóstico e histórico
+
+- Changed: dispatcher `scripts/vpn` (+ completion zsh `_vpn`, helper
+  `vpn-workdir.sh`, lint `vpn-lint`) com `up/down/sh/run/ai/check/status/top/
+  doctor/reconnect/rotate/logs/hosts/opencode/profiles/menu`; `vpn-shell
+  --workdir/-w` e `vpn-switch` gravando `.vpn-control-state/active-profile`;
+  `Makefile` com `status/ai/lint/verify-fast/shell DIR=/up` usando o último
+  perfil. `vpn-check --deep` (egress IPv6 + resolver DNS exposto);
+  `vpn-doctor --bundle <arquivo> [--redact-ips]` com allowlist estrita (TSV,
+  JSON, ambiente, `ps`, logs 100 linhas, `env-keys.txt` sem valores);
+  `vpn-history` (JSONL, `flock`, rotação `VPN_HISTORY_MAX_LINES`, `--since/
+  --limit/--json/--record`) gravado pelo auto-reconnect ao voltar a healthy;
+  `vpn-top` com seção Histórico (sparkline) e bloco `history` no `--json`.
+  Windows: `scripts/windows/bootstrap.ps1` (winget idempotente, `-DryRun`) e
+  `scripts/windows/vpn-completion.ps1`. CI: `actions/checkout` por SHA +
+  jobs `actionlint` (sha256 verificado) e `zizmor` pinado.
+- Why: reduzir atrito diário (um comando), permitir diagnóstico anexável sem
+  vazar segredo/IP e dar série temporal de IP/latência sem abrir mão do
+  fallback free→free já implementado.
+- Verified: Linux **80/80** (`tests/linux/test-scripts.sh`), Node/control
+  **55/55**; `bash -n` + `zsh -n` via `verify-syntax` (rc 0, ShellCheck
+  ausente → aviso), `verify-docs` rc 0; `vpn-check --deep --json` 8/8 no
+  runtime saudável; `vpn-doctor --bundle` gera 9 arquivos sem `.secrets/` nem
+  valores do `.env`; `vpn-history` testado com API desligada (JSONL, filtros,
+  rotação); Pester de `scripts/windows` só parseado aqui (pwsh 7 local, sem
+  Pester) — execução real fica na CI `windows-latest`. `verify-compose`
+  (rc 127) e builds Docker não rodam neste host (docker ausente).
+- Activation: bind mounts `scripts/vpn-history` em `terminal`,
+  `vpn-auto-reconnect` e `opencode-supervisor`; histórico compartilhado em
+  `./.vpn-control-state` (host) e `/var/lib/vpn-control/history` (container).
+  `docker compose up -d` recria os serviços para carregar o mount novo.
+
+## 2026-11-23 — Fallback de modelo no OpenCode v2
+
+- Changed: fallback de até três modelos gratuitos e compatíveis, usando
+  catálogo dinâmico e retry nativo (`session.switchModel` +
+  `experimental.model.resolve`) para preservar o turno; favoritos e cooldown
+  configuráveis pelo Compose; toast com modelo A/B; nenhuma quota força restart
+  de túnel/IP. Preço desconhecido e modalidades incompatíveis ficam fora.
+- Why: quando o modelo gratuito atinge cota, o mesmo pedido deve continuar em
+  outro modelo sem uma nova mensagem manual nem repetição de ferramentas.
+- Verified: Node OpenCode **19/19**; `make verify` passou com Linux **74/74**,
+  Node/control **53/53**, oito perfis Compose, docs, sintaxe e builds Docker.
+  O E2E Docker com OpenCode 2.3.2 e provider local passou após instalar a cópia
+  global: A=429, B=429, C=sucesso no mesmo turno. `diff -qr` confirmou a cópia;
+  `vpn-check --json` passou 6/6. Nenhum provider real foi chamado e a VPN não
+  foi alterada. ShellCheck não está instalado localmente (aviso; CI estrita).
+- Activation: cinco clientes `opencode --yolo` e o serviço continuaram rodando;
+  iniciar OpenCode novamente para carregar o plugin atualizado.
+
+## 2026-11-23 — Ordem de validação do auto-reconnect
+
+- Changed: a configuração de `vpn-auto-reconnect` agora é validada antes de
+  resolver os helpers externos ou migrar estado.
+- Why: valor não numérico de rotação deve produzir o erro de configuração com
+  exit 2 mesmo em um host sem os helpers VPN instalados.
+- Verified: o caso Linux que falhava por `vpn-check` ausente agora passou dentro
+  do gate completo (**74/74**).
 
 ## 2026-11-23 — Achados remanescentes do plano de review
 

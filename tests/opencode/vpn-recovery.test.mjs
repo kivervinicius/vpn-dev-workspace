@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { VpnRecovery as createV1Plugin } from "../../opencode/v1/vpn-recovery.js"
 import { setupServerPlugin } from "../../opencode/v2/vpn-recovery/server-core.js"
+import { blockModel, containsImagePayload, createFallbackState, isEligibleFreeModel, isFreeModel, recordFallback, requiredModelInputs, selectFallbackModel } from "../../opencode/v2/vpn-recovery/model-fallback.js"
 import { classifyV2Error, extractRetryAfterSeconds, hasHttp429 } from "../../opencode/v2/vpn-recovery/classify.js"
 import { decideAction, ACTION_NOTIFY, QUOTA_CLASSES } from "../../opencode/v2/vpn-recovery/policy.js"
 import { setupTuiPlugin } from "../../opencode/v2/vpn-recovery/tui-core.js"
@@ -198,64 +199,144 @@ test("v1 deduplicates the same session and provider event for its TTL", async ()
   }
 })
 
-test("v2 server hook disables automatic retries for every recognized provider limit", async () => {
-  let handler
+test("v2 server hook tries up to three dynamically catalogued free models in the same session", async () => {
+  const handlers = new Map()
+  const switches = []
   let disposeCalls = 0
+  const models = [
+    { providerID: "opencode", id: "original-free", cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, capabilities: { tools: true, input: ["text"] } },
+    { providerID: "opencode", id: "second-free", cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, capabilities: { tools: true, input: ["text"] } },
+    { providerID: "opencode", id: "third-free", cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, capabilities: { tools: true, input: ["text"] } },
+    { providerID: "opencode", id: "zz-fourth-free", cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, capabilities: { tools: true, input: ["text"] } },
+    { providerID: "opencode", id: "paid", cost: { input: 0.1, output: 0.2, cacheRead: 0, cacheWrite: 0 }, capabilities: { tools: true, input: ["text"] } },
+    { providerID: "other", id: "free", cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, capabilities: { tools: true, input: ["text"] } },
+  ]
   const dispose = await setupServerPlugin({
     session: { hook: async (name, callback) => {
-      assert.equal(name, "retry")
-      handler = callback
+      handlers.set(name, callback)
       return () => { disposeCalls++ }
-    } },
+    }, context: async () => [{ role: "user", content: [{ type: "text", text: "change the code" }] }], switchModel: async (args) => switches.push(args) },
+    model: { list: async () => models },
+    event: { subscribe: async function* () {} },
   })
-  for (const { expected, ...providerError } of PROVIDER_ERRORS) {
+  const event = (model, attempt, sessionID = "session-one") => ({
+    sessionID,
+    model: { providerID: "opencode", id: model },
+    attempt,
+    error: { type: "provider.free-limit", retryAfterMs: 60_000 },
+  })
+  const first = event("original-free", 1)
+  const firstHandling = handlers.get("retry")(first)
+  const duplicate = event("original-free", 1)
+  await handlers.get("retry")(duplicate)
+  assert.deepEqual(duplicate.decision, { retry: false })
+  await firstHandling
+  assert.deepEqual(first.decision, { retry: true, delay: 0 })
+  const firstResolution = { sessionID: "session-one", kind: "primary", model: { providerID: "opencode", id: "original-free" } }
+  handlers.get("experimental.model.resolve")(firstResolution)
+  assert.deepEqual(firstResolution.model, { providerID: "opencode", id: "second-free" })
+  const second = event("second-free", 2)
+  await handlers.get("retry")(second)
+  assert.deepEqual(second.decision, { retry: true, delay: 0 })
+  const secondResolution = { sessionID: "session-one", kind: "primary", model: { providerID: "opencode", id: "second-free" } }
+  handlers.get("experimental.model.resolve")(secondResolution)
+  assert.deepEqual(secondResolution.model, { providerID: "opencode", id: "third-free" })
+  const third = event("third-free", 3)
+  await handlers.get("retry")(third)
+  assert.deepEqual(third.decision, { retry: false })
+  assert.deepEqual(switches, [
+    { sessionID: "session-one", model: { providerID: "opencode", id: "second-free" } },
+    { sessionID: "session-one", model: { providerID: "opencode", id: "third-free" } },
+  ])
+  const manualSessionEvent = event("original-free", 1, "session-two")
+  await handlers.get("retry")(manualSessionEvent)
+  assert.deepEqual(manualSessionEvent.decision, { retry: true, delay: 0 })
+  assert.deepEqual(switches.at(-1), { sessionID: "session-two", model: { providerID: "opencode", id: "zz-fourth-free" } })
+  const manualResolution = { sessionID: "session-two", kind: "primary", model: { providerID: "opencode", id: "manual-choice" } }
+  handlers.get("experimental.model.resolve")(manualResolution)
+  assert.equal(manualResolution.model.id, "manual-choice")
+
+  for (const { expected, ...providerError } of PROVIDER_ERRORS.slice(1)) {
     const event = { error: providerError }
-    await handler(event)
+    await handlers.get("retry")(event)
     assert.deepEqual(event.decision, { retry: false })
   }
   const unrelated = { error: { type: "provider.network" } }
-  await handler(unrelated)
+  await handlers.get("retry")(unrelated)
   assert.equal(unrelated.decision, undefined)
   dispose()
-  assert.equal(disposeCalls, 1)
+  assert.equal(disposeCalls, 2)
 })
 
-test("v2 TUI reports Retry-After, checks tunnel health, and does not replay provider requests", async () => {
-  let listener
+test("v2 server hook refuses to switch when the current model is paid or has unknown cost", async () => {
+  const handlers = new Map()
+  const switches = []
+  const models = [
+    { providerID: "opencode", id: "paid-origin", cost: { input: 0.1, output: 0.2, cacheRead: 0, cacheWrite: 0 }, capabilities: { tools: true, input: ["text"] } },
+    { providerID: "opencode", id: "unknown-cost-origin", cost: { input: "0", output: 0 }, capabilities: { tools: true, input: ["text"] } },
+    { providerID: "opencode", id: "free", cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, capabilities: { tools: true, input: ["text"] } },
+  ]
+  const dispose = await setupServerPlugin({
+    session: { hook: async (name, callback) => {
+      handlers.set(name, callback)
+      return () => {}
+    }, context: async () => [{ role: "user", content: [{ type: "text", text: "change the code" }] }], switchModel: async (args) => switches.push(args) },
+    model: { list: async () => models },
+    event: { subscribe: async function* () {} },
+  })
+  for (const id of ["paid-origin", "unknown-cost-origin"]) {
+    const event = { sessionID: `session-${id}`, model: { providerID: "opencode", id }, attempt: 1, error: { type: "provider.free-limit", retryAfterMs: 60_000 } }
+    await handlers.get("retry")(event)
+    assert.deepEqual(event.decision, { retry: false })
+  }
+  assert.deepEqual(switches, [])
+  dispose()
+})
+
+test("paid favorites never enter the free fallback catalog", () => {
+  const paid = { providerID: "opencode", id: "paid", cost: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 }, capabilities: { tools: true, input: ["text"] } }
+  const free = { providerID: "opencode", id: "free", cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, capabilities: { tools: true, input: ["text"] } }
+  const state = createFallbackState("opencode/current")
+  const chosen = selectFallbackModel([paid, free], state, { favorites: ["opencode/paid"] })
+  assert.equal(chosen.id, "free")
+  const onlyPaid = selectFallbackModel([paid], createFallbackState("opencode/current"), { favorites: ["opencode/paid"] })
+  assert.equal(onlyPaid, undefined)
+})
+
+test("v2 TUI reports exhausted model quota and only recovers an unhealthy tunnel", async () => {
+  const listeners = new Map()
   let unsubscribeCalls = 0
   const toasts = []
   const helper = fakeNetworkRecovery()
   try {
     const dispose = setupTuiPlugin({
       data: { on: (name, callback) => {
-        assert.equal(name, "session.execution.failed")
-        listener = callback
+        listeners.set(name, callback)
         return () => { unsubscribeCalls++ }
       } },
-      ui: { toast: { show: async (toast) => toasts.push(toast) } },
+      ui: { model: { current: () => undefined }, toast: { show: async (toast) => toasts.push(toast) } },
     })
 
     const free = { data: { sessionID: "s-free", error: { type: "provider.free-limit", retryAfterMs: 24_613_000 } } }
-    await listener(free)
-    await listener(free)
+    await listeners.get("session.execution.failed")(free)
+    await listeners.get("session.execution.failed")(free)
     assert.equal(toasts.length, 1)
     assert.match(toasts[0].message, /~6h50m/)
-    assert.match(toasts[0].message, /O turno não será repetido automaticamente/)
+    assert.match(toasts[0].message, /execução não foi concluída/)
     assert.doesNotMatch(toasts[0].message, /rotação|troca de IP/)
-    for (const { ...error } of PROVIDER_ERRORS.slice(1)) await listener({ data: { sessionID: JSON.stringify(error), error } })
+    for (const { ...error } of PROVIDER_ERRORS.slice(1)) await listeners.get("session.execution.failed")({ data: { sessionID: JSON.stringify(error), error } })
     await until(() => helper.calls().length === PROVIDER_ERRORS.length && toasts.length === PROVIDER_ERRORS.length * 2)
     assert.ok(toasts.every((toast) => toast.variant === "info"))
     for (const { expected } of PROVIDER_ERRORS) {
       assert.ok(helper.calls().some((call) => call.includes(`--event ${expected}`)))
     }
-    assert.ok(helper.calls().find((call) => call.includes("--event rate_limit"))?.includes("--force-restart"))
-    assert.ok(helper.calls().filter((call) => call.includes("--event") && !call.includes("--event rate_limit")).every((call) => !call.includes("--force-restart")))
+    assert.ok(helper.calls().every((call) => !call.includes("--force-restart")))
 
-    await listener({ data: { sessionID: "s429-account", error: { type: "provider.quota", statusCode: 429 } } })
+    await listeners.get("session.execution.failed")({ data: { sessionID: "s429-account", error: { type: "provider.quota", statusCode: 429 } } })
     await until(() => helper.calls().length === PROVIDER_ERRORS.length + 1)
-    assert.ok(helper.calls().some((call) => call.includes("--event account_limit") && call.includes("--force-restart")))
+    assert.ok(helper.calls().some((call) => call.includes("--event account_limit") && !call.includes("--force-restart")))
     dispose()
-    assert.equal(unsubscribeCalls, 1)
+    assert.equal(unsubscribeCalls, 3)
   } finally {
     helper.restore()
   }
@@ -266,8 +347,8 @@ test("v2 does not start a diagnostic when the provider notification fails", asyn
   const helper = fakeNetworkRecovery()
   try {
     setupTuiPlugin({
-      data: { on: (_, callback) => { listener = callback } },
-      ui: { toast: { show: async () => { throw new Error("TUI unavailable") } } },
+      data: { on: (_, callback) => { listener = callback }, location: { model: { list: () => [] } } },
+      ui: { model: { current: () => undefined }, toast: { show: async () => { throw new Error("TUI unavailable") } } },
     })
     await listener({ data: { sessionID: "s1", error: { type: "provider.quota" } } })
     await new Promise((resolve) => setTimeout(resolve, 100))
@@ -277,8 +358,8 @@ test("v2 does not start a diagnostic when the provider notification fails", asyn
   }
 })
 
-test("v2 reports that an HTTP 429 restarted the current VPN tunnel", async () => {
-  let listener
+test("v2 does not force a VPN restart for provider HTTP 429", async () => {
+  const listeners = new Map()
   const toasts = []
   const helper = fakeNetworkRecovery({
     status: "reconnected",
@@ -287,30 +368,29 @@ test("v2 reports that an HTTP 429 restarted the current VPN tunnel", async () =>
   })
   try {
     setupTuiPlugin({
-      data: { on: (_, callback) => { listener = callback } },
-      ui: { toast: { show: async (toast) => toasts.push(toast) } },
+      data: { on: (name, callback) => { listeners.set(name, callback) } },
+      ui: { model: { current: () => undefined }, toast: { show: async (toast) => toasts.push(toast) } },
     })
-    await listener({ data: { sessionID: "s-http-429", error: { type: "provider.rate-limit" } } })
-    await until(() => toasts.length === 2)
-    assert.match(helper.calls()[0], /--event rate_limit.*--force-restart/)
-    assert.match(toasts[1].message, /HTTP 429 recebido; túnel VPN reiniciado/)
-    assert.match(toasts[1].message, /198\.51\.100\.9/)
+    await listeners.get("session.execution.failed")({ data: { sessionID: "s-http-429", error: { type: "provider.rate-limit" } } })
+    await until(() => helper.calls().length === 1)
+    assert.doesNotMatch(helper.calls()[0], /--force-restart/)
+    assert.doesNotMatch(toasts[0].message, /túnel VPN reiniciado/)
   } finally {
     helper.restore()
   }
 })
 
-test("v2 restarts the VPN on HTTP 429 even when its first toast fails", async () => {
+test("v2 does not start network recovery on HTTP 429 when its notification fails", async () => {
   let listener
   const helper = fakeNetworkRecovery({ status: "reconnected", reason: "http_429_tunnel_restarted" })
   try {
     setupTuiPlugin({
-      data: { on: (_, callback) => { listener = callback } },
-      ui: { toast: { show: async () => { throw new Error("TUI unavailable") } } },
+      data: { on: (_, callback) => { listener = callback }, location: { model: { list: () => [] } } },
+      ui: { model: { current: () => undefined }, toast: { show: async () => { throw new Error("TUI unavailable") } } },
     })
     await listener({ data: { sessionID: "s-http-429-toast-failed", error: { type: "provider.rate-limit" } } })
-    await until(() => helper.calls().length === 1)
-    assert.match(helper.calls()[0], /--event rate_limit.*--force-restart/)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    assert.equal(helper.calls().length, 0)
   } finally {
     helper.restore()
   }
@@ -383,22 +463,22 @@ test("Retry-After extraction handles runtime milliseconds and numeric headers", 
   assert.equal(extractRetryAfterSeconds({ headers: {} }), undefined)
 })
 
-test("provider policy restarts the current tunnel on rate limits or structured HTTP 429", () => {
+test("provider policy never forces VPN restarts for quota or HTTP 429", () => {
   for (const eventClass of QUOTA_CLASSES) {
     assert.deepEqual(decideAction({ eventClass }), {
       action: ACTION_NOTIFY,
-      restartTunnel: eventClass === "rate_limit",
-      reason: eventClass === "rate_limit" ? "http_429_tunnel_restart" : "provider_limit_diagnosis",
+      recoverStoppedTunnel: true,
+      reason: "provider_limit_diagnosis",
     })
   }
-  assert.deepEqual(decideAction({ eventClass: "account_limit", httpStatus: 429 }), {
+  assert.deepEqual(decideAction({ eventClass: "account_limit" }), {
     action: ACTION_NOTIFY,
-    restartTunnel: true,
-    reason: "http_429_tunnel_restart",
+    recoverStoppedTunnel: true,
+    reason: "provider_limit_diagnosis",
   })
   assert.deepEqual(decideAction({ eventClass: undefined }), {
     action: ACTION_NOTIFY,
-    restartTunnel: false,
+    recoverStoppedTunnel: false,
     reason: "unclassified",
   })
 })
@@ -431,4 +511,64 @@ test("v2 TUI suggests available alternatives and gives a manual command on catal
   } finally {
     helper.restore()
   }
+})
+
+test("free fallback catalog rejects paid, disabled, tool-less, and image-incompatible models", () => {
+  const model = (id, overrides = {}) => ({
+    providerID: "opencode",
+    id,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    capabilities: { tools: true, input: ["text"] },
+    ...overrides,
+  })
+  assert.equal(isEligibleFreeModel(model("free")), true)
+  assert.equal(isEligibleFreeModel(model("free-tiers", { cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }, { tier: { type: "context", size: 128_000 }, input: 0, output: 0, cache: { read: 0, write: 0 } }] })), true)
+  assert.equal(isEligibleFreeModel(model("paid-tier", { cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }, { input: 0, output: 0.01, cache: { read: 0, write: 0 } }] })), false)
+  assert.equal(isEligibleFreeModel(model("unknown-cost", { cost: [{ input: "0", output: 0, cache: { read: 0, write: 0 } }] })), false)
+  assert.equal(isEligibleFreeModel(model("unknown-price-scope", { cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 }, requests: 0.01 }] })), false)
+  assert.equal(isEligibleFreeModel(model("paid", { cost: { input: 0, output: 1 } })), false)
+  assert.equal(isEligibleFreeModel(model("disabled", { enabled: false })), false)
+  assert.equal(isEligibleFreeModel(model("no-tools", { capabilities: { tools: false, input: ["text"] } })), false)
+  assert.equal(isEligibleFreeModel(model("text-only"), { requiresImage: true }), false)
+  assert.equal(isEligibleFreeModel(model("pdf-only-text"), { requiredInputs: ["pdf"] }), false)
+  assert.deepEqual(requiredModelInputs([{ type: "file", mime: "image/png" }, { type: "file", mimeType: "application/pdf" }]).sort(), ["image", "pdf"])
+  assert.deepEqual(requiredModelInputs([{ type: "audio" }, { type: "video" }]).sort(), ["audio", "video"])
+  assert.deepEqual(requiredModelInputs([{ type: "file", name: "unknown.bin" }]), ["unknown"])
+  assert.equal(isEligibleFreeModel(model("wrong-provider", { providerID: "local" })), false)
+  assert.equal(isFreeModel(model("free")), true)
+  assert.equal(isFreeModel(model("paid", { cost: { input: 0.1, output: 0.2, cacheRead: 0, cacheWrite: 0 } })), false)
+  assert.equal(isFreeModel(model("unknown-cost", { cost: [{ input: "0", output: 0, cache: { read: 0, write: 0 } }] })), false)
+  assert.equal(isFreeModel(model("no-cost", { cost: undefined })), false)
+  assert.equal(isFreeModel(model("disabled", { enabled: false })), false)
+  assert.equal(isFreeModel(model("wrong-provider", { providerID: "local" })), false)
+  assert.equal(isFreeModel(undefined), false)
+
+  const state = createFallbackState("opencode/current")
+  state.blockedUntil["opencode/blocked"] = Date.now() + 60_000
+  const chosen = selectFallbackModel([model("blocked"), model("b"), model("a")], state)
+  assert.equal(chosen.id, "a")
+  assert.equal(recordFallback(state, "opencode/a"), true)
+  assert.equal(recordFallback(state, "opencode/a"), false)
+  recordFallback(state, "opencode/b")
+  assert.equal(selectFallbackModel([model("c")], state), undefined)
+  const cooldown = blockModel(state, "opencode/current", 30, 1_000)
+  assert.equal(cooldown, 31_000)
+  assert.equal(containsImagePayload([{ role: "user", content: [{ type: "image", url: "data:image/png" }] }]), true)
+})
+
+test("v2 TUI announces a successful retry on a changed model", async () => {
+  const listeners = new Map()
+  const toasts = []
+  let selected = { providerID: "opencode", id: "first-free" }
+  const dispose = setupTuiPlugin({
+    data: { on: (name, callback) => { listeners.set(name, callback); return () => {} } },
+    ui: { model: { current: () => selected }, toast: { show: async (toast) => toasts.push(toast) } },
+  })
+  await listeners.get("session.execution.started")({ data: { sessionID: "s-fallback" } })
+  selected = { providerID: "opencode", id: "second-free" }
+  await listeners.get("session.execution.succeeded")({ data: { sessionID: "s-fallback" } })
+  assert.equal(toasts.length, 1)
+  assert.match(toasts[0].message, /first-free.*second-free/)
+  assert.equal(toasts[0].variant, "success")
+  dispose()
 })

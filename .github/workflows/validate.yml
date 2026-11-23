@@ -12,7 +12,9 @@ jobs:
   validate:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - name: Install ShellCheck, socat and zsh
         # socat é usado pela suíte para servir respostas HTTP nos testes de
         # classificação do `vpn-opencode check`; zsh valida o hook de título
@@ -24,9 +26,10 @@ jobs:
   secret-scan:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Scan do historico por segredos (gitleaks pinado por digest)
         # Imagem pinada por digest (mesma politica dos outros pins); --redact para
         # nao ecoar valores encontrados. Falha o job quando encontra segredos.
@@ -38,7 +41,9 @@ jobs:
   supply-chain:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - name: Scan de configuracao e segredos (trivy pinado por SHA)
         # Misconfig (Dockerfile/Compose) + segredos no repositorio; somente
         # CRITICAL falha o job. SHA = commit da tag v0.36.0 (dependabot
@@ -51,10 +56,32 @@ jobs:
           exit-code: "1"
           format: table
 
+  workflow-lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: actionlint (binario pinado por sha256)
+        # actionlint v1.7.12; checksum conferido no download.
+        run: |
+          set -Eeuo pipefail
+          curl -fsSL --retry 3 -o /tmp/actionlint.tar.gz \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  /tmp/actionlint.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/actionlint.tar.gz -C /tmp actionlint
+          /tmp/actionlint
+      - name: zizmor (versao pinada)
+        # zizmor 1.33.1: analise estatica de GitHub Actions (permissoes,
+        # injecao de template, uses nao fixados).
+        run: pipx run --spec zizmor==1.33.1 zizmor --format plain .github/workflows
+
   validate-windows-cli:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - name: Test PowerShell interface with simulated Docker
         shell: pwsh
         run: Invoke-Pester -Path tests/windows -CI

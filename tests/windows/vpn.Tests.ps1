@@ -21,8 +21,26 @@ if /I "%~1"=="compose" if not "%MOCK_DOCKER_EXEC_EXIT_CODE%"=="0" (
 )
 exit /b 0
 '@ | Set-Content -LiteralPath (Join-Path $script:MockBin 'docker.cmd') -Encoding ASCII
-    $script:OldPath = $env:Path
-    $env:Path = $script:MockBin + ';' + $env:Path
+    # Stub POSIX equivalente: permite rodar a suíte de interface no Linux.
+    @'
+#!/usr/bin/env bash
+echo "$*" >> "${MOCK_DOCKER_LOG}"
+if [[ "${1:-}" == "compose" && "${2:-}" == "version" ]]; then
+  echo "${MOCK_COMPOSE_VERSION}"
+  exit 0
+fi
+if [[ "${1:-}" == "compose" && "${MOCK_DOCKER_EXEC_EXIT_CODE:-0}" != "0" ]]; then
+  if [[ "$*" == *" exec "* ]]; then exit "${MOCK_DOCKER_EXEC_EXIT_CODE}"; fi
+fi
+exit 0
+'@ | Set-Content -LiteralPath (Join-Path $script:MockBin 'docker') -Encoding ASCII
+    if (-not $IsWindows) {
+        & chmod '+x' (Join-Path $script:MockBin 'docker')
+    }
+    $script:OldPath = $env:PATH
+    # PATH em maiúsculas: no Linux o ambiente diferencia Path/PATH e a busca de
+    # executáveis usa PATH; no Windows ambos são o mesmo variável.
+    $env:PATH = $script:MockBin + [IO.Path]::PathSeparator + $env:PATH
     $env:MOCK_DOCKER_LOG = $script:MockLog
     $env:MOCK_COMPOSE_VERSION = 'v2.24.4'
     $env:MOCK_DOCKER_EXEC_EXIT_CODE = '0'
@@ -47,7 +65,7 @@ exit /b 0
 }
 
 AfterAll {
-    $env:Path = $script:OldPath
+    $env:PATH = $script:OldPath
     Remove-Item -LiteralPath $script:TempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
@@ -341,5 +359,40 @@ ESCAPED="line\nnext \"quoted\""
             $result.Code | Should -Be 2
             $result.Output | Should -Match '2.24.4'
         } finally { $env:MOCK_COMPOSE_VERSION = $old }
+    }
+}
+
+Describe 'scripts/windows helpers' {
+    BeforeAll {
+        $script:BootstrapPath = Join-Path $script:ProjectRoot 'scripts' 'windows' 'bootstrap.ps1'
+        $script:CompletionPath = Join-Path $script:ProjectRoot 'scripts' 'windows' 'vpn-completion.ps1'
+    }
+
+    It 'sintaxe válida em bootstrap e completion' {
+        foreach ($file in @($script:BootstrapPath, $script:CompletionPath)) {
+            $tokens = $null; $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors)
+            $errors.Count | Should -Be 0 -Because "$file deve compilar"
+        }
+    }
+
+    It 'bootstrap é idempotente (winget list antes de install) e tem -DryRun' {
+        $text = Get-Content -LiteralPath $script:BootstrapPath -Raw
+        $text | Should -Match 'switch\]\$DryRun'
+        $text | Should -Match 'winget list'
+        $text | Should -Match 'winget install'
+        $text.IndexOf('winget list') | Should -BeLessThan $text.IndexOf('winget install')
+    }
+
+    It 'completion cobre todos os subcomandos exibidos no help do vpn.ps1' {
+        $help = Get-Content -LiteralPath $script:VpnScript -Raw
+        $start = $help.IndexOf('Uso: .\scripts\vpn.ps1')
+        $end = $help.IndexOf("'@", $start)
+        if ($start -lt 0 -or $end -lt 0) { throw 'bloco de ajuda não encontrado em vpn.ps1' }
+        $block = $help.Substring($start, $end - $start)
+        $helpCommands = [regex]::Matches($block, '(?m)^  ([a-z][a-z-]*)') | ForEach-Object { $_.Groups[1].Value }
+        $completion = Get-Content -LiteralPath $script:CompletionPath -Raw
+        $missing = @($helpCommands | Where-Object { $completion -notmatch [regex]::Escape("'$_'") })
+        $missing | Should -BeNullOrEmpty -Because "faltam: $($missing -join ', ')"
     }
 }

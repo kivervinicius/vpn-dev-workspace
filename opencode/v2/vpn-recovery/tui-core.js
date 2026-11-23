@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process"
-import { classifyV2Error, extractRetryAfterSeconds, hasHttp429 } from "./classify.js"
+import { classifyV2Error, extractRetryAfterSeconds } from "./classify.js"
 import { decideAction } from "./policy.js"
 
-// Provider limits never replay a turn or change providers. A structured HTTP
-// 429 restarts the current tunnel; other events recover confirmed tunnel stops.
+// Only the server plugin changes models for a model-scoped free quota. The TUI
+// reports the final outcome and recovers a tunnel only when it is confirmed stopped.
 function humanizeSeconds(seconds) {
   const total = Math.max(1, Math.trunc(seconds))
   const hours = Math.trunc(total / 3600)
@@ -12,11 +12,10 @@ function humanizeSeconds(seconds) {
   return `${Math.max(1, minutes)}min`
 }
 
-function spawnNetworkRecovery(eventClass, sessionID, showResult, forceRestart = false) {
+function spawnNetworkRecovery(eventClass, sessionID, showResult) {
   try {
     const bin = process.env.OPENCODE_NETWORK_RECOVER_BIN || "/usr/local/bin/opencode-network-recover"
     const args = ["--event", eventClass, "--session", sessionID || "unknown"]
-    if (forceRestart) args.push("--force-restart")
     const child = spawn(bin, args, {
       stdio: ["ignore", "pipe", "ignore"],
       env: process.env,
@@ -49,10 +48,10 @@ function notification(eventClass, retryAfterSeconds) {
   switch (eventClass) {
     case "free_tier_limit":
       return retryAfterSeconds === undefined
-        ? "Limite gratuito do Zen detectado; verificando o túnel VPN. O turno não será repetido automaticamente. Consulte o status do provider."
-        : "Limite gratuito do Zen detectado; verificando o túnel VPN. O turno não será repetido automaticamente." + tail
+        ? "A cota deste modelo gratuito foi atingida e a execução não foi concluída. Consulte o catálogo de modelos e o status do provider."
+        : "A cota deste modelo gratuito foi atingida e a execução não foi concluída." + tail
     case "rate_limit": {
-      const message = "Limite de requisições detectado; verificando o túnel VPN. O turno não será repetido automaticamente."
+      const message = "Limite de requisições do provider detectado. A troca de modelo só é automática para cota gratuita por modelo."
       return retryAfterSeconds === undefined ? message : message + tail
     }
     case "account_limit": return "Limite da conta detectado; verificando o túnel VPN."
@@ -64,11 +63,6 @@ function notification(eventClass, retryAfterSeconds) {
 function recoveryMessage(result) {
   if (result.status === "healthy") return "Túnel VPN confirmado saudável. O limite do provider permanece ativo."
   if (result.status === "reconnected") {
-    if (result.reason === "http_429_tunnel_restarted") {
-      return result.ip
-        ? `HTTP 429 recebido; túnel VPN reiniciado. IP atual: ${result.ip}. O limite do provider pode continuar ativo.`
-        : "HTTP 429 recebido; túnel VPN reiniciado. O limite do provider pode continuar ativo."
-    }
     return result.ip
       ? `Túnel VPN estava parado e foi reconectado. IP atual: ${result.ip}. O limite do provider pode continuar ativo.`
       : "Túnel VPN estava parado e foi reconectado. O limite do provider pode continuar ativo."
@@ -112,6 +106,7 @@ export function setupTuiPlugin(ctx) {
   // Dedupe com TTL: depois do reset da cota a mesma sessão+classe precisa
   // poder notificar de novo. TTL default 300s.
   const handled = new Map()
+  const runningModels = new Map()
   const ttlMs = Math.max(0, Number(process.env.OPENCODE_QUOTA_NOTIFY_TTL_SECONDS ?? 300)) * 1000
   const listener = async (event) => {
     const data = event?.data
@@ -119,7 +114,7 @@ export function setupTuiPlugin(ctx) {
     if (!data || typeof sessionID !== "string" || !sessionID) return
     const eventClass = classifyV2Error(data.error)
     if (!eventClass) return
-    const action = decideAction({ eventClass, httpStatus: hasHttp429(data.error) ? 429 : undefined })
+    const action = decideAction({ eventClass })
     const now = Date.now()
     const key = `${sessionID}:${eventClass}`
     const expires = handled.get(key)
@@ -142,8 +137,7 @@ export function setupTuiPlugin(ctx) {
     } catch {
       // A notification failure never starts another recovery.
     }
-    // HTTP 429 recovery must not depend on whether the first toast was displayed.
-    if (shown || action.restartTunnel) spawnNetworkRecovery(eventClass, sessionID, (result) => {
+    if (shown && action.recoverStoppedTunnel) spawnNetworkRecovery(eventClass, sessionID, (result) => {
       void ctx.ui.toast.show({
         sessionID,
         title: "VPN status",
@@ -151,11 +145,41 @@ export function setupTuiPlugin(ctx) {
         variant: result.status === "failed" ? "error" : "info",
         duration: 8000,
       }).catch(() => {})
-    }, action.restartTunnel)
+    })
   }
-  const unsubscribe = ctx.data.on("session.execution.failed", listener)
+  const currentModel = () => {
+    try { return ctx.ui.model?.current?.() }
+    catch { return undefined }
+  }
+  const started = ctx.data.on("session.execution.started", (event) => {
+    const sessionID = event?.data?.sessionID
+    if (typeof sessionID === "string") runningModels.set(sessionID, currentModel())
+  })
+  const succeeded = ctx.data.on("session.execution.succeeded", async (event) => {
+    const data = event?.data
+    const sessionID = data?.sessionID
+    if (typeof sessionID !== "string") return
+    const previous = runningModels.get(sessionID)
+    const selected = currentModel()
+    runningModels.delete(sessionID)
+    if (!previous || !selected || previous.providerID === selected.providerID && (previous.id ?? previous.modelID) === (selected.id ?? selected.modelID)) return
+    await ctx.ui.toast.show({
+      sessionID,
+      title: "Modelo alternativo",
+      message: `A execução foi concluída após a cota de ${previous.providerID}/${previous.id ?? previous.modelID} ser atingida. OpenCode reenviou o turno com ${selected.providerID}/${selected.id ?? selected.modelID}.`,
+      variant: "success",
+      duration: 8000,
+    }).catch(() => {})
+  })
+  const failed = ctx.data.on("session.execution.failed", async (event) => {
+    const sessionID = event?.data?.sessionID
+    if (typeof sessionID === "string") runningModels.delete(sessionID)
+    await listener(event)
+  })
   return () => {
-    if (typeof unsubscribe === "function") unsubscribe()
-    else unsubscribe?.dispose?.()
+    for (const unsubscribe of [started, succeeded, failed]) {
+      if (typeof unsubscribe === "function") unsubscribe()
+      else unsubscribe?.dispose?.()
+    }
   }
 }

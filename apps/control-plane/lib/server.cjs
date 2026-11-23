@@ -5,7 +5,33 @@ const root=process.env.VPN_CONTROL_STATE_DIR||"/var/lib/vpn-control/observabilit
 const passwordFile=process.env.CONTROL_UI_PASSWORD_FILE||"/run/secrets/control_ui_password";
 const port=Number(process.env.CONTROL_UI_PORT||10003);
 const htmlPath=path.join(__dirname,"../public/index.html");
+const defaultHistoryFile=process.env.VPN_HISTORY_FILE||"/var/lib/vpn-control/history/history.jsonl";
 const ALLOWED_HOSTS=new Set(["127.0.0.1","localhost","[::1]"]);
+// Caminho resolvido por requisição: o env pode mudar em runtime (testes).
+function historyPath(){return process.env.VPN_HISTORY_FILE||defaultHistoryFile;}
+// Histórico JSONL do vpn-history: somente leitura, linhas inválidas são ignoradas.
+function readHistory(file,limit=60){
+ const target=file||historyPath();
+ const parsed=[];
+ try{
+  const st=fs.statSync(target);
+  if(st.size>1048576)return {schemaVersion:1,entries:[],stale:true,reason:"history_too_large",count:0};
+  for(const line of fs.readFileSync(target,"utf8").split("\n")){
+   const trimmed=line.trim();
+   if(!trimmed)continue;
+   let item;
+   try{item=JSON.parse(trimmed)}catch{continue}
+   if(!isObject(item))continue;
+   parsed.push({
+    timestamp:typeof item.timestamp==="string"?item.timestamp:null,
+    latencyMs:Number.isFinite(item.latency_ms)?item.latency_ms:null,
+    publicIp:typeof item.public_ip==="string"?item.public_ip:null
+   });
+  }
+ }catch{return {schemaVersion:1,entries:[],stale:true,reason:"history_missing",count:0}}
+ const bounded=Math.max(1,Math.min(200,Number(limit)||60));
+ return {schemaVersion:1,entries:parsed.slice(-bounded),stale:false,count:parsed.length};
+}
 function readJson(file){
  try {const st=fs.statSync(file);if(st.size>262144)return null;const v=JSON.parse(fs.readFileSync(file,"utf8"));return isObject(v)?v:null}catch{return null}
 }
@@ -57,6 +83,11 @@ function createServer(options={}){
     try{return send(200,{schemaVersion:1,events:read({limit:Number(raw)})})}
     catch{return send(503,{error:"journal_unavailable"})}
   }
+  if(url.pathname==="/api/v1/history"){
+    const raw=url.searchParams.get("limit")||"60";
+    if(!/^[1-9]\d{0,2}$/.test(raw)||Number(raw)>200)return send(400,{error:"invalid_limit"});
+    return send(200,readHistory(historyPath(),Number(raw)));
+  }
   if(url.pathname==="/api/v1/provider-probe") {
     const v=readJson(path.join(root,"provider-probe.json"));
     return send(200,v?{...v,stale:stale({generatedAt:v.observedAt})}:{schemaVersion:1,status:"unverified",stale:true,reason:"probe_not_run"});
@@ -91,4 +122,4 @@ function main(){
  server.listen(port,"0.0.0.0",()=>process.stdout.write("VPN Control UI: listening on internal port "+port+"\n"));
 }
 if(require.main===module){try{main()}catch(e){process.stderr.write("vpn-control-ui: "+e.message+"\n");process.exitCode=1;}}
-module.exports={createServer,loadState,stale,safeEqual,main};
+module.exports={createServer,loadState,stale,safeEqual,readHistory,main};

@@ -43,7 +43,7 @@ as menções restantes são históricas, sem referência ativa em Compose/script
 | 8 | Higiene segredos locais (concluído 2026-10-01): `chmod 600`, remoção de `secrets/` legada duplicada, `.gitignore` e `.dockerignore` protegidos | média | feito |
 | 9 | Supply-chain: gitleaks/Trivy na CI, Dependabot/Renovate p/ pins, `read_only+tmpfs` | alta | feito 2026-10-30 (gitleaks + trivy jobs na CI, Dependabot actions ativo e docker com ignore de `ubuntu`; `read_only+tmpfs` movido ao #5) |
 | 7 | Exemplo avançado opt-ins (LAN/DNS/GUI) + teste mock de DNS/leak | baixa | feito 2026-10-01 (`examples/cenarios-avancados.md`, runbook troubleshooting) |
-| 10 | Política de limites OpenCode v1/v2 | alta | atualizado 2026-11-23: erro estruturado `rate_limit`/HTTP 429 reinicia o perfil VPN atual; outros limites só reconectam com `status=stopped`. Nenhum evento troca modelo ou repete turnos; cooldown, timeout, `Retry-After` e resultado são tratados. |
+| 10 | Política de limites OpenCode v1/v2 | alta | implementado: v2 usa fallback dinâmico e retry nativo para cota gratuita específica do modelo; outros limites não trocam modelo e nenhuma quota força restart/troca de IP. E2E v2.3.2 com provider local registrado em `VERIFY.md`. |
 | 11 | CRLF no checkout Windows: `.gitattributes` com `* text=auto eol=lf` | média | feito 2026-10-16 |
 | 12 | Robustez 2026-10-16: wait da ponte SSH 5s→30s, teste Pester de `WORKSPACE_DIR`, mascaramento de credenciais no `vpn-top --json` + teste na suíte Linux | média | feito 2026-10-16 |
 | 13 | Paridade OpenCode host↔container no modo Windows (skills/config via mounts em `compose.windows.yml`; SQLite/sessoes isolados por limitacao do File Sharing) | média | feito 2026-10-16 |

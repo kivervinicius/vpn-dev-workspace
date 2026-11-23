@@ -15,20 +15,50 @@
 #   3. Em tmux, libera `allow-rename` da janela atual (best-effort) para que
 #      os renames in-band do container virem nome da janela.
 #
-# Uso: ./scripts/vpn-shell [--help] [-- zsh-args...]
+# Uso: ./scripts/vpn-shell [--workdir <dir>] [-- zsh-args...]
 set -Eeuo pipefail
 
 readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/vpn-workdir.sh
+source "${ROOT_DIR}/scripts/vpn-workdir.sh"
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat >&2 <<'EOF'
-Uso: vpn-shell [-- zsh-args...]
+Uso: vpn-shell [--workdir <dir>] [-- zsh-args...]
 Abre o Zsh do container terminal com TERM encaminhado e título da aba sincronizado.
 Todo OSC 0/1/2 emitido dentro (oh-my-zsh, IA, `title`, printf manual) replica na aba do host.
 Em tmux, libera allow-rename da janela atual (best-effort).
-Env: VPN_SHELL_TITLE_PREFIX (default "VPN"), VPN_SHELL_LABEL (default "terminal").
+--workdir abre em outro diretório montado (default: diretório atual do host).
+Env: VPN_SHELL_TITLE_PREFIX (default "VPN"), VPN_SHELL_LABEL (default "terminal"),
+     VPN_SHELL_WORKDIR (diretório inicial), VPN_WORKSPACE_ROOTS (raízes montadas).
 EOF
   exit 0
+fi
+
+WORKDIR="${VPN_SHELL_WORKDIR:-}"
+SHELL_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --workdir|-w)
+      [[ $# -ge 2 ]] || { echo "Erro: $1 exige um diretório." >&2; exit 2; }
+      WORKDIR="$2"
+      shift 2
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      SHELL_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [[ -n "$WORKDIR" ]]; then
+  RESOLVED_WORKDIR="$(vpn_resolve_workdir "$WORKDIR")" || exit 2
+else
+  RESOLVED_WORKDIR="$(vpn_resolve_workdir "")" || RESOLVED_WORKDIR="/projetos"
 fi
 
 need() {
@@ -77,13 +107,11 @@ compose_args=(compose --profile vpn exec)
 compose_args+=(-e "TERM=${TERM_VALUE}")
 [[ -n "${COLORTERM:-}" ]] && compose_args+=(-e "COLORTERM=${COLORTERM}")
 [[ -n "${TERM_PROGRAM:-}" ]] && compose_args+=(-e "TERM_PROGRAM=${TERM_PROGRAM}")
+compose_args+=(-w "$RESOLVED_WORKDIR")
 compose_args+=(terminal zsh)
 
-if [[ "${1:-}" == "--" ]]; then
-  shift
-fi
-if (($# > 0)); then
-  compose_args+=("$@")
+if ((${#SHELL_ARGS[@]} > 0)); then
+  compose_args+=("${SHELL_ARGS[@]}")
 fi
 
 cd "$ROOT_DIR" && docker "${compose_args[@]}"
