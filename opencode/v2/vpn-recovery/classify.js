@@ -11,8 +11,8 @@ const ERROR_CLASSES = new Map([
 ])
 
 // O runtime OpenCode mapeia o erro do provider para tipos estáveis
-// (packages/core/src/session/to-session-error.ts). Todos os tipos reconhecidos
-// ficam em modo informativo: nenhum deles muda a VPN ou repete o turno.
+// (packages/core/src/session/to-session-error.ts). Os limites são informativos;
+// rate limits disparam reinício do túnel na TUI, sem repetir o turno.
 const RUNTIME_ERROR_CLASSES = new Map([
   ["provider.free-limit", "free_tier_limit"],
   ["provider.rate-limit", "rate_limit"],
@@ -68,6 +68,30 @@ export function extractRetryAfterSeconds(error) {
     }
   }
   return undefined
+}
+
+export function hasHttp429(error) {
+  if (!object(error)) return false
+  const pending = [error]
+  const seen = new Set()
+  while (pending.length) {
+    const current = pending.pop()
+    if (!object(current) || seen.has(current)) continue
+    seen.add(current)
+    if (current.status === 429 || current.statusCode === 429) return true
+    for (const [key, child] of Object.entries(current)) {
+      if (["message", "detail", "details"].includes(key)) continue
+      if (["body", "responseBody"].includes(key) && typeof child === "string") {
+        try {
+          const parsed = JSON.parse(child)
+          if (object(parsed)) pending.push(parsed)
+        } catch {
+          // Provider prose is not interpreted as an HTTP status.
+        }
+      } else if (object(child)) pending.push(child)
+    }
+  }
+  return false
 }
 
 export function classifyV2Error(error) {

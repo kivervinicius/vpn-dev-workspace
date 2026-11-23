@@ -8,8 +8,8 @@ explicitamente descartado.
 
 Cross-client session sync está coberto por conversores e CLI real em homes temporárias.
 O launcher v1 preserva home/XDG da v2, e o helper interrompe a sincronização antes
-de importar se os caminhos canônicos SQLite coincidirem. Eventos do provider acionam
-diagnóstico do túnel e reconectam apenas diante de status=stopped. Pendências de
+de importar se os caminhos canônicos SQLite coincidirem. Erro estruturado HTTP 429
+reinicia o perfil VPN atual; outros limites reconectam apenas diante de status=stopped. Pendências de
 plataforma são o ciclo SQLite real no Docker Desktop Windows e a conexão do Desktop App.
 `make verify` agora centraliza sintaxe/ShellCheck, Compose, docs, testes e builds.
 O managed service v2 exige o baseline testado 2.3.2, salvo canário isolado explícito.
@@ -43,7 +43,7 @@ as menções restantes são históricas, sem referência ativa em Compose/script
 | 8 | Higiene segredos locais (concluído 2026-10-01): `chmod 600`, remoção de `secrets/` legada duplicada, `.gitignore` e `.dockerignore` protegidos | média | feito |
 | 9 | Supply-chain: gitleaks/Trivy na CI, Dependabot/Renovate p/ pins, `read_only+tmpfs` | alta | feito 2026-10-30 (gitleaks + trivy jobs na CI, Dependabot actions ativo e docker com ignore de `ubuntu`; `read_only+tmpfs` movido ao #5) |
 | 7 | Exemplo avançado opt-ins (LAN/DNS/GUI) + teste mock de DNS/leak | baixa | feito 2026-10-01 (`examples/cenarios-avancados.md`, runbook troubleshooting) |
-| 10 | Política de limites OpenCode v1/v2 | alta | atualizado 2026-11-23: limites do provider nunca alteram VPN/modelo nem repetem turnos; TUI pode reconectar o perfil atual somente se Gluetun reportar túnel parado. Cooldown, timeout, retry-after e resultado ficam visíveis. |
+| 10 | Política de limites OpenCode v1/v2 | alta | atualizado 2026-11-23: erro estruturado `rate_limit`/HTTP 429 reinicia o perfil VPN atual; outros limites só reconectam com `status=stopped`. Nenhum evento troca modelo ou repete turnos; cooldown, timeout, `Retry-After` e resultado são tratados. |
 | 11 | CRLF no checkout Windows: `.gitattributes` com `* text=auto eol=lf` | média | feito 2026-10-16 |
 | 12 | Robustez 2026-10-16: wait da ponte SSH 5s→30s, teste Pester de `WORKSPACE_DIR`, mascaramento de credenciais no `vpn-top --json` + teste na suíte Linux | média | feito 2026-10-16 |
 | 13 | Paridade OpenCode host↔container no modo Windows (skills/config via mounts em `compose.windows.yml`; SQLite/sessoes isolados por limitacao do File Sharing) | média | feito 2026-10-16 |
@@ -62,5 +62,6 @@ as menções restantes são históricas, sem referência ativa em Compose/script
 | Validar `read_only+tmpfs` nos serviços graváveis | média | pendente de teste runtime isolado; observer/UI já usam filesystem read-only com tmpfs |
 | Atualizador automático OpenCode x baseline dos serviços gerenciados | alta | timer externo ao repositório pode instalar v2 acima de 2.3.2; coordenar pin e homologação antes da próxima atualização |
 | Publicar release 1.3.0 após gates | alta | concluído em 2026-11-23: commit `f9d5ccb`, CI run `45115003447` verde, tag anotada e GitHub Release publicadas; imagens locais `:1.3.0` marcadas |
+| Publicar patch 1.3.1 com restart VPN em HTTP 429 | alta | implementação e `make verify` local passaram; CI, commit, tag e publicação pendentes |
 
 Sem novos itens descartados.

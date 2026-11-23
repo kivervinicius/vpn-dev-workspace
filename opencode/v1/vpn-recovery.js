@@ -18,6 +18,30 @@ function object(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
+function hasHttp429(value) {
+  if (!object(value)) return false
+  const pending = [value]
+  const seen = new Set()
+  while (pending.length) {
+    const current = pending.pop()
+    if (!object(current) || seen.has(current)) continue
+    seen.add(current)
+    if (current.status === 429 || current.statusCode === 429) return true
+    for (const [key, child] of Object.entries(current)) {
+      if (["message", "detail", "details"].includes(key)) continue
+      if (["body", "responseBody"].includes(key) && typeof child === "string") {
+        try {
+          const parsed = JSON.parse(child)
+          if (object(parsed)) pending.push(parsed)
+        } catch {
+          // Provider prose is not interpreted as an HTTP status.
+        }
+      } else if (object(child)) pending.push(child)
+    }
+  }
+  return false
+}
+
 function structuredClass(value) {
   if (!object(value)) return undefined
   const pending = [value]
@@ -93,10 +117,12 @@ function messageFor(eventClass) {
   return `${base}; verificando o túnel VPN. O turno não será repetido automaticamente.`
 }
 
-function spawnNetworkRecovery(eventClass, sessionID, showResult) {
+function spawnNetworkRecovery(eventClass, sessionID, showResult, forceRestart = false) {
   try {
     const bin = process.env.OPENCODE_NETWORK_RECOVER_BIN || "/usr/local/bin/opencode-network-recover"
-    const child = spawn(bin, ["--event", eventClass, "--session", sessionID || "unknown", "--quiet"], {
+    const args = ["--event", eventClass, "--session", sessionID || "unknown", "--quiet"]
+    if (forceRestart) args.push("--force-restart")
+    const child = spawn(bin, args, {
       stdio: ["ignore", "pipe", "ignore"],
       env: process.env,
     })
@@ -116,7 +142,7 @@ function spawnNetworkRecovery(eventClass, sessionID, showResult) {
 function createV1Plugin() {
   return async ({ client, directory }) => {
     // The config directory can be shared with the host. Keep this integration
-    // scoped to the VPN container; outside it, nothing is notified or rotated.
+    // scoped to the VPN container; outside it, no VPN recovery is triggered.
     if (process.env.VPN_WORKSPACE_CONTAINER !== "1") return {}
 
     // Dedupe com TTL: depois do reset da cota a mesma sessão+classe precisa
@@ -151,7 +177,7 @@ function createV1Plugin() {
         return false
       }
     }
-    const handle = async (sessionID, eventClass, cancelRetry) => {
+    const handle = async (sessionID, eventClass, cancelRetry, forceRestart = false) => {
       const now = Date.now()
       const key = `${sessionID}:${eventClass}`
       if (!dedupeExpired(key, now)) return
@@ -172,17 +198,19 @@ function createV1Plugin() {
         }
       }
       const shown = await notify(messageFor(eventClass))
-      // TUI only: só quando a notificação foi realmente exibida.
-      if (shown) spawnNetworkRecovery(eventClass, sessionID, (result) => {
+      // 429 recovery must not depend on whether the first toast was displayed.
+      if (shown || forceRestart) spawnNetworkRecovery(eventClass, sessionID, (result) => {
         const message = result.status === "reconnected"
-          ? `Túnel VPN estava parado e foi reconectado${result.ip ? `. IP atual: ${result.ip}` : ""}. O limite do provider pode continuar ativo.`
+          ? result.reason === "http_429_tunnel_restarted"
+            ? `HTTP 429 recebido; túnel VPN reiniciado${result.ip ? `. IP atual: ${result.ip}` : ""}. O limite do provider pode continuar ativo.`
+            : `Túnel VPN estava parado e foi reconectado${result.ip ? `. IP atual: ${result.ip}` : ""}. O limite do provider pode continuar ativo.`
           : result.status === "healthy"
             ? "Túnel VPN confirmado saudável. O limite do provider permanece ativo."
             : result.status === "lock_busy"
               ? "O túnel VPN já está sendo alterado. Consulte vpn-status antes de tentar novamente."
               : "Não foi possível confirmar ou reconectar o túnel VPN. Consulte vpn-check."
         void notify(message, result.status === "failed" ? "error" : "info")
-      })
+      }, forceRestart)
     }
 
     return {
@@ -196,7 +224,7 @@ function createV1Plugin() {
           if (!object(status) || status.type !== "retry") return
           const reason = status.action?.reason
           const eventClass = ERROR_CLASSES.get(reason)
-          if (eventClass) void handle(properties.sessionID, eventClass, true)
+          if (eventClass) void handle(properties.sessionID, eventClass, true, eventClass === "rate_limit" || hasHttp429(status.action))
           return
         }
 
@@ -204,7 +232,7 @@ function createV1Plugin() {
         const error = properties.error
         if (!object(error) || error.name !== "APIError") return
         const eventClass = classifyV1Error(error)
-        if (eventClass) void handle(properties.sessionID, eventClass, false)
+        if (eventClass) void handle(properties.sessionID, eventClass, false, eventClass === "rate_limit" || hasHttp429(error.data))
       },
     }
   }

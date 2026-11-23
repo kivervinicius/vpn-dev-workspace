@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.1 — 2026-11-23
+
+- Restart the current VPN tunnel after structured HTTP 429/rate-limit events, even when Gluetun reports it healthy; retain shared locking and never replay work.
+
 ## 1.1.0 — 2026-11-22
 
 - Integrate the OpenCode v1/v2 session transfer and status-only provider recovery work.

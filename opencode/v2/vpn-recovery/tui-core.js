@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process"
-import { classifyV2Error, extractRetryAfterSeconds } from "./classify.js"
+import { classifyV2Error, extractRetryAfterSeconds, hasHttp429 } from "./classify.js"
+import { decideAction } from "./policy.js"
 
-// Provider limits never replay a turn or change providers. The TUI reconnects
-// only after Gluetun confirms that the tunnel is stopped.
+// Provider limits never replay a turn or change providers. A structured HTTP
+// 429 restarts the current tunnel; other events recover confirmed tunnel stops.
 function humanizeSeconds(seconds) {
   const total = Math.max(1, Math.trunc(seconds))
   const hours = Math.trunc(total / 3600)
@@ -11,10 +12,12 @@ function humanizeSeconds(seconds) {
   return `${Math.max(1, minutes)}min`
 }
 
-function spawnNetworkRecovery(eventClass, sessionID, showResult) {
+function spawnNetworkRecovery(eventClass, sessionID, showResult, forceRestart = false) {
   try {
     const bin = process.env.OPENCODE_NETWORK_RECOVER_BIN || "/usr/local/bin/opencode-network-recover"
-    const child = spawn(bin, ["--event", eventClass, "--session", sessionID || "unknown"], {
+    const args = ["--event", eventClass, "--session", sessionID || "unknown"]
+    if (forceRestart) args.push("--force-restart")
+    const child = spawn(bin, args, {
       stdio: ["ignore", "pipe", "ignore"],
       env: process.env,
     })
@@ -53,6 +56,11 @@ function notification(eventClass, retryAfterSeconds) {
 function recoveryMessage(result) {
   if (result.status === "healthy") return "Túnel VPN confirmado saudável. O limite do provider permanece ativo."
   if (result.status === "reconnected") {
+    if (result.reason === "http_429_tunnel_restarted") {
+      return result.ip
+        ? `HTTP 429 recebido; túnel VPN reiniciado. IP atual: ${result.ip}. O limite do provider pode continuar ativo.`
+        : "HTTP 429 recebido; túnel VPN reiniciado. O limite do provider pode continuar ativo."
+    }
     return result.ip
       ? `Túnel VPN estava parado e foi reconectado. IP atual: ${result.ip}. O limite do provider pode continuar ativo.`
       : "Túnel VPN estava parado e foi reconectado. O limite do provider pode continuar ativo."
@@ -103,6 +111,7 @@ export function setupTuiPlugin(ctx) {
     if (!data || typeof sessionID !== "string" || !sessionID) return
     const eventClass = classifyV2Error(data.error)
     if (!eventClass) return
+    const action = decideAction({ eventClass, httpStatus: hasHttp429(data.error) ? 429 : undefined })
     const now = Date.now()
     const key = `${sessionID}:${eventClass}`
     const expires = handled.get(key)
@@ -125,8 +134,8 @@ export function setupTuiPlugin(ctx) {
     } catch {
       // A notification failure never starts another recovery.
     }
-    // TUI only: o gatilho existe junto com a notificação.
-    if (shown) spawnNetworkRecovery(eventClass, sessionID, (result) => {
+    // HTTP 429 recovery must not depend on whether the first toast was displayed.
+    if (shown || action.restartTunnel) spawnNetworkRecovery(eventClass, sessionID, (result) => {
       void ctx.ui.toast.show({
         sessionID,
         title: "VPN status",
@@ -134,7 +143,7 @@ export function setupTuiPlugin(ctx) {
         variant: result.status === "failed" ? "error" : "info",
         duration: 8000,
       }).catch(() => {})
-    })
+    }, action.restartTunnel)
   }
   const unsubscribe = ctx.data.on("session.execution.failed", listener)
   return () => {

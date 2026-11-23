@@ -11,11 +11,13 @@ usage() {
 event=""
 session_id=""
 quiet=false
+force_restart=false
 while (($#)); do
   case "$1" in
     --event) (($# >= 2)) || usage 2; event="$2"; shift 2 ;;
     --session) (($# >= 2)) || usage 2; session_id="$2"; shift 2 ;;
     --quiet) quiet=true; shift ;;
+    --force-restart) force_restart=true; shift ;;
     -h|--help) usage 0 ;;
     *) echo "Argumento desconhecido: $1" >&2; usage 2 ;;
   esac
@@ -69,32 +71,39 @@ fi
 
 diagnostic="$(vpn-check --json --only tunnel 2>/dev/null || true)"
 if ! jq -e '.checks | type == "array"' <<<"$diagnostic" >/dev/null 2>&1; then
-  say "Não foi possível ler o diagnóstico do túnel VPN."
-  emit skipped tunnel_state_unknown
-  exit 0
+  if $force_restart; then
+    diagnostic='{"checks":[]}'
+  else
+    say "Não foi possível ler o diagnóstico do túnel VPN."
+    emit skipped tunnel_state_unknown
+    exit 0
+  fi
 fi
 
 tunnel_detail="$(jq -r '.checks[] | select(.name == "túnel VPN ativo") | .detail' <<<"$diagnostic")"
 ip_ok="$(jq -r '.checks[] | select(.name | startswith("IP público obtido")) | .ok' <<<"$diagnostic")"
-if [[ "$(jq -r '.checks[] | select(.name == "túnel VPN ativo") | .ok' <<<"$diagnostic")" == "true" && "$ip_ok" == "true" ]]; then
-  emit healthy tunnel_healthy
-  exit 0
-fi
-
-if [[ ! "$tunnel_detail" =~ ^status=stopped([[:space:]]|$) ]]; then
-  say "O diagnóstico não confirmou que o túnel VPN está parado."
-  emit skipped tunnel_state_unknown
-  exit 0
+if ! $force_restart; then
+  if [[ "$(jq -r '.checks[] | select(.name == "túnel VPN ativo") | .ok' <<<"$diagnostic")" == "true" && "$ip_ok" == "true" ]]; then
+    emit healthy tunnel_healthy
+    exit 0
+  fi
+  if [[ ! "$tunnel_detail" =~ ^status=stopped([[:space:]]|$) ]]; then
+    say "O diagnóstico não confirmou que o túnel VPN está parado."
+    emit skipped tunnel_state_unknown
+    exit 0
+  fi
 fi
 
 cooldown="${OPENCODE_NETWORK_RECOVERY_COOLDOWN_SECONDS:-300}"
 timeout_seconds="${OPENCODE_NETWORK_RECOVERY_TIMEOUT_SECONDS:-300}"
-[[ "$cooldown" =~ ^[0-9]+$ ]] || { echo "Cooldown inválido." >&2; emit failed invalid_cooldown; exit 2; }
+if ! $force_restart; then
+  [[ "$cooldown" =~ ^[0-9]+$ ]] || { echo "Cooldown inválido." >&2; emit failed invalid_cooldown; exit 2; }
+fi
 [[ "$timeout_seconds" =~ ^[1-9][0-9]*$ ]] || { echo "Timeout inválido." >&2; emit failed invalid_timeout; exit 2; }
 
 now="$(date +%s)"
 last_attempt="$(cat "$state_file" 2>/dev/null || echo 0)"
-if [[ "$last_attempt" =~ ^[0-9]+$ ]] && (( last_attempt > 0 && now - last_attempt < cooldown )); then
+if [[ "$force_restart" != true && "$last_attempt" =~ ^[0-9]+$ ]] && (( last_attempt > 0 && now - last_attempt < cooldown )); then
   emit skipped cooldown_active
   exit 0
 fi
@@ -104,11 +113,17 @@ printf '%s\n' "$now" >"$temporary"
 chmod 600 "$temporary"
 mv -f -- "$temporary" "$state_file"
 
-say "Túnel parado confirmado; reconectando o perfil VPN atual."
+if $force_restart; then
+  say "HTTP 429 estruturado; reiniciando o túnel VPN no perfil atual."
+else
+  say "Túnel parado confirmado; reconectando o perfil VPN atual."
+fi
 output=""
 if output="$(timeout "$timeout_seconds" vpn-reconnect 2>&1)"; then
   ip="$(sed -nE 's/.*IP público: ([0-9A-Fa-f:.]+).*/\1/p' <<<"$output" | tail -n 1)"
-  emit reconnected tunnel_reconnected "$ip"
+  if $force_restart; then emit reconnected http_429_tunnel_restarted "$ip"
+  else emit reconnected tunnel_reconnected "$ip"
+  fi
 else
   status=$?
   if (( status == 124 )); then emit failed recovery_timeout

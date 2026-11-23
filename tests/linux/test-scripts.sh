@@ -448,6 +448,19 @@ STUB
   jq -e '.status == "reconnected"' "$tmp/first.json" >/dev/null || { echo "background recovery response mismatch: $(<"$tmp/first.json")" >&2; rc=1; }
   [[ "$(wc -l < "$ACTION_LOG")" == 1 ]] || { echo "unexpected number of reconnect attempts after lock test" >&2; rc=1; }
 
+  # A structured 429 restarts the current profile even when the tunnel reports
+  # healthy, the diagnostic is unavailable, or the ordinary cooldown is active.
+  : > "$ACTION_LOG"
+  local -x VPN_CHECK_MODE=healthy
+  output="$(bash "$SCRIPTS_DIR/opencode-network-recover" --event rate_limit --session s429 --force-restart --quiet)" || rc=1
+  jq -e '.status == "reconnected" and .reason == "http_429_tunnel_restarted" and .ip == "198.51.100.9"' <<<"$output" >/dev/null || { echo "healthy-tunnel 429 restart mismatch: $output" >&2; rc=1; }
+  [[ "$(wc -l < "$ACTION_LOG")" == 1 ]] || { echo "HTTP 429 did not restart a healthy tunnel" >&2; rc=1; }
+
+  local -x VPN_CHECK_MODE=unknown
+  output="$(bash "$SCRIPTS_DIR/opencode-network-recover" --event account_limit --session s429-unknown --force-restart --quiet)" || rc=1
+  jq -e '.status == "reconnected" and .reason == "http_429_tunnel_restarted"' <<<"$output" >/dev/null || { echo "undetected-tunnel 429 restart mismatch: $output" >&2; rc=1; }
+  [[ "$(wc -l < "$ACTION_LOG")" == 2 ]] || { echo "HTTP 429 restart did not bypass unavailable tunnel diagnostics" >&2; rc=1; }
+
   rm -rf "$tmp"
   return "$rc"
 }

@@ -29,10 +29,11 @@ Desktop continua pendente em Windows.
 ### Correções locais (2026-11-23)
 
 - Bancos SQLite v1/v2 são comparados por caminho canônico (incluindo links simbólicos) antes de qualquer import; launchers preservam os caminhos XDG customizados do v2.
-- Após evento de provider, a recuperação segura o lock VPN compartilhado e só reconecta o perfil atual se Gluetun declarar `status=stopped`; quota/429 não muda IP/modelo e nenhuma chamada é repetida.
+- Após erro estruturado `rate_limit`/HTTP 429, a TUI reinicia o perfil VPN atual sob o lock compartilhado mesmo se o túnel estiver saudável. Outros limites só reconectam se Gluetun declarar `status=stopped`; nenhum evento troca modelo ou repete chamada.
 - Managed `serve`/`web`/`supervise` exigem OpenCode v2 **2.3.2**; versões diferentes só podem ser usadas com canário explicitamente habilitado e isolado.
 - `make verify` é o gate comum local/CI. O gate passou antes da release: Linux 65/65, Node 45/45, Compose, docs, sintaxe/ShellCheck e builds Docker.
 - Release 1.3.0 publicada no commit `f9d5ccb`; CI run `45115003447` passou os quatro jobs e as imagens locais estão marcadas `:1.3.0`.
+- Patch candidato 1.3.1: HTTP 429 estruturado reinicia o perfil VPN atual mesmo se saudável; outros provider limits continuam exigindo túnel confirmado como parado. O cooldown normal não bloqueia o restart 429.
 - PRs #7/#8 foram comparadas e não devem ser integradas sem rebase seletivo: PR #7 falha `validate`; PR #8 conflita com a política segura de provider.
 - A stack ativa continua na imagem anterior e saudável; recreate aguarda janela de manutenção devido a processos OpenCode ativos. Desktop App real, Windows Docker Desktop/SQLite e `read_only+tmpfs` para serviços graváveis permanecem pendentes.
 
@@ -56,7 +57,7 @@ Desktop continua pendente em Windows.
 - Acesso opcional à rede interna do host: `FIREWALL_SUBNETS` (sub-rede da LAN detectada pelo `vpn-switch` + extras), `INTERNAL_DNS`/`INTERNAL_DNS_EXEMPT_HOSTNAMES` para nomes internos e `INTERNAL_TEST_HOST` no `vpn-check`.
 - Paridade de home: `HOST_UID`/`HOST_GID` na imagem e mounts opcionais de `SSH_AUTH_SOCK` e `RUN_USER_DIR` no terminal.
 - GUI do OpenCode pela VPN: `scripts/vpn-opencode` mantém `web`/`serve` e adiciona `supervise`; o processo roda no namespace VPN, sem Docker socket. Queda simples reinicia só o app; apenas desconexão confirmada ou túnel unhealthy dispara recuperação de rede e confirmação de saúde antes do restart. O supervisor verifica a sessão exata e informa retomada manual; não repete a requisição interrompida.
-- Provider policy: plugins recognize structured events, never replay prompts or tools, and preserve numeric Retry-After guidance. The TUI checks authenticated Gluetun tunnel status after the notification. It reconnects the configured VPN profile only when Gluetun explicitly reports status=stopped; healthy or inconclusive diagnostics do not mutate the tunnel. Cooldown, timeout and result reporting are covered by the network recovery helper.
+- Provider policy: plugins recognize structured events, never replay prompts or tools, and preserve numeric Retry-After guidance. HTTP 429 restarts the configured VPN profile from the TUI even when healthy; other provider events reconnect only after Gluetun confirms `status=stopped`. Shared locking, cooldown bypass for 429, timeout and result reporting are covered by tests.
 - Session sync v1/v2: baseline v1 1.19.6 e v2 2.3.2. Launchers TUI sincronizam as cinco sessões recentes por workspace com native JSON export/import e IDs mapeados. `--session <id>` inclui uma sessão antiga explicitamente. Textos, raciocínio e resultados de ferramentas concluídas são convertidos; anexos, ferramentas ativas e conteúdo não suportado ficam pendentes sem conversão lossiva. Bancos não são copiados entre versões.
 - Windows: staging do SQLite v2 host/container permanece separado da conversão cross-version. Falha de push retorna status não-zero e impede aplicar snapshot antigo.
 - Como as configurações globais dos plugins podem ser compartilhadas com o host, v1/v2 só registram recuperação/notificações quando `VPN_WORKSPACE_CONTAINER=1`; fora do container são inertes.
@@ -81,7 +82,7 @@ Desktop continua pendente em Windows.
 ## Acceptance
 
 - OpenCode baseline is v1 1.19.6 and v2 2.3.2; recent sessions sync between clients through native JSON conversion with verified detached target IDs. Unsafe or unsupported transcript content is reported pending without loss.
-- Provider limits never change the model or trigger request replay. TUI diagnostics reconnect only after Gluetun confirms a stopped tunnel and return the observed IP and result.
+- Provider limits never change the model or trigger request replay. A structured HTTP 429 restarts the current VPN profile and reports the observed IP; other TUI recovery requires Gluetun to confirm a stopped tunnel.
 - Windows same-version SQLite staging reports push failures and never applies
   stale snapshots; cross-version session sync remains native JSON inside the
   Linux terminal. Real Docker Desktop staging validation is deferred to a
@@ -94,7 +95,7 @@ Desktop continua pendente em Windows.
 - O terminal herda UID/GID do host; com `SSH_AUTH_SOCK` definido, `ssh-add -l` dentro do terminal lista as chaves da sessão do host. Validado: chave `gitlab-ci-lightsaber-deploy` listada.
 - `vpn-opencode web` abre o painel em `http://127.0.0.1:${OPENCODE_GUI_PORT}` com o tráfego saindo pela VPN; `vpn-opencode serve` expõe a ponta para o Desktop App. Validado: `401` sem senha / `200` com basic auth (`web`) e `200` servindo o app (`serve`); conexão real do Desktop App pendente.
 - `vpn-opencode check` distingue `ok|down|quota` (`--json` com `{status,port,detail}`); `watch` inicia o `opencode-supervisor`. O check é observacional e não dispara recovery. O supervisor recupera somente queda de processo ou desconexão/túnel unhealthy reais; não classifica limites de provider por texto/logs.
-- Structured provider events cancel supported retries, preserve Retry-After, diagnose tunnel health from the TUI, and reconnect the current profile only after Gluetun confirms status=stopped. The helper applies a shared cooldown and reports its result.
+- Structured provider events cancel supported retries and preserve Retry-After. HTTP 429 restarts the current profile; other recovery requires `status=stopped`. The helper shares the VPN mutation lock and reports its result.
 - Launchers v1/v2 copiam sessões suportadas por JSON nativo em vez de copiar arquivos de banco entre versões. Conversões são verificadas por re-exportação do alvo e protegidas por ledger/lock.
 - Os plugins VPN compartilhados são inertes quando o OpenCode roda fora do container (`VPN_WORKSPACE_CONTAINER` ausente ou diferente de `1`).
 - Em v1, o plugin tenta cancelar retries estruturados quando a API confirma o abort e notifica; v2 define `retry: false` no hook do servidor e a TUI notifica. Nenhum caminho envia uma nova requisição.

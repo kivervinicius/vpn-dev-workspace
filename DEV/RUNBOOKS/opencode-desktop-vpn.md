@@ -198,22 +198,23 @@ real de processo/rede/túnel; mensagens ou logs de limite não são evidência d
 falha VPN.
 
 Os plugins globais `vpn-recovery` das versões suportadas usam somente campos e
-eventos estruturados, nunca texto arbitrário de resposta ou logs. Toda classe
-reconhecida é informativa; nenhuma altera a VPN/modelo ou repete o turno:
+eventos estruturados, nunca texto arbitrário de resposta ou logs. Nenhuma classe
+altera o modelo ou repete o turno:
 
 | Evento estruturado | Comportamento |
 |---|---|
 | Free-tier / quota | mostra o countdown numérico de `Retry-After` e verifica o estado do túnel |
-| HTTP 429 / rate-limit | informa o limite e verifica o estado do túnel |
+| HTTP 429 / rate-limit | reinicia o perfil VPN atual, mesmo se o túnel estiver saudável |
 | Conta / crédito / autenticação | informa o limite e verifica o estado do túnel |
 
 No v1, o plugin cancela retries reconhecidos quando a API confirma o abort; o
 v2 server hook define `retry: false`. Ambos notificam sem reenviar prompts ou
-chamadas de ferramenta. A TUI reconecta o perfil atual somente quando o
-diagnóstico autenticado do Gluetun confirma `status=stopped`. Túnel saudável ou
-estado inconclusivo não altera a conexão. O resultado, incluindo o IP observado
-após reconectar, aparece em uma segunda notificação. `opencode-limit-recover`
-permanece como compatibilidade e retorna `quota_status_only`.
+chamadas de ferramenta. Um erro estruturado `rate_limit`/HTTP 429 reinicia o
+perfil atual sob o lock compartilhado, mesmo se o túnel estiver saudável; a
+recuperação de outras classes ainda exige diagnóstico autenticado com
+`status=stopped`. A segunda notificação informa o resultado e o IP observado.
+`opencode-limit-recover` permanece como compatibilidade e retorna
+`quota_status_only`.
 
 Falhas confirmadas de rede são tratadas separadamente pelo supervisor. Depois
 da reconexão, ele verifica se a sessão exata continua exportável e informa um

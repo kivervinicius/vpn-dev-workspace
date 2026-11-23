@@ -2,9 +2,9 @@
 // com cada classe de limite — consumida pelo hook de servidor (v2), pelo
 // plugin v1 e pela notificação da TUI.
 //
-// Provider limits never change the model, rotate the VPN, or replay work. The
-// TUI may reconnect only after Gluetun confirms that the tunnel is stopped.
-// The server hook only vetoes retries.
+// Provider limits never change the model or replay work. A structured HTTP 429
+// restarts the current tunnel from the TUI; other events only recover a tunnel
+// that Gluetun confirms is stopped. The server hook only vetoes retries.
 export const ACTION_NOTIFY = "notify"
 
 export const QUOTA_CLASSES = [
@@ -15,9 +15,13 @@ export const QUOTA_CLASSES = [
   "auth_limit",
 ]
 
-export function decideAction({ eventClass } = {}) {
-  const reason = QUOTA_CLASSES.includes(eventClass) ? "provider_limit_diagnosis" : "unclassified"
-  return { action: ACTION_NOTIFY, rotate: false, reason }
+export function decideAction({ eventClass, httpStatus } = {}) {
+  const classified = QUOTA_CLASSES.includes(eventClass)
+  const restartTunnel = classified && (eventClass === "rate_limit" || httpStatus === 429)
+  const reason = restartTunnel
+    ? "http_429_tunnel_restart"
+    : classified ? "provider_limit_diagnosis" : "unclassified"
+  return { action: ACTION_NOTIFY, restartTunnel, reason }
 }
 
 // O hook de servidor nunca age sobre quota: ele apenas veta o retry.

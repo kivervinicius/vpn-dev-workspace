@@ -5,7 +5,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { VpnRecovery as createV1Plugin } from "../../opencode/v1/vpn-recovery.js"
 import { setupServerPlugin } from "../../opencode/v2/vpn-recovery/server-core.js"
-import { classifyV2Error, extractRetryAfterSeconds } from "../../opencode/v2/vpn-recovery/classify.js"
+import { classifyV2Error, extractRetryAfterSeconds, hasHttp429 } from "../../opencode/v2/vpn-recovery/classify.js"
 import { decideAction, ACTION_NOTIFY, QUOTA_CLASSES } from "../../opencode/v2/vpn-recovery/policy.js"
 import { setupTuiPlugin } from "../../opencode/v2/vpn-recovery/tui-core.js"
 
@@ -109,6 +109,7 @@ test("v1 cancels provider retries, checks the tunnel, and never replays a turn",
     assert.match(toasts[0].body.message, /verificando o túnel VPN/)
     assert.match(toasts[1].body.message, /Túnel VPN confirmado saudável/)
     assert.doesNotMatch(toasts[0].body.message, /rotação|troca de IP/)
+    assert.doesNotMatch(helper.calls()[0], /--force-restart/)
     assert.equal(promptCalls, 0)
 
     helper.restore()
@@ -119,7 +120,7 @@ test("v1 cancels provider retries, checks the tunnel, and never replays a turn",
 
 test("v1 reports a confirmed tunnel reconnect and its resulting IP", async () => {
   const toasts = []
-  const helper = fakeNetworkRecovery({ status: "reconnected", reason: "tunnel_reconnected", ip: "203.0.113.7" })
+  const helper = fakeNetworkRecovery({ status: "reconnected", reason: "http_429_tunnel_restarted", ip: "203.0.113.7" })
   try {
     const plugin = await createV1Plugin({
       client: {
@@ -128,10 +129,29 @@ test("v1 reports a confirmed tunnel reconnect and its resulting IP", async () =>
       },
       directory: "/work",
     })
-    plugin.event({ event: { type: "session.error", properties: { sessionID: "s-rate", error: { name: "APIError", data: { statusCode: 429 } } } } })
+    plugin.event({ event: { type: "session.error", properties: { sessionID: "s-rate", error: { name: "APIError", data: { statusCode: 429, code: "GoUsageLimitError" } } } } })
     await until(() => toasts.length === 2)
     assert.match(toasts[1].body.message, /IP atual: 203\.0\.113\.7/)
+    assert.match(toasts[1].body.message, /HTTP 429 recebido; túnel VPN reiniciado/)
+    assert.match(helper.calls()[0], /--event account_limit.*--force-restart/)
     assert.match(toasts[1].body.message, /limite do provider pode continuar ativo/)
+  } finally {
+    helper.restore()
+  }
+})
+
+test("v1 restarts the VPN on HTTP 429 even when its first toast fails", async () => {
+  const helper = fakeNetworkRecovery({ status: "reconnected", reason: "http_429_tunnel_restarted" })
+  try {
+    const plugin = await createV1Plugin({
+      client: {
+        tui: { showToast: async () => { throw new Error("TUI unavailable") } },
+      },
+      directory: "/work",
+    })
+    plugin.event({ event: { type: "session.error", properties: { sessionID: "s-v1-429-toast-failed", error: { name: "APIError", data: { statusCode: 429 } } } } })
+    await until(() => helper.calls().length === 1)
+    assert.match(helper.calls()[0], /--event rate_limit.*--force-restart/)
   } finally {
     helper.restore()
   }
@@ -228,6 +248,12 @@ test("v2 TUI reports Retry-After, checks tunnel health, and does not replay prov
     for (const { expected } of PROVIDER_ERRORS) {
       assert.ok(helper.calls().some((call) => call.includes(`--event ${expected}`)))
     }
+    assert.ok(helper.calls().find((call) => call.includes("--event rate_limit"))?.includes("--force-restart"))
+    assert.ok(helper.calls().filter((call) => call.includes("--event") && !call.includes("--event rate_limit")).every((call) => !call.includes("--force-restart")))
+
+    await listener({ data: { sessionID: "s429-account", error: { type: "provider.quota", statusCode: 429 } } })
+    await until(() => helper.calls().length === PROVIDER_ERRORS.length + 1)
+    assert.ok(helper.calls().some((call) => call.includes("--event account_limit") && call.includes("--force-restart")))
     dispose()
     assert.equal(unsubscribeCalls, 1)
   } finally {
@@ -243,9 +269,48 @@ test("v2 does not start a diagnostic when the provider notification fails", asyn
       data: { on: (_, callback) => { listener = callback } },
       ui: { toast: { show: async () => { throw new Error("TUI unavailable") } } },
     })
-    await listener({ data: { sessionID: "s1", error: { type: "provider.rate-limit" } } })
+    await listener({ data: { sessionID: "s1", error: { type: "provider.quota" } } })
     await new Promise((resolve) => setTimeout(resolve, 100))
     assert.equal(helper.calls().length, 0)
+  } finally {
+    helper.restore()
+  }
+})
+
+test("v2 reports that an HTTP 429 restarted the current VPN tunnel", async () => {
+  let listener
+  const toasts = []
+  const helper = fakeNetworkRecovery({
+    status: "reconnected",
+    reason: "http_429_tunnel_restarted",
+    ip: "198.51.100.9",
+  })
+  try {
+    setupTuiPlugin({
+      data: { on: (_, callback) => { listener = callback } },
+      ui: { toast: { show: async (toast) => toasts.push(toast) } },
+    })
+    await listener({ data: { sessionID: "s-http-429", error: { type: "provider.rate-limit" } } })
+    await until(() => toasts.length === 2)
+    assert.match(helper.calls()[0], /--event rate_limit.*--force-restart/)
+    assert.match(toasts[1].message, /HTTP 429 recebido; túnel VPN reiniciado/)
+    assert.match(toasts[1].message, /198\.51\.100\.9/)
+  } finally {
+    helper.restore()
+  }
+})
+
+test("v2 restarts the VPN on HTTP 429 even when its first toast fails", async () => {
+  let listener
+  const helper = fakeNetworkRecovery({ status: "reconnected", reason: "http_429_tunnel_restarted" })
+  try {
+    setupTuiPlugin({
+      data: { on: (_, callback) => { listener = callback } },
+      ui: { toast: { show: async () => { throw new Error("TUI unavailable") } } },
+    })
+    await listener({ data: { sessionID: "s-http-429-toast-failed", error: { type: "provider.rate-limit" } } })
+    await until(() => helper.calls().length === 1)
+    assert.match(helper.calls()[0], /--event rate_limit.*--force-restart/)
   } finally {
     helper.restore()
   }
@@ -261,6 +326,9 @@ test("classifiers recognize structured provider classes and ignore prose", () =>
   assert.equal(classifyV2Error({ data: { responseBody: '{"error":{"type":"FreeUsageLimitError"}}' } }), "free_tier_limit")
   assert.equal(classifyV2Error({ statusCode: 402 }), "credit_limit")
   assert.equal(classifyV2Error({ statusCode: 429 }), "rate_limit")
+  assert.equal(hasHttp429({ response: { status: 429 } }), true)
+  assert.equal(hasHttp429({ responseBody: '{"statusCode":429}' }), true)
+  assert.equal(hasHttp429({ message: "provider returned 429" }), false)
   assert.equal(classifyV2Error({ message: "FreeUsageLimitError" }), undefined)
 })
 
@@ -273,17 +341,22 @@ test("Retry-After extraction handles runtime milliseconds and numeric headers", 
   assert.equal(extractRetryAfterSeconds({ headers: {} }), undefined)
 })
 
-test("provider-limit policy never rotates the VPN and only requests diagnosis", () => {
+test("provider policy restarts the current tunnel on rate limits or structured HTTP 429", () => {
   for (const eventClass of QUOTA_CLASSES) {
     assert.deepEqual(decideAction({ eventClass }), {
       action: ACTION_NOTIFY,
-      rotate: false,
-      reason: "provider_limit_diagnosis",
+      restartTunnel: eventClass === "rate_limit",
+      reason: eventClass === "rate_limit" ? "http_429_tunnel_restart" : "provider_limit_diagnosis",
     })
   }
+  assert.deepEqual(decideAction({ eventClass: "account_limit", httpStatus: 429 }), {
+    action: ACTION_NOTIFY,
+    restartTunnel: true,
+    reason: "http_429_tunnel_restart",
+  })
   assert.deepEqual(decideAction({ eventClass: undefined }), {
     action: ACTION_NOTIFY,
-    rotate: false,
+    restartTunnel: false,
     reason: "unclassified",
   })
 })

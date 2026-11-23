@@ -1,17 +1,19 @@
-## Quota VPN reconnect — trabalho local ainda não lançado
+## Restart HTTP 429 — candidato 1.3.1 (2026-11-23)
 
-- Linux shell suite: **61/61**, incluindo configuração numérica inválida e
-  falha segura quando o diretório de estado não é gravável.
-- Node OpenCode/control: **41/41**.
-- `verify-docs`, `verify-compose`, sintaxe e ShellCheck do helper passaram.
-- Helper executado no terminal Docker ativo com stub de rotação: validou
-  classificação, lock, estado persistido, JSON e retorno do IP sem chamar API
-  de VPN nem trocar servidor. Testes Node exercitaram os caminhos v1/v2 da TUI.
-- Build local do terminal passou. Gluetun e o túnel ativos permaneceram
-  saudáveis durante as verificações.
-- Nenhuma chamada real ao provider ou rotação real foi feita. O diff está local
-  e ainda não faz parte da release 1.2.0. A verificação Windows de SQLite
-  continua pendente.
+- Alteração local: erro estruturado `rate_limit`/HTTP 429 solicita reinício do
+  perfil VPN atual mesmo com túnel saudável; cooldown de recuperação normal é
+  ignorado. Lock compartilhado, timeout e cancelamento de retry permanecem.
+- `PATH=/tmp/vpn-dev-shellcheck-bin:$PATH make verify`: **passou** — sintaxe,
+  ShellCheck, 8 perfis Compose, documentação, Linux **65/65**, suites Node e
+  builds Docker (incluindo testes e build da imagem Gluetun).
+- Testes simulam 429 com túnel saudável/diagnóstico indisponível e toast
+  indisponível em v1/v2. Nenhum provider real foi chamado e o túnel ativo não
+  foi reiniciado.
+- O processo OpenCode já em execução mantém o plugin carregado da inicialização
+  anterior. A alteração passa a valer após reiniciar o OpenCode numa janela
+  apropriada; nenhum processo ativo foi interrompido.
+- Release 1.3.0 permanece publicada. O patch 1.3.1 está validado localmente;
+  CI e publicação ainda estão pendentes.
 
 ## Release 1.2.0
 

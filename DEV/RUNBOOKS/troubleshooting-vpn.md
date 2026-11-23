@@ -103,9 +103,9 @@ Quando o OpenCode interrompe chamadas aos modelos, consulte o status com o class
 ```
 
 - **`status: ok`**: Conexão e API do OpenCode operacionais.
-- **`status: quota`**: resposta de limite do provider (free-tier, conta, crédito, autenticação ou 429), não evidência de falha do túnel. O `check` é observacional. Os plugins exibem apenas o status e, quando fornecido, o countdown de `Retry-After`; nenhuma classe de quota muda VPN/modelo nem repete prompt ou ferramentas. Aguarde o reset ou escolha manualmente outro modelo/provider. Falhas confirmadas de rede continuam no fluxo separado do supervisor, sem replay da requisição interrompida.
+- **`status: quota`**: resposta de limite do provider (free-tier, conta, crédito, autenticação ou 429), não evidência de falha do túnel. Para erro estruturado `rate_limit`/HTTP 429, a TUI reinicia o perfil VPN atual sob o lock compartilhado; outras classes só reconectam quando Gluetun confirma `status=stopped`. O provider ainda pode limitar a conta após reconectar. O plugin não troca modelo nem repete prompt/ferramenta; confira `Retry-After` e escolha manualmente outro modelo se necessário. Falhas confirmadas de rede continuam no fluxo separado do supervisor, sem replay da requisição interrompida.
 - **Rede restritiva / troca de país não conecta**: servidores sorteados ou de outros países podem não completar o handshake (timeout em UDP 1194; TCP 443 também pode pendurar). Fixe hostnames alcançáveis em `VPN_SERVER_HOSTNAMES` e use `vpn-server-rotate --to <host>`/round-robin; `--countries` só ajuda quando os servidores sorteados do país são alcançáveis. Nesta instalação, apenas o range `189.1.168.x` (br71/72/73/97/98) respondeu.
-- **`status: down`**: falha de rota ou da VPN. Confirme `vpn-check --only tunnel`, `vpn-status --json` e o log do `opencode-supervisor`; ele só reconecta/rotaciona após detectar desconexão ou túnel unhealthy e confirma saúde antes de reiniciar o processo. HTTP 429 não é evento de reconnect.
+- **`status: down`**: falha de rota ou da VPN. Confirme `vpn-check --only tunnel`, `vpn-status --json` e o log do `opencode-supervisor`; ele só reconecta/rotaciona após detectar desconexão ou túnel unhealthy e confirma saúde antes de reiniciar o processo.
 
 ---
 

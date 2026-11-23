@@ -14,6 +14,24 @@ de mutação VPN desde o diagnóstico até o reconnect. A validação CLI foi ex
 container descartável sem rede nos dois sentidos v1↔v2, com verificação `after`.
 `make verify` passou; evidências detalhadas estão em `VERIFY.md`.
 
+## Restart de túnel em HTTP 429 — candidato 1.3.1
+
+O pedido atual altera a política: erro estruturado `rate_limit`/HTTP 429
+reinicia o perfil VPN atual via `vpn-reconnect`, mesmo se Gluetun reportar o
+túnel saudável. Isso não escolhe outro servidor, troca modelo nem repete a
+requisição. O lock de mutação VPN e o timeout continuam; o cooldown comum não
+bloqueia esse restart e eventos duplicados da mesma sessão/classe seguem o TTL
+de deduplicação. A implementação está validada localmente como candidata 1.3.1.
+
+Verificação local concluída: `make verify` passou (Linux 65/65, suites
+Node/control, 8 perfis Compose, docs, ShellCheck/sintaxe e builds Docker). Os
+casos de 429 e falha do toast foram simulados; não houve provider real nem
+mutação do túnel. CI remota e publicação do patch continuam pendentes.
+
+O processo OpenCode já ativo mantém o plugin antigo carregado. Nenhum processo
+ou túnel foi interrompido durante esta mudança; para ativá-la, reinicie o
+OpenCode em janela apropriada. Não foi feita chamada real a provider.
+
 O container Docker de uso continua ativo e saudável (VPN 6/6) e não foi
 recriado, pois há processos OpenCode do usuário. As alterações de mount do
 helper só entram em runtime após um recreate em janela de manutenção.

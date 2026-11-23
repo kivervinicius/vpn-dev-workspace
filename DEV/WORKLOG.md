@@ -8,6 +8,20 @@ foram usadas; nenhum provider real foi chamado.
 
 # Worklog
 
+## 2026-11-23 — Restart do túnel após HTTP 429
+
+- Requested behavior: erro estruturado HTTP 429/`rate_limit` reinicia o perfil
+  VPN atual mesmo se saudável. v1/v2 passam a sinalizar o reinício forçado; o
+  helper ignora o diagnóstico inconclusivo e cooldown normal só para esse caso.
+- Preservados lock compartilhado, timeout, cancelamento de retry, dedupe de
+  eventos duplicados e proibição de replay/model switch. Testes unitários e
+  Linux focados passaram; `make verify` completo também passou: Linux 65/65,
+  Node/control, Compose (8 perfis), docs, ShellCheck/sintaxe e builds Docker.
+- Não houve chamada real a provider nem reinício do túnel ativo. Plugin em
+  processo ativo exige restart do OpenCode para carregar o código atualizado.
+- Candidato 1.3.1 ainda local; CI remoto, commit, tag e publicação não foram
+  iniciados.
+
 ## 2026-11-23 — Correções pós-1.2.0 e release 1.3.0
 
 - Corrigidos caminhos XDG/collision de DB v1-v2, recovery só após túnel
