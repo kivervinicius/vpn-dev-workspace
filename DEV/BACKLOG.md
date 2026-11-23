@@ -61,6 +61,6 @@ as menções restantes são históricas, sem referência ativa em Compose/script
 | Aplicativo Desktop real e ciclo SQLite do Docker Desktop Windows | alta | pendente de hosts/aplicativos correspondentes |
 | Validar `read_only+tmpfs` nos serviços graváveis | média | pendente de teste runtime isolado; observer/UI já usam filesystem read-only com tmpfs |
 | Atualizador automático OpenCode x baseline dos serviços gerenciados | alta | timer externo ao repositório pode instalar v2 acima de 2.3.2; coordenar pin e homologação antes da próxima atualização |
-| Publicar release 1.3.0 após gates | alta | gates locais verdes; aguardando commit/push e CI hospedada |
+| Publicar release 1.3.0 após gates | alta | concluído em 2026-11-23: commit `f9d5ccb`, CI run `45115003447` verde, tag anotada e GitHub Release publicadas; imagens locais `:1.3.0` marcadas |
 
 Sem novos itens descartados.

@@ -31,7 +31,8 @@ Desktop continua pendente em Windows.
 - Bancos SQLite v1/v2 são comparados por caminho canônico (incluindo links simbólicos) antes de qualquer import; launchers preservam os caminhos XDG customizados do v2.
 - Após evento de provider, a recuperação segura o lock VPN compartilhado e só reconecta o perfil atual se Gluetun declarar `status=stopped`; quota/429 não muda IP/modelo e nenhuma chamada é repetida.
 - Managed `serve`/`web`/`supervise` exigem OpenCode v2 **2.3.2**; versões diferentes só podem ser usadas com canário explicitamente habilitado e isolado.
-- `make verify` é o gate comum local/CI. Linux, Node, Compose, docs, sintaxe/ShellCheck e builds precisam passar antes da release.
+- `make verify` é o gate comum local/CI. O gate passou antes da release: Linux 65/65, Node 45/45, Compose, docs, sintaxe/ShellCheck e builds Docker.
+- Release 1.3.0 publicada no commit `f9d5ccb`; CI run `45115003447` passou os quatro jobs e as imagens locais estão marcadas `:1.3.0`.
 - PRs #7/#8 foram comparadas e não devem ser integradas sem rebase seletivo: PR #7 falha `validate`; PR #8 conflita com a política segura de provider.
 - A stack ativa continua na imagem anterior e saudável; recreate aguarda janela de manutenção devido a processos OpenCode ativos. Desktop App real, Windows Docker Desktop/SQLite e `read_only+tmpfs` para serviços graváveis permanecem pendentes.
 

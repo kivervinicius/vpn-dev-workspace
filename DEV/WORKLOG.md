@@ -8,7 +8,7 @@ foram usadas; nenhum provider real foi chamado.
 
 # Worklog
 
-## 2026-11-23 — Correções pós-1.2.0 e preparação 1.3.0
+## 2026-11-23 — Correções pós-1.2.0 e release 1.3.0
 
 - Corrigidos caminhos XDG/collision de DB v1-v2, recovery só após túnel
   confirmado parado, baseline v2 estrito para serviços gerenciados e gate local
@@ -19,8 +19,10 @@ foram usadas; nenhum provider real foi chamado.
   execuções; o gate final também cobre disputa pelo lock VPN compartilhado.
 - PRs #7/#8 comparadas, sem merge: #7 conflita e falha `validate`; #8 conflita
   com a política de provider. Desktop App real, Windows Docker Desktop e
-  `read_only+tmpfs` continuam pendentes. CI hospedada ainda precisa rodar após
-  push; release 1.3.0 está preparada, não publicada.
+  `read_only+tmpfs` continuam pendentes. CI run `45115003447` passou todos os
+  quatro jobs; commit `f9d5ccb` foi enviado a `master`, tag anotada e GitHub
+  Release `1.3.0` publicadas. Imagens locais `:1.3.0` marcadas; runtime não foi
+  recriado. O timer automático que pode superar v2 `2.3.2` exige coordenação.
 
 ## 2026-11-22 – Release 1.2.0
 

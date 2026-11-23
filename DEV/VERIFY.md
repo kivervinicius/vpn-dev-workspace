@@ -51,7 +51,7 @@
 
 Revisão documental: comparadas as referências Git e confirmados três helpers idênticos na 1.1.0. Os critérios de execução estão em `SPECS/PLAN-REINTEGRACAO.md`.
 
-## Latest Verification — 2026-11-23 (candidate 1.3.0)
+## Latest Verification — 2026-11-23 (release 1.3.0)
 
 ### Passed
 
@@ -71,6 +71,11 @@ Revisão documental: comparadas as referências Git e confirmados três helpers 
   `CONFLICTING` and proposes quota-triggered IP rotation. Current master already
   includes the Control Plane state/probe safeguards, so neither branch is safe
   to merge as-is.
+- CI run [45115003447](https://github.com/kivervinicius/vpn-dev-workspace/actions/runs/45115003447)
+  passed all four jobs for commit `f9d5ccb9738b1b68aaba82ace77a59c9b921e943`.
+  Annotated tag `1.3.0` and the [GitHub Release](https://github.com/kivervinicius/vpn-dev-workspace/releases/tag/1.3.0)
+  point to that commit. Local terminal and Gluetun image tags `:1.3.0` were
+  created from the gate-approved builds.
 
 ### Test isolation correction and remaining platform checks
 
@@ -84,7 +89,8 @@ Revisão documental: comparadas as referências Git e confirmados três helpers 
   are running. It therefore does not yet mount the new network-recovery helper.
 - Real Desktop App connection, Docker Desktop SQLite staging on Windows, and
   `read_only+tmpfs` for services that write state remain unverified.
-- No hosted CI run, commit, push, tag, or GitHub Release for 1.3.0 exists yet.
+- The Compose stack was not recreated; active containers still use the prior
+  image. Recreate after a maintenance window with OpenCode closed.
 
 ## Latest Verification - 2026-11-22 (main checkout release cutover)
 

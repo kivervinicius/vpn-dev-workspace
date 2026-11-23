@@ -1,8 +1,8 @@
 # Active Handoff
 
-A release 1.2.0 está publicada; as correções descritas abaixo preparam a
-entrega 1.3.0. O estado da instalação local e as evidências de E2E estão
-registrados neste handoff e em `VERIFY.md`.
+A release 1.3.0 está publicada no commit `f9d5ccb9738b1b68aaba82ace77a59c9b921e943`.
+CI, tag Git e imagens Docker locais estão registradas neste handoff e em
+`VERIFY.md`.
 
 ## Correções locais após a release 1.2.0 — 2026-11-23
 
@@ -25,9 +25,20 @@ Pendências de ambiente: conexão real do Desktop App, staging SQLite com Docker
 Desktop em Windows, e teste `read_only+tmpfs` nos serviços que gravam estado.
 O timer local de atualização automática também pode instalar v2 além do baseline
 testado; é preciso coordenar pin/validação antes de atualizar serviços gerenciados.
-Ainda falta publicar a release depois da CI hospedada.
 
-## Release plan 1.3.0
+## Release 1.3.0 — publicada
+
+- Tag Git anotada `1.3.0` e GitHub Release
+  [VPN Dev Workspace 1.3.0](https://github.com/kivervinicius/vpn-dev-workspace/releases/tag/1.3.0)
+  apontam para o commit `f9d5ccb9738b1b68aaba82ace77a59c9b921e943` em `master`.
+- GitHub Actions
+  [run 45115003447](https://github.com/kivervinicius/vpn-dev-workspace/actions/runs/45115003447)
+  passou os quatro jobs para esse commit.
+- Imagens locais `vpn-dev-workspace-terminal:1.3.0` e
+  `vpn-dev-workspace-gluetun:1.3.0` foram marcadas com os builds aprovados.
+  Os containers em uso permanecem na versão anterior; nenhum recreate foi feito.
+
+## Release plan 1.3.0 — concluído
 
 - Version: minor `1.3.0`; no database schema migration. The new recovery state is
   a separate JSON timestamp and rollback ignores it.
@@ -35,9 +46,9 @@ Ainda falta publicar a release depois da CI hospedada.
   exceptions are only for an isolated canary with `OPENCODE_V2_ALLOW_UNVERIFIED`.
 - Secrets: no new secret or credential is required. No provider request was
   made during verification.
-- Order: local `make verify` → push `master` → require hosted Linux/Windows and
-  security CI success → tag and publish 1.3.0. Keep the running Compose stack
-  on its existing image until a maintenance window with OpenCode closed.
+- Order: local `make verify` → push `master` → hosted Linux/Windows and security
+  CI success → tag and publish 1.3.0. Completed. Keep the running Compose
+  stack on its existing image until a maintenance window with OpenCode closed.
 - Smoke/rollback: after a later recreate, run `vpn-check --json` (6 checks),
   `opencode1/2 --version`, session-sync status and managed service `--check`.
   Keep release 1.2.0 images/tags available for rollback. Owner: project
