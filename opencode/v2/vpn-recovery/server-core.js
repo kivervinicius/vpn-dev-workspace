@@ -1,8 +1,8 @@
 import { classifyV2Error } from "./classify.js"
 import { vetoDecision } from "./policy.js"
 
-// Provider quotas are status-only. The server hook vetoes the runtime retry
-// for structured quota errors so a turn with tool calls is never replayed.
+// The server hook only vetoes runtime retries for structured quota errors.
+// VPN reconnection is initiated separately by the TUI notification path.
 export async function setupServerPlugin(ctx) {
   if (process.env.VPN_WORKSPACE_CONTAINER !== "1") return () => {}
 

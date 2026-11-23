@@ -2,6 +2,16 @@
 
 A reintegração Linux está implementada e validada; esta árvore consolida a entrega para a release 1.2.0. O E2E local do Docker está registrado abaixo.
 
+## Trabalho local após a release 1.2.0
+
+Há alterações locais para recuperação VPN iniciada por eventos de quota na TUI.
+O diff ainda não está versionado nem incluído na release. O helper foi
+endurecido e testado com rotação simulada no terminal Docker, sem alteração do
+túnel. Ver [VERIFY.md](VERIFY.md). A validação restante é recriar o terminal quando a feature for aprovada para
+uso, pois o container ativo não recebeu os mounts/env novos. Não foi feita
+chamada real ao provider nem rotação real. O staging SQLite real no Docker
+Desktop também permanece pendente em Windows.
+
 Updated: 2026-11-22
 
 ## E2E local Docker — 2026-11-22

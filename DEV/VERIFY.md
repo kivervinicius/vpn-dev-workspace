@@ -1,3 +1,18 @@
+## Quota VPN reconnect — trabalho local ainda não lançado
+
+- Linux shell suite: **61/61**, incluindo configuração numérica inválida e
+  falha segura quando o diretório de estado não é gravável.
+- Node OpenCode/control: **41/41**.
+- `verify-docs`, `verify-compose`, sintaxe e ShellCheck do helper passaram.
+- Helper executado no terminal Docker ativo com stub de rotação: validou
+  classificação, lock, estado persistido, JSON e retorno do IP sem chamar API
+  de VPN nem trocar servidor. Testes Node exercitaram os caminhos v1/v2 da TUI.
+- Build local do terminal passou. Gluetun e o túnel ativos permaneceram
+  saudáveis durante as verificações.
+- Nenhuma chamada real ao provider ou rotação real foi feita. O diff está local
+  e ainda não faz parte da release 1.2.0. A verificação Windows de SQLite
+  continua pendente.
+
 ## Release 1.2.0
 
 - Commit `2210100ecc99f2d8cb097a86839538d36fbce10e` was pushed to `master`,

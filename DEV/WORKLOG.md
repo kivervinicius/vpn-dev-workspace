@@ -1,3 +1,11 @@
+## 2026-11-22 – Validação local de quota reconnect
+
+Revisado o fluxo opt-out da TUI ao helper de rotação. O helper agora serializa
+as decisões de cooldown sob o lock VPN, valida limites numéricos, emite JSON
+com escaping e falha sem alterar a VPN se não puder persistir estado. Suítes
+Linux/Node, lint, docs, Compose, build e execução simulada no terminal Docker
+foram usadas; nenhum provider real foi chamado.
+
 # Worklog
 
 ## 2026-11-22 – Release 1.2.0

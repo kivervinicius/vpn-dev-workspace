@@ -50,7 +50,7 @@ validated.
   (`quota-pattern-in-http`) e corpo neutro → `ok` (`ouvindo`, exit 0);
   `--json` emite `{status,port,detail}`; `vpn-top --json` inclui `.opencode`.
 - Supervisor classifier: only actual network-disconnect/tunnel-health evidence may trigger VPN recovery; provider-limit messages/log text are never triggers. `vpn-opencode check` remains observational.
-- OpenCode provider policy: all recognized quota, auth, and rate-limit events are status-only. Unit tests assert no VPN/model mutation, automatic retry, prompt replay, or tool replay. Retry-After is shown as information only.
+- OpenCode provider policy: recognized events never change model or replay a turn. TUI events may trigger opt-out VPN reconnection through the shared-lock helper. Tests cover class allowlists, cooldown/window limits, timeout, lock contention, failures, and the opt-out path. Server hooks only veto retries.
 - Session transfer (`tests/opencode/session-sync.test.mjs`): synthetic v1/v2 export fixtures cover schema conversion, new IDs, completed tool history, rejection of attachments/active tools/unknown parts, idempotency, divergent continuation, and avoidance of sync ping-pong. Actual CLI round trips must use isolated temporary data homes; never point the test at a user's active database.
 - Network recovery is separate: the supervisor handles confirmed disconnection or unhealthy tunnel only, verifies the exact persisted session, and gives the user a manual resume command. It does not replay the interrupted request.
 - Windows session staging (`tests/windows/vpn.Tests.ps1`): failed container push must return failure and cannot publish older staged content; run Pester on Windows and verify real Docker Desktop SQLite staging before claiming the Windows path validated.

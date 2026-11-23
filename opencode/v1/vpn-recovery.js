@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process"
+
 const ERROR_CLASSES = new Map([
   ["FreeUsageLimitError", "free_tier_limit"],
   ["free_tier_limit", "free_tier_limit"],
@@ -78,42 +80,86 @@ function classifyV1Error(error) {
   return structuredClass(error.data)
 }
 
-function messageFor(eventClass) {
-  switch (eventClass) {
-    case "free_tier_limit":
-      return "Limite gratuito do Zen detectado; a VPN não foi alterada e o turno não será repetido automaticamente."
-    case "rate_limit":
-      return "Limite de requisições detectado; a VPN não foi alterada e o turno não será repetido automaticamente."
-    case "account_limit":
-      return "Limite da conta detectado; a VPN não foi alterada."
-    case "credit_limit":
-      return "Limite de crédito detectado; a VPN não foi alterada."
-    default:
-      return "Limite do provider detectado; a VPN não foi alterada."
+function messageFor(eventClass, reconnecting) {
+  const base = (() => {
+    switch (eventClass) {
+      case "free_tier_limit": return "Limite gratuito do Zen detectado"
+      case "rate_limit": return "Limite de requisições detectado"
+      case "account_limit": return "Limite da conta detectado"
+      case "credit_limit": return "Limite de crédito detectado"
+      default: return "Limite do provider detectado"
+    }
+  })()
+  if (reconnecting) {
+    return `${base}; solicitando tentativa de rotação da VPN. O turno não será repetido automaticamente.`
+  }
+  return `${base}; a VPN não foi alterada e o turno não será repetido automaticamente.`
+}
+
+function quotaReconnectEnabled() {
+  const raw = String(process.env.OPENCODE_QUOTA_RECONNECT ?? "true").trim().toLowerCase()
+  return !["0", "false", "no", "off"].includes(raw)
+}
+
+function spawnQuotaReconnect(eventClass, sessionID) {
+  try {
+    // Detached: a TUI pode fechar antes do fim; o túnel não pode ficar parado.
+    const bin = process.env.OPENCODE_QUOTA_RECONNECT_BIN || "/usr/local/bin/opencode-quota-reconnect"
+    const child = spawn(bin, ["--event", eventClass, "--session", sessionID || "unknown", "--quiet"], {
+      detached: true,
+      stdio: "ignore",
+      env: process.env,
+    })
+    child.on("error", () => {})
+    child.unref()
+  } catch {
+    // A notificação de quota nunca depende do sucesso do helper.
   }
 }
 
 function createV1Plugin() {
   return async ({ client, directory }) => {
     // The config directory can be shared with the host. Keep this integration
-    // scoped to the VPN container; quota events only notify and cancel retries.
+    // scoped to the VPN container; outside it, nothing is notified or rotated.
     if (process.env.VPN_WORKSPACE_CONTAINER !== "1") return {}
 
-    const handled = new Set()
+    // Dedupe com TTL: depois do reset da cota a mesma sessão+classe precisa
+    // poder notificar de novo. TTL default 300s.
+    const handled = new Map()
+    const ttlMs = Math.max(0, Number(process.env.OPENCODE_QUOTA_NOTIFY_TTL_SECONDS ?? 300)) * 1000
+    const dedupeExpired = (key, now) => {
+      const expires = handled.get(key)
+      if (expires === undefined) return true
+      if (expires <= now) {
+        handled.delete(key)
+        return true
+      }
+      return false
+    }
+    const remember = (key, now) => {
+      handled.set(key, now + ttlMs)
+      if (handled.size > 512) {
+        const oldest = handled.keys().next().value
+        if (oldest !== undefined && handled.get(oldest) <= now) handled.delete(oldest)
+      }
+    }
+
     const notify = async (message, variant = "info") => {
       try {
         await client.tui.showToast({
           body: { title: "OpenCode provider status", message, variant, duration: 8000 },
         })
+        return true
       } catch {
         // Notification failures never start another request.
+        return false
       }
     }
     const handle = async (sessionID, eventClass, cancelRetry) => {
+      const now = Date.now()
       const key = `${sessionID}:${eventClass}`
-      if (handled.has(key)) return
-      handled.add(key)
-      if (handled.size > 512) handled.delete(handled.values().next().value)
+      if (!dedupeExpired(key, now)) return
+      remember(key, now)
 
       if (cancelRetry) {
         try {
@@ -129,7 +175,10 @@ function createV1Plugin() {
           return
         }
       }
-      await notify(messageFor(eventClass))
+      const reconnecting = quotaReconnectEnabled()
+      const shown = await notify(messageFor(eventClass, reconnecting))
+      // TUI only: só quando a notificação foi realmente exibida.
+      if (shown && reconnecting) spawnQuotaReconnect(eventClass, sessionID)
     }
 
     return {

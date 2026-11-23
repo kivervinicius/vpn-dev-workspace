@@ -1,0 +1,251 @@
+#!/usr/bin/env bash
+# Executa a recuperação de VPN opt-out para eventos de quota do OpenCode.
+#
+# Chamado pelos plugins v1/v2 (TUI) quando uma notificação de limite é exibida.
+# Por padrão executa `vpn-server-rotate --random`, que já troca de servidor,
+# chama `vpn-reconnect`, espera o IP público e valida o túnel. Escape hatch:
+# OPENCODE_QUOTA_RECONNECT=false desliga o comportamento e mantém status-only.
+#
+# Saída: JSON no stdout.
+#   {"status":"ok|skipped|failed|timeout|lock_busy","action":"...","event":"...","session":"...","ip":"...","reason":"..."}
+set -Eeuo pipefail
+
+source "$(dirname "${BASH_SOURCE[0]}")/vpn-control-lock.sh"
+
+readonly VALID_CLASSES=(free_tier_limit rate_limit account_limit credit_limit auth_limit)
+
+usage() {
+  cat >&2 <<'USAGE'
+Uso: opencode-quota-reconnect --event <classe> [--session <id>] [--json] [--quiet]
+  --event   classe do evento (free_tier_limit|rate_limit|account_limit|credit_limit|auth_limit)
+  --session id da sessão OpenCode (informativo; entra no estado)
+  --json    força JSON no stdout (default)
+  --quiet   suprime mensagens não-JSON do stderr
+USAGE
+  exit "${1:-0}"
+}
+
+event=""
+session_id=""
+quiet=false
+while (($# > 0)); do
+  case "$1" in
+    --event) event="${2:-}"; shift 2 ;;
+    --event=*) event="${1#*=}"; shift ;;
+    --session) session_id="${2:-}"; shift 2 ;;
+    --session=*) session_id="${1#*=}"; shift ;;
+    --json) shift ;;
+    --quiet) quiet=true; shift ;;
+    -h|--help) usage 0 ;;
+    *) echo "Erro: argumento desconhecido: $1" >&2; usage 1 ;;
+  esac
+done
+
+if [[ -z "$event" ]]; then
+  echo "Erro: --event é obrigatório." >&2
+  usage 1
+fi
+
+if [[ " ${VALID_CLASSES[*]} " != *" ${event} "* ]]; then
+  echo "Erro: classe inválida: ${event}. Use: ${VALID_CLASSES[*]}" >&2
+  exit 2
+fi
+
+say() { $quiet || echo "$*" >&2; }
+
+now() { date +%s; }
+
+emit() {
+  local status="$1" action="$2" reason="${3:-}" ip="${4:-}"
+  jq -cn --arg status "$status" --arg action "$action" --arg event "$event" \
+    --arg session "$session_id" --arg ip "$ip" --arg reason "$reason" \
+    '{status:$status,action:$action,event:$event,session:$session,ip:$ip,reason:$reason}'
+}
+
+valid_integer() {
+  local name="$1" value="$2" minimum="$3" maximum="$4"
+  if [[ ! "$value" =~ ^[0-9]+$ ]] || (( value < minimum || value > maximum )); then
+    echo "Erro: ${name} deve ser inteiro entre ${minimum} e ${maximum}." >&2
+    return 1
+  fi
+}
+
+# Escape hatch principal. Default on conforme override do maestro (2026-11-22).
+enabled="${OPENCODE_QUOTA_RECONNECT:-true}"
+case "${enabled,,}" in
+  0|false|no|off) enabled=false ;;
+  *) enabled=true ;;
+esac
+if [[ "$enabled" != true ]]; then
+  say "opencode-quota-reconnect: desabilitado (OPENCODE_QUOTA_RECONNECT=false)."
+  emit skipped "${OPENCODE_QUOTA_RECONNECT_ACTION:-rotate}" "disabled"
+  exit 0
+fi
+
+# Fora do container não há caminho seguro para a API do Gluetun nem para o lock
+# compartilhado; recusa-se a agir em vez de operar no host por engano.
+if [[ "${VPN_WORKSPACE_CONTAINER:-}" != "1" ]]; then
+  say "opencode-quota-reconnect: fora do container VPN; nenhuma ação executada."
+  emit skipped "${OPENCODE_QUOTA_RECONNECT_ACTION:-rotate}" "not_in_container"
+  exit 0
+fi
+
+# Allowlist de classes. Default: todas as cinco.
+classes_csv="${OPENCODE_QUOTA_RECONNECT_CLASSES:-free_tier_limit,rate_limit,account_limit,credit_limit,auth_limit}"
+IFS=',' read -r -a allowed <<< "$classes_csv"
+allowed_hit=false
+for candidate in "${allowed[@]}"; do
+  candidate="${candidate// /}"
+  [[ -n "$candidate" ]] || continue
+  if [[ "$candidate" == "$event" ]]; then allowed_hit=true; break; fi
+done
+if [[ "$allowed_hit" != true ]]; then
+  say "opencode-quota-reconnect: classe ${event} fora da allowlist; nada a fazer."
+  emit skipped "${OPENCODE_QUOTA_RECONNECT_ACTION:-rotate}" "class_not_allowed"
+  exit 0
+fi
+
+action="${OPENCODE_QUOTA_RECONNECT_ACTION:-rotate}"
+case "$action" in
+  rotate) target_bin="vpn-server-rotate" ;;
+  reconnect) target_bin="vpn-reconnect" ;;
+  *)
+    echo "Erro: OPENCODE_QUOTA_RECONNECT_ACTION inválido: ${action} (use rotate|reconnect)." >&2
+    emit failed "$action" "invalid_action"
+    exit 2
+    ;;
+esac
+
+cooldown_seconds="${OPENCODE_QUOTA_RECONNECT_COOLDOWN_SECONDS:-300}"
+window_seconds="${OPENCODE_QUOTA_RECONNECT_WINDOW_SECONDS:-900}"
+max_attempts="${OPENCODE_QUOTA_RECONNECT_MAX:-3}"
+timeout_seconds="${OPENCODE_QUOTA_RECONNECT_TIMEOUT_SECONDS:-300}"
+valid_integer OPENCODE_QUOTA_RECONNECT_COOLDOWN_SECONDS "$cooldown_seconds" 0 86400 || exit 2
+valid_integer OPENCODE_QUOTA_RECONNECT_WINDOW_SECONDS "$window_seconds" 1 86400 || exit 2
+valid_integer OPENCODE_QUOTA_RECONNECT_MAX "$max_attempts" 1 20 || exit 2
+valid_integer OPENCODE_QUOTA_RECONNECT_TIMEOUT_SECONDS "$timeout_seconds" 1 1800 || exit 2
+
+lock_rc=0
+vpn_control_lock_acquire || lock_rc=$?
+if (( lock_rc == 75 )); then
+  say "opencode-quota-reconnect: outra mutação VPN em andamento; ignorando."
+  emit lock_busy "$action" "lock_busy"
+  exit 75
+fi
+if (( lock_rc != 0 )); then
+  echo "Erro: não foi possível adquirir o lock de controle VPN." >&2
+  emit failed "$action" "lock_error"
+  exit 1
+fi
+
+state_file="${OPENCODE_QUOTA_RECONNECT_STATE_FILE:-$(vpn_control_state_file opencode-quota-reconnect.json)}"
+state_dir="$(dirname "$state_file")"
+if ! mkdir -p "$state_dir" 2>/dev/null || [[ ! -w "$state_dir" ]]; then
+  echo "Erro: diretório de estado não é gravável: ${state_dir}." >&2
+  emit failed "$action" "state_unavailable"
+  exit 1
+fi
+
+json_num() {
+  local key="$1" fallback="$2" raw
+  [[ -f "$state_file" ]] || { printf '%s' "$fallback"; return 0; }
+  raw="$(jq -r --arg k "$key" '.[$k] // empty' "$state_file" 2>/dev/null || true)"
+  if [[ "$raw" =~ ^[0-9]+$ ]]; then printf '%s' "$raw"; else printf '%s' "$fallback"; fi
+}
+
+ts="$(now)"
+last_attempt="$(json_num last_attempt 0)"
+window_start="$(json_num window_start 0)"
+attempts="$(json_num attempts 0)"
+
+# Janela deslizante.
+if (( window_start == 0 || ts - window_start >= window_seconds )); then
+  window_start="$ts"
+  attempts=0
+fi
+
+if (( attempts > 0 && ts - last_attempt < cooldown_seconds )); then
+  remaining=$((cooldown_seconds - (ts - last_attempt)))
+  say "opencode-quota-reconnect: cooldown ativo por mais ${remaining}s."
+  emit skipped "$action" "cooldown_active"
+  exit 0
+fi
+
+if (( attempts >= max_attempts )); then
+  say "opencode-quota-reconnect: limite de tentativas (${max_attempts}) na janela atingido."
+  emit skipped "$action" "max_attempts"
+  exit 0
+fi
+
+# Grava a tentativa ANTES de rodar para que uma falha ainda conte para o limite.
+write_state() {
+  local status="$1" reason="$2" ip="$3" tmp
+  tmp="${state_file}.tmp.$$"
+  if jq -n \
+      --argjson last_attempt "$ts" \
+      --argjson window_start "$window_start" \
+      --argjson attempts "$attempts" \
+      --arg last_status "$status" \
+      --arg last_reason "$reason" \
+      --arg last_event "$event" \
+      --arg last_session "$session_id" \
+      --arg last_ip "$ip" \
+      --arg last_run_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '{last_attempt:$last_attempt, window_start:$window_start, attempts:$attempts,
+        last_status:$last_status, last_reason:$last_reason, last_event:$last_event,
+        last_session:$last_session, last_ip:$last_ip, last_run_at:$last_run_at}' \
+      > "$tmp" 2>/dev/null; then
+    if ! mv -f "$tmp" "$state_file" 2>/dev/null; then
+      rm -f "$tmp" 2>/dev/null || true
+      return 1
+    fi
+    return 0
+  else
+    rm -f "$tmp" 2>/dev/null || true
+    return 1
+  fi
+}
+
+attempts=$((attempts + 1))
+if ! write_state "running" "started" ""; then
+  echo "Erro: não foi possível persistir o limite de tentativas antes da mutação VPN." >&2
+  emit failed "$action" "state_write_failed"
+  exit 1
+fi
+
+say "opencode-quota-reconnect: executando ${target_bin} (tentativa ${attempts}/${max_attempts})."
+
+target_args=()
+[[ "$action" == rotate ]] && target_args+=(--random)
+
+out_file="$(mktemp "${TMPDIR:-/tmp}/opencode-quota-reconnect.XXXXXX")"
+rc=0
+timeout "$timeout_seconds" "$target_bin" ${target_args[@]+"${target_args[@]}"} >"$out_file" 2>&1 </dev/null || rc=$?
+raw_out="$(cat "$out_file" 2>/dev/null || true)"
+rm -f "$out_file" 2>/dev/null || true
+
+if (( rc == 124 )); then
+  say "opencode-quota-reconnect: timeout após ${timeout_seconds}s."
+  write_state "timeout" "timeout" ""
+  emit timeout "$action" "timeout"
+  exit 1
+fi
+
+new_ip=""
+if [[ "$action" == rotate ]]; then
+  new_ip="$(printf '%s\n' "$raw_out" | grep -Eo 'IP público após a troca: [0-9a-fA-F.:]+' | tail -n1 | awk '{print $NF}' || true)"
+else
+  new_ip="$(printf '%s\n' "$raw_out" | tail -n1 || true)"
+fi
+
+if (( rc == 0 )); then
+  say "opencode-quota-reconnect: concluído. IP: ${new_ip:-desconhecido}"
+  write_state "ok" "rotated" "$new_ip"
+  emit ok "$action" "rotated" "$new_ip"
+  exit 0
+fi
+
+say "opencode-quota-reconnect: falha (exit ${rc})."
+write_state "failed" "action_failed" ""
+emit failed "$action" "action_failed"
+exit 1

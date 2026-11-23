@@ -304,6 +304,144 @@ STUB
 }
 run_test "provider quota helper is status-only and never rotates or probes" test_opencode_limit_recover
 
+test_opencode_quota_reconnect() {
+  local tmp rc=0 out code
+  tmp="$(mktemp -d)"
+  mkdir -p "$tmp/bin"
+  local -x PATH="$tmp/bin:$PATH"
+  local -x ACTION_LOG="$tmp/action.log"
+  local -x VPN_CONTROL_LOCK_FILE="$tmp/operation.lock"
+  local -x OPENCODE_QUOTA_RECONNECT_STATE_FILE="$tmp/state.json"
+  local -x VPN_WORKSPACE_CONTAINER=1
+
+  cat > "$tmp/bin/vpn-server-rotate" <<'STUB'
+#!/usr/bin/env bash
+printf 'rotate %s\n' "$*" >> "$ACTION_LOG"
+[[ "${STUB_FAIL:-}" == "1" ]] && exit 1
+[[ -n "${STUB_SLEEP:-}" ]] && sleep "$STUB_SLEEP"
+printf 'IP público após a troca: 203.0.113.7\n'
+exit 0
+STUB
+  cat > "$tmp/bin/vpn-reconnect" <<'STUB'
+#!/usr/bin/env bash
+{
+  if (($#)); then printf 'reconnect %s\n' "$*"; else printf 'reconnect\n'; fi
+} >> "$ACTION_LOG"
+printf '198.51.100.9\n'
+STUB
+  chmod +x "$tmp/bin/"*
+
+  # Desligado: nada roda.
+  local -x OPENCODE_QUOTA_RECONNECT=false
+  out="$(bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --session s1 --quiet 2>"$tmp/stderr")" || rc=1
+  jq -e '.status == "skipped" and .reason == "disabled" and .action == "rotate"' <<<"$out" >/dev/null || rc=1
+  [[ ! -e "$ACTION_LOG" ]] || rc=1
+  out="$(OPENCODE_QUOTA_RECONNECT=false bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --session 's"1' --quiet 2>/dev/null)" || rc=1
+  jq -e '.session == "s\"1" and .status == "skipped"' <<<"$out" >/dev/null || rc=1
+  unset OPENCODE_QUOTA_RECONNECT
+
+  # Fora do container: nada roda.
+  local -x VPN_WORKSPACE_CONTAINER=0
+  out="$(bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --session s1 --quiet 2>"$tmp/stderr")" || rc=1
+  jq -e '.status == "skipped" and .reason == "not_in_container"' <<<"$out" >/dev/null || rc=1
+  [[ ! -e "$ACTION_LOG" ]] || rc=1
+  local -x VPN_WORKSPACE_CONTAINER=1
+
+  # Classe inválida -> exit 2.
+  code=0
+  bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event bogus --quiet >/dev/null 2>&1 || code=$?
+  [[ "$code" == 2 ]] || rc=1
+
+  # Allowlist: classe fora -> skipped.
+  local -x OPENCODE_QUOTA_RECONNECT_CLASSES=rate_limit
+  out="$(bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event account_limit --session s1 --quiet 2>/dev/null)" || rc=1
+  jq -e '.status == "skipped" and .reason == "class_not_allowed"' <<<"$out" >/dev/null || rc=1
+  [[ ! -e "$ACTION_LOG" ]] || rc=1
+  unset OPENCODE_QUOTA_RECONNECT_CLASSES
+
+  # Ação inválida -> exit 2.
+  code=0
+  OPENCODE_QUOTA_RECONNECT_ACTION=bogus bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --quiet >/dev/null 2>&1 || code=$?
+  [[ "$code" == 2 ]] || rc=1
+
+  # Cooldown default: primeira executa, segunda é silenciada.
+  out="$(bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --session s1 --quiet 2>/dev/null)" || rc=1
+  jq -e '.status == "ok" and .action == "rotate" and .ip == "203.0.113.7"' <<<"$out" >/dev/null || rc=1
+  grep -q '^rotate --random$' "$ACTION_LOG" 2>/dev/null || rc=1
+  out="$(bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --session s1 --quiet 2>/dev/null)" || rc=1
+  jq -e '.status == "skipped" and .reason == "cooldown_active"' <<<"$out" >/dev/null || rc=1
+  [[ "$(wc -l < "$ACTION_LOG")" == 1 ]] || rc=1
+
+  # Janela + máximo de tentativas (cooldown zerado).
+  local -x OPENCODE_QUOTA_RECONNECT_COOLDOWN_SECONDS=0
+  local -x OPENCODE_QUOTA_RECONNECT_MAX=2
+  out="$(bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --session s2 --quiet 2>/dev/null)" || rc=1
+  jq -e '.status == "ok"' <<<"$out" >/dev/null || rc=1
+  out="$(bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --session s3 --quiet 2>/dev/null)" || rc=1
+  jq -e '.status == "skipped" and .reason == "max_attempts"' <<<"$out" >/dev/null || rc=1
+  unset OPENCODE_QUOTA_RECONNECT_MAX
+  rm -f "$OPENCODE_QUOTA_RECONNECT_STATE_FILE"
+
+  # Configuração numérica inválida falha antes de qualquer mutação.
+  code=0
+  OPENCODE_QUOTA_RECONNECT_TIMEOUT_SECONDS='1+1' bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --quiet >/dev/null 2>&1 || code=$?
+  [[ "$code" == 2 ]] || rc=1
+  [[ $(wc -l < "$ACTION_LOG") -eq 2 ]] || rc=1
+
+  # Sem armazenamento durável, a ação VPN falha fechada.
+  code=0
+  out="$(OPENCODE_QUOTA_RECONNECT_STATE_FILE=/proc/opencode-quota-reconnect.json bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --session s-state --quiet 2>/dev/null)" || code=$?
+  [[ "$code" == 1 ]] || rc=1
+  jq -e '.status == "failed" and .reason == "state_unavailable"' <<<"$out" >/dev/null || rc=1
+  [[ $(wc -l < "$ACTION_LOG") -eq 2 ]] || rc=1
+
+  # Falha da ação: reporteda, sem retry automático.
+  local -x STUB_FAIL=1
+  code=0
+  out="$(bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --session s4 --quiet 2>/dev/null)" || code=$?
+  [[ "$code" == 1 ]] || rc=1
+  jq -e '.status == "failed" and .reason == "action_failed"' <<<"$out" >/dev/null || rc=1
+  unset STUB_FAIL
+  rm -f "$OPENCODE_QUOTA_RECONNECT_STATE_FILE"
+
+  # Lock ocupado por outra mutação VPN -> exit 75.
+  ( exec 9>"$VPN_CONTROL_LOCK_FILE" && flock 9 && sleep 8 ) &
+  local holder=$!
+  sleep 0.3
+  code=0
+  out="$(bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --session s5 --quiet 2>/dev/null)" || code=$?
+  [[ "$code" == 75 ]] || rc=1
+  jq -e '.status == "lock_busy" and .reason == "lock_busy"' <<<"$out" >/dev/null || rc=1
+  kill "$holder" >/dev/null 2>&1 || true
+  wait "$holder" 2>/dev/null || true
+
+  # Timeout: a ação não pode pendurar a TUI para sempre.
+  rm -f "$OPENCODE_QUOTA_RECONNECT_STATE_FILE"
+  local -x STUB_SLEEP=6
+  local -x OPENCODE_QUOTA_RECONNECT_TIMEOUT_SECONDS=1
+  code=0
+  out="$(bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --session s6 --quiet 2>/dev/null)" || code=$?
+  [[ "$code" == 1 ]] || rc=1
+  jq -e '.status == "timeout" and .reason == "timeout"' <<<"$out" >/dev/null || rc=1
+  unset STUB_SLEEP OPENCODE_QUOTA_RECONNECT_TIMEOUT_SECONDS
+  rm -f "$OPENCODE_QUOTA_RECONNECT_STATE_FILE"
+
+  # Action=reconnect usa vpn-reconnect sem --random.
+  local -x OPENCODE_QUOTA_RECONNECT_ACTION=reconnect
+  out="$(bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --session s7 --quiet 2>/dev/null)" || rc=1
+  jq -e '.status == "ok" and .action == "reconnect" and .ip == "198.51.100.9"' <<<"$out" >/dev/null || rc=1
+  grep -q '^reconnect$' "$ACTION_LOG" 2>/dev/null || rc=1
+  unset OPENCODE_QUOTA_RECONNECT_ACTION
+
+  # Estado persistido para auditoria.
+  jq -e '.attempts >= 1 and .last_event == "rate_limit" and .last_session == "s7"' \
+    "$OPENCODE_QUOTA_RECONNECT_STATE_FILE" >/dev/null || rc=1
+
+  rm -rf "$tmp"
+  return "$rc"
+}
+run_test "opencode-quota-reconnect: opt-out, allowlist, cooldown, lock, timeout" test_opencode_quota_reconnect
+
 test_dotenv_parser() {
   local tmp result rc=0
   tmp="$(mktemp -d)"
