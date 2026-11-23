@@ -1,8 +1,8 @@
 # Active Handoff
 
-A release 1.3.0 está publicada no commit `f9d5ccb9738b1b68aaba82ace77a59c9b921e943`.
-CI, tag Git e imagens Docker locais estão registradas neste handoff e em
-`VERIFY.md`.
+A release 1.3.1 está publicada no commit `c2b45d7c7b0d0e9a728fa4ee63d8474a23270dc8`.
+CI, tag Git, release GitHub e imagens Docker locais estão registradas neste
+handoff e em `VERIFY.md`.
 
 ## Correções locais após a release 1.2.0 — 2026-11-23
 
@@ -14,19 +14,25 @@ de mutação VPN desde o diagnóstico até o reconnect. A validação CLI foi ex
 container descartável sem rede nos dois sentidos v1↔v2, com verificação `after`.
 `make verify` passou; evidências detalhadas estão em `VERIFY.md`.
 
-## Restart de túnel em HTTP 429 — candidato 1.3.1
+## Release 1.3.1 — restart de túnel em HTTP 429
 
 O pedido atual altera a política: erro estruturado `rate_limit`/HTTP 429
 reinicia o perfil VPN atual via `vpn-reconnect`, mesmo se Gluetun reportar o
 túnel saudável. Isso não escolhe outro servidor, troca modelo nem repete a
 requisição. O lock de mutação VPN e o timeout continuam; o cooldown comum não
 bloqueia esse restart e eventos duplicados da mesma sessão/classe seguem o TTL
-de deduplicação. A implementação está validada localmente como candidata 1.3.1.
+de deduplicação. A release `1.3.1` foi publicada após o gate local e a CI.
 
 Verificação local concluída: `make verify` passou (Linux 65/65, suites
 Node/control, 8 perfis Compose, docs, ShellCheck/sintaxe e builds Docker). Os
 casos de 429 e falha do toast foram simulados; não houve provider real nem
-mutação do túnel. CI remota e publicação do patch continuam pendentes.
+mutação do túnel. CI run `45174698361` passou os quatro jobs. A tag anotada
+`1.3.1` aponta para o commit acima e a [GitHub Release 1.3.1](https://github.com/kivervinicius/vpn-dev-workspace/releases/tag/1.3.1)
+foi publicada.
+
+Imagens locais do gate: `vpn-dev-workspace-terminal:1.3.1`
+(`a8b7535b04dc`) e `vpn-dev-workspace-gluetun:1.3.1`
+(`ccc655126ca2`). Nenhuma imagem foi enviada a registry.
 
 O processo OpenCode já ativo mantém o plugin antigo carregado. Nenhum processo
 ou túnel foi interrompido durante esta mudança; para ativá-la, reinicie o

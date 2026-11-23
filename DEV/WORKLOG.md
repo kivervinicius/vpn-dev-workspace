@@ -19,8 +19,9 @@ foram usadas; nenhum provider real foi chamado.
   Node/control, Compose (8 perfis), docs, ShellCheck/sintaxe e builds Docker.
 - Não houve chamada real a provider nem reinício do túnel ativo. Plugin em
   processo ativo exige restart do OpenCode para carregar o código atualizado.
-- Candidato 1.3.1 ainda local; CI remoto, commit, tag e publicação não foram
-  iniciados.
+- Commit `c2b45d7` foi enviado a `master`; tag anotada e GitHub Release `1.3.1`
+  publicadas após CI run `45174698361` passar os quatro jobs. Imagens locais
+  receberam tags `:1.3.1`; não foram enviadas a registry nem implantadas.
 
 ## 2026-11-23 — Correções pós-1.2.0 e release 1.3.0
 

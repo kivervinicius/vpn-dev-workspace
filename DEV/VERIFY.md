@@ -1,4 +1,4 @@
-## Restart HTTP 429 — candidato 1.3.1 (2026-11-23)
+## Release 1.3.1 — restart HTTP 429 (2026-11-23)
 
 - Alteração local: erro estruturado `rate_limit`/HTTP 429 solicita reinício do
   perfil VPN atual mesmo com túnel saudável; cooldown de recuperação normal é
@@ -12,8 +12,11 @@
 - O processo OpenCode já em execução mantém o plugin carregado da inicialização
   anterior. A alteração passa a valer após reiniciar o OpenCode numa janela
   apropriada; nenhum processo ativo foi interrompido.
-- Release 1.3.0 permanece publicada. O patch 1.3.1 está validado localmente;
-  CI e publicação ainda estão pendentes.
+- Commit `c2b45d7c7b0d0e9a728fa4ee63d8474a23270dc8` foi enviado a `master`,
+  marcado com tag anotada `1.3.1` e publicado como [GitHub Release 1.3.1](https://github.com/kivervinicius/vpn-dev-workspace/releases/tag/1.3.1).
+- CI run `45174698361` passou os quatro jobs. Imagens locais do gate:
+  terminal `a8b7535b04dc` e Gluetun `ccc655126ca2`, ambas tag `:1.3.1`; sem
+  publicação em registry. A stack ativa não foi recriada.
 
 ## Release 1.2.0
 
