@@ -33,7 +33,7 @@ confirma `status=stopped` antes do `running`; `vpn-auto-reconnect` usa
 (healthcheck ajustado); supervisor não apaga o log se a poda falhar.
 `verify-syntax` só avisa sobre ShellCheck ausente fora do CI.
 
-Verificação: Linux 73/73, Node 51/51, verify-docs OK, sintaxe OK; ShellCheck e
+Verificação: Linux 74/74, Node 51/51, verify-docs OK, sintaxe OK; ShellCheck e
 verify-compose (docker) ausentes no ambiente atual — rodar na CI antes de
 publicar. Evidências em `VERIFY.md`.
 

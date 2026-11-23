@@ -9,7 +9,7 @@
 
 - Autorização explícita do maestro: "ajuste tudo que encontrar". 30 achados
   corrigidos (2🔴 22🟡 5🔵 1❓) e anexados localmente em `134aadc` (sem push).
-- Suíte Linux: **73/73** no host com a stack no ar. Novos testes: baseline v2
+- Suíte Linux: **74/74** no host com a stack no ar. Novos testes: baseline v2
   do installer (2.2.5 falha sem arquivos; 2.2.6/2.4.0 instalam; warning acima
   do testado), rotate com 1 servidor retorna 3 (no-op), auto-reconnect nunca
   declara `healthy` com rotate no-op e túnel morto, intervalo de rotação não
@@ -27,8 +27,11 @@
   (`VPN_STOP_ATTEMPTS`/`VPN_STOP_DELAY_SECONDS`); `vpn-auto-reconnect` grava
   estado em `XDG_STATE_HOME/vpn-dev-workspace` com migração do legado `/tmp`
   (no Compose, volume `/var/lib/vpn-control/auto-reconnect` e healthcheck
-  ajustado); supervisor preserva o log se a poda falhar. Novos testes: revert
-  com exit 4, sequência stop→stopped→start, estado em XDG e healthcheck.
+  ajustado); supervisor preserva o log se a poda falhar. Como o container ativo
+  ainda tem o healthcheck antigo (sem docker neste host para recreate), o
+  estado é espelhado em `/tmp/vpn-auto-reconnect.state` até a recriação.
+  Novos testes: revert com exit 4, sequência stop→stopped→start, estado em XDG,
+  espelho legado e healthcheck.
 - `verify-docs` OK; `verify-syntax` OK localmente (ShellCheck ausente agora
   gera aviso e segue com `bash -n`/`sh -n`/`node --check`; com `CI=true` ainda
   falha duro); `verify-compose` (8 perfis) fica para a CI por ausência de

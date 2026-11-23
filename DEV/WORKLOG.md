@@ -15,10 +15,12 @@
   Linux e `DEV/VERIFY.md`.
 - Why: itens que ainda podiam mascarar falha de VPN ou deixar o gate local
   vermelho por ambiente (`VPN_CONTROL_LOCK_FILE` exportado no host).
-- Verified: Linux **73/73**, Node **51/51**, `verify-docs` e `verify-syntax`
+- Verified: Linux **74/74**, Node **51/51**, `verify-docs` e `verify-syntax`
   OK; `verify-compose` segue sem docker neste host. Anexado em `134aadc` (local, sem push).
 - Next context: revert falho agora é exit 4 (3 é no-op); `auto-reconnect`
-  interpreta 4 como erro e pede intervenção.
+  interpreta 4 como erro e pede intervenção. Estado também é espelhado em
+  `/tmp/vpn-auto-reconnect.state` para manter o healthcheck do container antigo
+  verdadeiro até o recreate (sem docker neste host).
 
 ## 2026-11-22 – Validação local de quota reconnect
 

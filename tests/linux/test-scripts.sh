@@ -1292,6 +1292,29 @@ test_auto_reconnect_state_uses_xdg() {
 }
 run_test "auto-reconnect grava estado em XDG_STATE_HOME por padrão" test_auto_reconnect_state_uses_xdg
 
+test_auto_reconnect_mirrors_legacy_state() {
+  local tmp legacy state rc=0
+  tmp="$(mktemp -d)"
+  legacy="${tmp}/legacy.state"
+  mkdir -p "$tmp/bin"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$tmp/bin/vpn-check"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$tmp/bin/vpn-reconnect"
+  chmod +x "$tmp/bin/"*
+  PATH="$tmp/bin:$PATH" \
+    VPN_AUTO_RECONNECT_STATE_FILE="${tmp}/new.state" \
+    VPN_AUTO_RECONNECT_COUNT_FILE="${tmp}/count" \
+    VPN_AUTO_RECONNECT_ROTATE_LAST_FILE="${tmp}/rotate.last" \
+    VPN_AUTO_RECONNECT_LEGACY_STATE_FILE="$legacy" \
+    VPN_RECONNECT_INTERVAL_SECONDS=1 VPN_RECONNECT_RETRY_SECONDS=1 \
+    timeout 3 bash "${SCRIPTS_DIR}/vpn-auto-reconnect" >/dev/null 2>&1 || true
+  [[ -f "$legacy" ]] || { echo "estado legado não foi espelhado" >&2; rc=1; }
+  state="$(cat "$legacy" 2>/dev/null || true)"
+  [[ "$state" =~ ^(recovering|degraded|healthy)$ ]] || { echo "estado legado inválido: $state" >&2; rc=1; }
+  rm -rf "$tmp"
+  return "$rc"
+}
+run_test "auto-reconnect espelha estado legado para healthcheck antigo" test_auto_reconnect_mirrors_legacy_state
+
 test_compose_auto_reconnect_healthcheck_path() {
   local compose="${ROOT_DIR}/docker-compose.yml"
   grep -q 'VPN_AUTO_RECONNECT_STATE_DIR: /var/lib/vpn-control/auto-reconnect' "$compose" || return 1
