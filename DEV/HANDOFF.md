@@ -38,6 +38,20 @@ O processo OpenCode já ativo mantém o plugin antigo carregado. Nenhum processo
 ou túnel foi interrompido durante esta mudança; para ativá-la, reinicie o
 OpenCode em janela apropriada. Não foi feita chamada real a provider.
 
+Após o relato de que o banner/restart não ocorreu, inspeção do container
+encontrou plugins antigos em `$HOME` e ausência de
+`/usr/local/bin/opencode-network-recover` (o container precede o mount novo do
+Compose). `opencode-vpn-install` atualizou os plugins; comparação recursiva
+confirma igualdade com os arquivos 1.3.1. O helper atual foi copiado ao
+container sem recriar a stack. E2E sintético no plugin v2 instalado, usando
+`provider.free-limit` com status 429 e helper stub, confirmou toast e
+`--force-restart`; nenhum reconnect real foi disparado.
+
+O instalador mostrou erros aritméticos ao checar a versão v2, mas completou a
+instalação; a falha de parsing do baseline ficou registrada no backlog para
+correção separada. O helper copiado permanece até recriação do terminal; a
+configuração Compose atual monta a versão do repo em `/usr/local/bin`.
+
 O container Docker de uso continua ativo e saudável (VPN 6/6) e não foi
 recriado, pois há processos OpenCode do usuário. As alterações de mount do
 helper só entram em runtime após um recreate em janela de manutenção.

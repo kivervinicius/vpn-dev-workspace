@@ -9,6 +9,15 @@
 - Testes simulam 429 com túnel saudável/diagnóstico indisponível e toast
   indisponível em v1/v2. Nenhum provider real foi chamado e o túnel ativo não
   foi reiniciado.
+- O container tinha plugins antigos e ainda não tinha o mount do helper.
+  Instalei os plugins 1.3.1, copiei o helper do repo ao container sem recriá-lo
+  e comparei os arquivos instalados com a fonte. E2E sintético usando o plugin
+  v2 instalado, `provider.free-limit` + status 429 e helper stub confirmou
+  `--force-restart` e o toast de resultado; sem chamada ao provider ou VPN.
+- Processos OpenCode existentes já tinham carregado o plugin antigo; eles
+  permanecem ativos e precisam ser reabertos para aplicar a versão atualizada.
+- O instalador registrou erros aritméticos na validação do baseline v2, embora
+  tenha concluído a cópia. Corrigir esse parser é um item separado no backlog.
 - O processo OpenCode já em execução mantém o plugin carregado da inicialização
   anterior. A alteração passa a valer após reiniciar o OpenCode numa janela
   apropriada; nenhum processo ativo foi interrompido.

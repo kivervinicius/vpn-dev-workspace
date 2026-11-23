@@ -61,6 +61,7 @@ as menções restantes são históricas, sem referência ativa em Compose/script
 | Aplicativo Desktop real e ciclo SQLite do Docker Desktop Windows | alta | pendente de hosts/aplicativos correspondentes |
 | Validar `read_only+tmpfs` nos serviços graváveis | média | pendente de teste runtime isolado; observer/UI já usam filesystem read-only com tmpfs |
 | Atualizador automático OpenCode x baseline dos serviços gerenciados | alta | timer externo ao repositório pode instalar v2 acima de 2.3.2; coordenar pin e homologação antes da próxima atualização |
+| Corrigir parser semver v2 em `opencode-vpn-install` | média | ao instalar plugins 1.3.1, aritmética baseada em `${MIN_V2_VERSION%.*}` gerou erro; cópia concluiu, mas baseline mínimo não foi aplicado. Corrigir comparação e testar v2 abaixo/do/above baseline |
 | Publicar release 1.3.0 após gates | alta | concluído em 2026-11-23: commit `f9d5ccb`, CI run `45115003447` verde, tag anotada e GitHub Release publicadas; imagens locais `:1.3.0` marcadas |
 | Publicar patch 1.3.1 com restart VPN em HTTP 429 | alta | concluído em 2026-11-23: commit `c2b45d7`, CI run `45174698361` verde, tag anotada e GitHub Release publicadas; imagens locais `:1.3.1` marcadas |
 

@@ -10,15 +10,17 @@ A reintegração Linux foi consolidada na preparação da release 1.2.0. Consult
 - Release 1.3.1 includes the structured HTTP 429 tunnel restart. Exact evidence,
   CI, tag, and cutover constraints are in `VERIFY.md` and `HANDOFF.md`.
 - Release 1.3.1 is published from commit `c2b45d7`; CI run `45174698361` passed
-  all four jobs. The Docker runtime remains on the existing installation and
-  was not redeployed. See `HANDOFF.md` for release and rollback state.
+  all four jobs. The v1/v2 plugin files now match the release inside the active
+  terminal. Its OpenCode processes predate this install and need to be reopened;
+  see `HANDOFF.md` for runtime activation and rollback state.
 - Local corrections for 1.3.0 are validated on Linux; exact evidence and
   release/cutover constraints are in `VERIFY.md` and `HANDOFF.md`.
 - The `vpn-dev-workspace` Compose project runs from this main checkout at
   `/projetos/vpn-dev-workspace`; Gluetun and auto-reconnect are healthy, and
   host and container `vpn-check` passed. Local build tags `:1.3.1` identify the
-  terminal (`a8b7535b04dc`) and Gluetun (`ccc655126ca2`) images. The active
-  stack was not recreated; rollback tags and details are in `HANDOFF.md`.
+  terminal (`a8b7535b04dc`) and Gluetun (`ccc655126ca2`) images. The helper was
+  copied into the existing terminal because it predates the Compose mount; the
+  stack was not recreated. Rollback tags and details are in `HANDOFF.md`.
 - Windows Pester passed in CI. Real Docker Desktop SQLite staging still
   requires a Windows host before claiming that runtime path validated.
 - `/tmp/vpn-v1v2-integration` remains an inactive checkout because it has

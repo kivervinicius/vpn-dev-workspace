@@ -19,6 +19,11 @@ foram usadas; nenhum provider real foi chamado.
   Node/control, Compose (8 perfis), docs, ShellCheck/sintaxe e builds Docker.
 - Não houve chamada real a provider nem reinício do túnel ativo. Plugin em
   processo ativo exige restart do OpenCode para carregar o código atualizado.
+- Ao investigar o teste local, encontrei plugin desatualizado e helper ausente
+  no container antigo. Instalei os arquivos 1.3.1 e copiei o helper sem recriar
+  container/túnel; o E2E sintético no plugin instalado confirmou o fluxo 429.
+- `opencode-vpn-install` emitiu erro aritmético ao checar baseline v2, apesar de
+  completar a instalação. Corrigir o parser e adicionar teste de versão mínima.
 - Commit `c2b45d7` foi enviado a `master`; tag anotada e GitHub Release `1.3.1`
   publicadas após CI run `45174698361` passar os quatro jobs. Imagens locais
   receberam tags `:1.3.1`; não foram enviadas a registry nem implantadas.

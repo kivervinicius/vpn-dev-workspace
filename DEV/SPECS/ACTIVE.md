@@ -34,6 +34,7 @@ Desktop continua pendente em Windows.
 - `make verify` é o gate comum local/CI. O gate passou antes da release: Linux 65/65, Node 45/45, Compose, docs, sintaxe/ShellCheck e builds Docker.
 - Release 1.3.0 publicada no commit `f9d5ccb`; CI run `45115003447` passou os quatro jobs e as imagens locais estão marcadas `:1.3.0`.
 - Release 1.3.1 publicada no commit `c2b45d7`: HTTP 429 estruturado reinicia o perfil VPN atual mesmo se saudável; outros provider limits continuam exigindo túnel confirmado como parado. O cooldown normal não bloqueia o restart 429.
+- Plugins instalados no terminal correspondem à release 1.3.1 e o helper já está disponível; processos OpenCode antigos precisam ser reabertos para carregar os plugins. Stack VPN não foi recriada.
 - PRs #7/#8 foram comparadas e não devem ser integradas sem rebase seletivo: PR #7 falha `validate`; PR #8 conflita com a política segura de provider.
 - A stack ativa continua na imagem anterior e saudável; recreate aguarda janela de manutenção devido a processos OpenCode ativos. Desktop App real, Windows Docker Desktop/SQLite e `read_only+tmpfs` para serviços graváveis permanecem pendentes.
 
