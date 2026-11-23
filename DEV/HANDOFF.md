@@ -34,9 +34,7 @@ Imagens locais do gate: `vpn-dev-workspace-terminal:1.3.1`
 (`a8b7535b04dc`) e `vpn-dev-workspace-gluetun:1.3.1`
 (`ccc655126ca2`). Nenhuma imagem foi enviada a registry.
 
-O processo OpenCode já ativo mantém o plugin antigo carregado. Nenhum processo
-ou túnel foi interrompido durante esta mudança; para ativá-la, reinicie o
-OpenCode em janela apropriada. Não foi feita chamada real a provider.
+Não foi feita chamada real a provider.
 
 Após o relato de que o banner/restart não ocorreu, inspeção do container
 encontrou plugins antigos em `$HOME` e ausência de
@@ -49,12 +47,13 @@ container sem recriar a stack. E2E sintético no plugin v2 instalado, usando
 
 O instalador mostrou erros aritméticos ao checar a versão v2, mas completou a
 instalação; a falha de parsing do baseline ficou registrada no backlog para
-correção separada. O helper copiado permanece até recriação do terminal; a
-configuração Compose atual monta a versão do repo em `/usr/local/bin`.
+correção separada.
 
-O container Docker de uso continua ativo e saudável (VPN 6/6) e não foi
-recriado, pois há processos OpenCode do usuário. As alterações de mount do
-helper só entram em runtime após um recreate em janela de manutenção.
+Após o pedido para montar todos os projetos, o serviço `terminal` foi recriado
+isoladamente com `/projetos:/projetos`; `/projetos/desktop-v2` agora existe no
+container. VPN e auto-reconnect permaneceram ativos e saudáveis (VPN check
+passou). Os processos OpenCode do terminal anterior foram encerrados. Inicie a
+nova sessão com `docker exec -it -w /projetos/desktop-v2 vpn-dev-workspace-terminal-1 opencode2 --yolo`.
 PRs #7/#8 foram comparadas: não são seguras para merge como estão; #7 está com
 `validate` vermelho, e #8 inclui rotação VPN em limite de provider HTTP 429,
 contrária à política atual. Ambas continuam abertas no GitHub.

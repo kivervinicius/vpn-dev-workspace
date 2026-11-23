@@ -27,6 +27,10 @@ foram usadas; nenhum provider real foi chamado.
 - Commit `c2b45d7` foi enviado a `master`; tag anotada e GitHub Release `1.3.1`
   publicadas após CI run `45174698361` passar os quatro jobs. Imagens locais
   receberam tags `:1.3.1`; não foram enviadas a registry nem implantadas.
+- Após pedido do usuário, recriado somente o terminal com mount `/projetos:/projetos`;
+  `/projetos/desktop-v2` está visível. VPN/Gluetun permaneceram saudáveis e não
+  foram recriados; os processos OpenCode dentro do terminal anterior foram
+  encerrados. Plugins e helper foram verificados no container novo.
 
 ## 2026-11-23 — Correções pós-1.2.0 e release 1.3.0
 

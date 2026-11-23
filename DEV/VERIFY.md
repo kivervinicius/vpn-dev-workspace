@@ -14,8 +14,10 @@
   e comparei os arquivos instalados com a fonte. E2E sintético usando o plugin
   v2 instalado, `provider.free-limit` + status 429 e helper stub confirmou
   `--force-restart` e o toast de resultado; sem chamada ao provider ou VPN.
-- Processos OpenCode existentes já tinham carregado o plugin antigo; eles
-  permanecem ativos e precisam ser reabertos para aplicar a versão atualizada.
+- Após o pedido do usuário, o serviço terminal foi recriado isoladamente para
+  aplicar o bind mount `/projetos:/projetos`; `/projetos/desktop-v2` ficou
+  visível. Os processos OpenCode antigos foram encerrados; a VPN/Gluetun e o
+  auto-reconnect permaneceram ativos e saudáveis.
 - O instalador registrou erros aritméticos na validação do baseline v2, embora
   tenha concluído a cópia. Corrigir esse parser é um item separado no backlog.
 - O processo OpenCode já em execução mantém o plugin carregado da inicialização
