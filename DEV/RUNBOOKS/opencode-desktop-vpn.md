@@ -203,14 +203,17 @@ reconhecida é informativa; nenhuma altera a VPN/modelo ou repete o turno:
 
 | Evento estruturado | Comportamento |
 |---|---|
-| Free-tier / quota | status informativo; pode mostrar o countdown numérico de `Retry-After` |
-| HTTP 429 / rate-limit | status informativo; não rotaciona nem inicia retry |
-| Conta / crédito / autenticação | status informativo; não altera VPN ou modelo |
+| Free-tier / quota | mostra o countdown numérico de `Retry-After` e verifica o estado do túnel |
+| HTTP 429 / rate-limit | informa o limite e verifica o estado do túnel |
+| Conta / crédito / autenticação | informa o limite e verifica o estado do túnel |
 
 No v1, o plugin cancela retries reconhecidos quando a API confirma o abort; o
 v2 server hook define `retry: false`. Ambos notificam sem reenviar prompts ou
-chamadas de ferramenta. `opencode-limit-recover` permanece como compatibilidade
-e retorna `quota_status_only`, sem probes, rotação ou gravação de estado.
+chamadas de ferramenta. A TUI reconecta o perfil atual somente quando o
+diagnóstico autenticado do Gluetun confirma `status=stopped`. Túnel saudável ou
+estado inconclusivo não altera a conexão. O resultado, incluindo o IP observado
+após reconectar, aparece em uma segunda notificação. `opencode-limit-recover`
+permanece como compatibilidade e retorna `quota_status_only`.
 
 Falhas confirmadas de rede são tratadas separadamente pelo supervisor. Depois
 da reconexão, ele verifica se a sessão exata continua exportável e informa um

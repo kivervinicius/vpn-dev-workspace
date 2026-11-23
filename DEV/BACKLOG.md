@@ -4,13 +4,15 @@ Pendências triadas (dono + prioridade). Regra: todo "Next/Pending" de
 `HANDOFF.md`/`VERIFY.md`/`SPECS/ACTIVE.md` tem entrada aqui ou foi
 explicitamente descartado.
 
-## Estado atual OpenCode (2026-11-22)
+## Estado atual OpenCode (2026-11-23)
 
-Cross-client session sync está implementado e coberto por conversores sintéticos
-e CLI real em homes temporárias: v1 1.19.6 ↔ v2 2.3.2. Provider quota/auth/
-rate-limit são status-only; não mudam VPN/modelo nem repetem turnos/ferramentas.
-Pendências: executar Pester no Windows e validar mounts SQLite no Docker
-Desktop; conexão real do Desktop App à ponta `serve` continua pendente.
+Cross-client session sync está coberto por conversores e CLI real em homes temporárias.
+O launcher v1 preserva home/XDG da v2, e o helper interrompe a sincronização antes
+de importar se os caminhos canônicos SQLite coincidirem. Eventos do provider acionam
+diagnóstico do túnel e reconectam apenas diante de status=stopped. Pendências de
+plataforma são o ciclo SQLite real no Docker Desktop Windows e a conexão do Desktop App.
+`make verify` agora centraliza sintaxe/ShellCheck, Compose, docs, testes e builds.
+O managed service v2 exige o baseline testado 2.3.2, salvo canário isolado explícito.
 
 ## Histórico: auditoria de segurança e fluxo (2026-11-03)
 
@@ -41,15 +43,24 @@ as menções restantes são históricas, sem referência ativa em Compose/script
 | 8 | Higiene segredos locais (concluído 2026-10-01): `chmod 600`, remoção de `secrets/` legada duplicada, `.gitignore` e `.dockerignore` protegidos | média | feito |
 | 9 | Supply-chain: gitleaks/Trivy na CI, Dependabot/Renovate p/ pins, `read_only+tmpfs` | alta | feito 2026-10-30 (gitleaks + trivy jobs na CI, Dependabot actions ativo e docker com ignore de `ubuntu`; `read_only+tmpfs` movido ao #5) |
 | 7 | Exemplo avançado opt-ins (LAN/DNS/GUI) + teste mock de DNS/leak | baixa | feito 2026-10-01 (`examples/cenarios-avancados.md`, runbook troubleshooting) |
-| 10 | Política de limites OpenCode v1/v2 | alta | atualizado 2026-11-22: eventos estruturados nunca trocam modelo nem repetem turnos. A TUI pode solicitar rotação VPN opt-out com allowlist, cooldown, janela, timeout e lock compartilhado; hooks de servidor só vetam retry. |
+| 10 | Política de limites OpenCode v1/v2 | alta | atualizado 2026-11-23: limites do provider nunca alteram VPN/modelo nem repetem turnos; TUI pode reconectar o perfil atual somente se Gluetun reportar túnel parado. Cooldown, timeout, retry-after e resultado ficam visíveis. |
 | 11 | CRLF no checkout Windows: `.gitattributes` com `* text=auto eol=lf` | média | feito 2026-10-16 |
 | 12 | Robustez 2026-10-16: wait da ponte SSH 5s→30s, teste Pester de `WORKSPACE_DIR`, mascaramento de credenciais no `vpn-top --json` + teste na suíte Linux | média | feito 2026-10-16 |
 | 13 | Paridade OpenCode host↔container no modo Windows (skills/config via mounts em `compose.windows.yml`; SQLite/sessoes isolados por limitacao do File Sharing) | média | feito 2026-10-16 |
 | 14 | Paridade completa da home Windows: `/mnt/host-home` + `vpn-home-link` (symlinks via `WINDOWS_HOME_LINKS`) + snapshot de sessoes do OpenCode no start/stop | média | feito 2026-10-16 |
 | 15 | Suíte Linux frágil no host (env puro, portas fixas 10061-10065, `/proc` do host): corrigido com `/usr/bin/env`, porta livre + `VPN_PORT_RANGE` restrita, stub de `docker` e `VPN_SESSION_SYNC_FORCE=1`; 44/44 no host e em container | média | feito 2026-10-21 |
 | 16 | CI vermelha desde o `vpn-title-hook.zsh`: SC2148 (ShellCheck não suporta zsh). Workflow exclui `*.zsh` do ShellCheck/`bash -n`, instala zsh e valida com `zsh -n` | alta | feito 2026-10-21 (run `39611786149` verde) |
-| 17 | PRs abertos do Dependabot #4 (`checkout@v7`) e #6 (`ubuntu` 25.10): mudanças equivalentes/superadas já no master (`8585f3a`); fechar na UI | baixa | pendente (o token de automação não tem permissão de fechar PRs) |
+| 17 | PRs do Dependabot #4 (checkout@v7) e #6 (ubuntu 25.10) | baixa | concluído: ambos fechados no GitHub em 2026-11-23. |
 | 18 | Recreate da stack para publicar a porta de controle 18000 (`VPN_CONTROL_PORT`) no host — scripts de host dependem dela | alta | feito 2026-11-05: `./scripts/vpn-switch nordvpn-openvpn` autorizado pelo mestre; `vpn-check`/`vpn-status`/`vpn-top` validados no host via `127.0.0.1:18000` (segredo `.secrets`); hostnames `br71..br98` restaurados no runtime do Gluetun; bug latente `{{.Service}}` do `vpn-top` no host corrigido (`{{.Names}}`) |
 
-Descartados: nenhum. "ShellCheck na CI" saiu daqui — já existe em
-`.github/workflows/validate.yml:16-19` (era pendência fantasma).
+## Pendências atuais
+
+| Item | Prioridade | Estado |
+|---|---|---|
+| PRs #7/#8 conflitantes | alta | comparação feita: master já contém o Control Plane e as correções de estado/probe; #7 tem `validate` vermelho e ambos conflitam. #8 reintroduz rotação por quota HTTP 429, que conflita com a política de provider atual. Não integrar as branches como estão; ainda abertas no GitHub, exigem fechamento ou rebase seletivo. |
+| Aplicativo Desktop real e ciclo SQLite do Docker Desktop Windows | alta | pendente de hosts/aplicativos correspondentes |
+| Validar `read_only+tmpfs` nos serviços graváveis | média | pendente de teste runtime isolado; observer/UI já usam filesystem read-only com tmpfs |
+| Atualizador automático OpenCode x baseline dos serviços gerenciados | alta | timer externo ao repositório pode instalar v2 acima de 2.3.2; coordenar pin e homologação antes da próxima atualização |
+| Publicar release 1.3.0 após gates | alta | gates locais verdes; aguardando commit/push e CI hospedada |
+
+Sem novos itens descartados.

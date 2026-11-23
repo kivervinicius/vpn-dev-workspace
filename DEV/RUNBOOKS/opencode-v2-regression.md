@@ -7,6 +7,10 @@ installer accepts releases from 2.2.6 onward, but versions other than 2.3.2
 are reported as unverified. `docs/compatibility.md` records the evidence by
 client and platform.
 
+Managed `serve`, `web`, and `supervise` commands require exactly v2 2.3.2.
+Set `OPENCODE_V2_ALLOW_UNVERIFIED=true` only for an isolated canary; never use
+that exception to silently update a live Desktop service.
+
 Provider quota, account, credit, authentication, and rate-limit events are
 status-only. The plugins do not change the VPN or model, and do not replay a
 prompt or tool call. Network recovery is a separate supervisor path for a

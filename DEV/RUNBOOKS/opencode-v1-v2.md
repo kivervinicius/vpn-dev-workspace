@@ -59,13 +59,17 @@ permissions.
 
 ## Provider limits and network recovery
 
-Provider quota and rate-limit events are status only. The v1 plugin cancels a
-recognized retry when possible and shows a notification. The v2 server hook
-sets `retry: false`; its TUI plugin shows a notification and the numeric
-`Retry-After` countdown when present. No provider limit changes the VPN or
-model, and the integration never replays the turn or its tool calls. The
-`opencode-limit-recover` command is retained as a compatibility helper and
-returns `quota_status_only` without probing providers or changing VPN state.
+Provider quota and rate-limit events never change the model or replay the turn
+or tool calls. The v1 plugin cancels a recognized retry when possible. The v2
+server hook sets `retry: false`. Both TUIs show the structured event and the
+numeric `Retry-After` countdown when present, then run `vpn-check --json
+--only tunnel`. `opencode-network-recover` calls `vpn-reconnect` only when the
+diagnostic explicitly reports `status=stopped`. Healthy or inconclusive status
+does not mutate the tunnel. Recovery holds the shared VPN mutation lock from
+diagnosis through reconnect, and provider-triggered attempts share a cooldown.
+The helper returns a structured result to the TUI and includes the IP reported
+by Gluetun. The provider limit can remain active after the tunnel reconnects.
+The compatibility command `opencode-limit-recover` remains status-only.
 
 Network recovery is separate. `opencode-supervisor` reacts to confirmed network
 disconnection or an unhealthy VPN tunnel, preserves the persistent OpenCode

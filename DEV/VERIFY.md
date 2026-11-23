@@ -51,6 +51,41 @@
 
 Revisão documental: comparadas as referências Git e confirmados três helpers idênticos na 1.1.0. Os critérios de execução estão em `SPECS/PLAN-REINTEGRACAO.md`.
 
+## Latest Verification — 2026-11-23 (candidate 1.3.0)
+
+### Passed
+
+- `PATH=/tmp/vpn-dev-shellcheck-bin:$PATH make verify`: passed syntax and
+  ShellCheck, all **8** Compose profiles, docs, Linux tests **65/65**, Node
+  OpenCode/control tests **45/45**, terminal image build, and Gluetun image
+  build. The earlier Linux suite also passed **64/64** in three consecutive
+  runs after its concurrent-recovery test was made deterministic; the final
+  suite adds shared VPN-mutation lock coverage.
+- Native OpenCode CLI transfer in a disposable Docker container with
+  `--network none` and temporary homes: v1 **1.19.6 → v2 2.3.2** and v2
+  **2.3.2 → v1 1.19.6** each applied one session; `after` verification had no
+  pending or conflicting sessions. No provider request was made.
+- Active VPN terminal remains healthy: `vpn-check --json` returned **6/6**;
+  installed CLI versions are v1 **1.19.6** and v2 **2.3.2**.
+- GitHub PR review: #7 is `CONFLICTING` with `validate` failing; #8 is
+  `CONFLICTING` and proposes quota-triggered IP rotation. Current master already
+  includes the Control Plane state/probe safeguards, so neither branch is safe
+  to merge as-is.
+
+### Test isolation correction and remaining platform checks
+
+- An initial CLI probe with only `HOME` redirected reused the active OpenCode
+  v2 managed service. It created three synthetic test sessions; those exact
+  fixtures were deleted, and a read-only SQLite query confirmed zero remain.
+  No existing conversation was changed. The final bidirectional E2E ran in a
+  separate no-network container with standalone v2 processes and temporary
+  databases.
+- The active Compose project was not recreated because user OpenCode processes
+  are running. It therefore does not yet mount the new network-recovery helper.
+- Real Desktop App connection, Docker Desktop SQLite staging on Windows, and
+  `read_only+tmpfs` for services that write state remain unverified.
+- No hosted CI run, commit, push, tag, or GitHub Release for 1.3.0 exists yet.
+
 ## Latest Verification - 2026-11-22 (main checkout release cutover)
 
 ### Passed

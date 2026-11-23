@@ -7,6 +7,8 @@ A reintegração Linux foi consolidada na preparação da release 1.2.0. Consult
 - Project: `vpn-dev-workspace`
 - Active handoff: `HANDOFF.md`
 - Active spec: `SPECS/ACTIVE.md`
+- Local corrections for 1.3.0 are validated on Linux; exact evidence and
+  release/cutover constraints are in `VERIFY.md` and `HANDOFF.md`.
 - Release 1.2.0 is published from commit `2210100`; all four GitHub Actions jobs passed. The active Docker runtime is the existing installation and was not redeployed. See `HANDOFF.md` for release and
   recovery state.
 - The `vpn-dev-workspace` Compose project runs from this main checkout at
@@ -29,7 +31,7 @@ A reintegração Linux foi consolidada na preparação da release 1.2.0. Consult
 - OpenCode v1/v2: baseline testado v1 **1.19.6** e v2 **2.3.2**. `opencode1` mantém dados isolados em `~/.opencode-v1`; `opencode2` usa a home compartilhada. Launchers interativos sincronizam sessões recentes da workspace usando export/import JSON nativo e IDs vinculados; conteúdo não suportado fica pendente sem perda. Ver `RUNBOOKS/opencode-v1-v2.md`.
 - Atualizações: `opencode-update --check|--apply` (v1 = GitHub 1.x; v2 = npm `@opencode/cli`); timer systemd do usuário `opencode-update.timer` roda diariamente; log em `~/.local/state/opencode-update.log`.
 - `opencode1`/`opencode2` executam no container pela VPN. `scripts/opencode-vpn-install` instala launchers, o helper `opencode-session-sync` e plugins de status do provider.
-- Limites de quota, autenticação e rate-limit do provider são apenas informativos: nenhum plugin, launcher ou helper altera VPN/modelo ou repete prompt/chamada de ferramenta. O supervisor recupera apenas falha confirmada de conectividade e informa retomada manual da sessão verificada.
+- Limites do provider não alteram modelo nem repetem prompt/ferramenta. A TUI consulta o estado do Gluetun e só reconecta o perfil atual se a API confirmar status=stopped; limites e Retry-After continuam informativos.
 - Windows usa sincronização separada do SQLite v2 host/container via staging;
   falhas de push retornam status não-zero e não aplicam staging anterior. Pester
   e staging SQLite real no Docker Desktop ainda exigem um host Windows; isso não

@@ -80,7 +80,7 @@ function classifyV1Error(error) {
   return structuredClass(error.data)
 }
 
-function messageFor(eventClass, reconnecting) {
+function messageFor(eventClass) {
   const base = (() => {
     switch (eventClass) {
       case "free_tier_limit": return "Limite gratuito do Zen detectado"
@@ -90,30 +90,26 @@ function messageFor(eventClass, reconnecting) {
       default: return "Limite do provider detectado"
     }
   })()
-  if (reconnecting) {
-    return `${base}; solicitando tentativa de rotação da VPN. O turno não será repetido automaticamente.`
-  }
-  return `${base}; a VPN não foi alterada e o turno não será repetido automaticamente.`
+  return `${base}; verificando o túnel VPN. O turno não será repetido automaticamente.`
 }
 
-function quotaReconnectEnabled() {
-  const raw = String(process.env.OPENCODE_QUOTA_RECONNECT ?? "true").trim().toLowerCase()
-  return !["0", "false", "no", "off"].includes(raw)
-}
-
-function spawnQuotaReconnect(eventClass, sessionID) {
+function spawnNetworkRecovery(eventClass, sessionID, showResult) {
   try {
-    // Detached: a TUI pode fechar antes do fim; o túnel não pode ficar parado.
-    const bin = process.env.OPENCODE_QUOTA_RECONNECT_BIN || "/usr/local/bin/opencode-quota-reconnect"
+    const bin = process.env.OPENCODE_NETWORK_RECOVER_BIN || "/usr/local/bin/opencode-network-recover"
     const child = spawn(bin, ["--event", eventClass, "--session", sessionID || "unknown", "--quiet"], {
-      detached: true,
-      stdio: "ignore",
+      stdio: ["ignore", "pipe", "ignore"],
       env: process.env,
     })
-    child.on("error", () => {})
-    child.unref()
+    let output = ""
+    child.stdout.setEncoding("utf8")
+    child.stdout.on("data", (chunk) => { output += chunk })
+    child.on("error", () => showResult({ status: "failed", reason: "helper_unavailable" }))
+    child.on("close", () => {
+      try { showResult(JSON.parse(output)) }
+      catch { showResult({ status: "failed", reason: "invalid_helper_response" }) }
+    })
   } catch {
-    // A notificação de quota nunca depende do sucesso do helper.
+    showResult({ status: "failed", reason: "helper_unavailable" })
   }
 }
 
@@ -175,10 +171,18 @@ function createV1Plugin() {
           return
         }
       }
-      const reconnecting = quotaReconnectEnabled()
-      const shown = await notify(messageFor(eventClass, reconnecting))
+      const shown = await notify(messageFor(eventClass))
       // TUI only: só quando a notificação foi realmente exibida.
-      if (shown && reconnecting) spawnQuotaReconnect(eventClass, sessionID)
+      if (shown) spawnNetworkRecovery(eventClass, sessionID, (result) => {
+        const message = result.status === "reconnected"
+          ? `Túnel VPN estava parado e foi reconectado${result.ip ? `. IP atual: ${result.ip}` : ""}. O limite do provider pode continuar ativo.`
+          : result.status === "healthy"
+            ? "Túnel VPN confirmado saudável. O limite do provider permanece ativo."
+            : result.status === "lock_busy"
+              ? "O túnel VPN já está sendo alterado. Consulte vpn-status antes de tentar novamente."
+              : "Não foi possível confirmar ou reconectar o túnel VPN. Consulte vpn-check."
+        void notify(message, result.status === "failed" ? "error" : "info")
+      })
     }
 
     return {

@@ -14,11 +14,10 @@
 - Mount observer dependencies individually and validate the control profile in every Compose configuration.
 - Complete Linux E2E verification for VPN checks and authenticated OpenCode Desktop/Web access.
 
-## Unreleased
+## 1.3.0 — 2026-11-23
 
-- Prevent false healthy aggregate when the tunnel or a critical check failed.
-- Require explicit tested OpenCode v2 binary in managed Linux/Windows services.
-- Isolate opt-in provider probes from the user's session data in private tmpfs.
-- Disable unsafe production session restore/recover until cross-process locking.
-- Do not rotate VPN for an ambiguous HTTP 429 without free-model evidence.
-- Publish contribution, security and OpenCode compatibility documentation.
+- Preserve the v2 home and custom XDG paths when `opencode1` starts session sync, and stop before import when canonical v1/v2 SQLite paths collide.
+- Diagnose tunnel health after structured provider events and reconnect the current profile only after Gluetun confirms the tunnel is stopped; share the VPN mutation lock, preserve `Retry-After` guidance, and never replay work.
+- Align `make verify` with Linux CI coverage for every script's syntax, OpenCode and control-plane tests, Compose profiles, documentation, and both Docker image builds.
+- Require the exact tested OpenCode v2 baseline for managed services unless an isolated canary is explicitly enabled.
+- Replace quota-triggered IP rotation with a network-only recovery path that requires Gluetun to confirm a stopped tunnel.

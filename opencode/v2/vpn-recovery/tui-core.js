@@ -1,9 +1,8 @@
 import { spawn } from "node:child_process"
 import { classifyV2Error, extractRetryAfterSeconds } from "./classify.js"
 
-// Quota events are status-only for retry/model: the turn is never replayed.
-// Network recovery is opt-out via OPENCODE_QUOTA_RECONNECT (default on) and runs
-// only from the TUI after the notification is actually shown.
+// Provider limits never replay a turn or change providers. The TUI reconnects
+// only after Gluetun confirms that the tunnel is stopped.
 function humanizeSeconds(seconds) {
   const total = Math.max(1, Math.trunc(seconds))
   const hours = Math.trunc(total / 3600)
@@ -12,58 +11,55 @@ function humanizeSeconds(seconds) {
   return `${Math.max(1, minutes)}min`
 }
 
-function quotaReconnectEnabled() {
-  const raw = String(process.env.OPENCODE_QUOTA_RECONNECT ?? "true").trim().toLowerCase()
-  return !["0", "false", "no", "off"].includes(raw)
-}
-
-function spawnQuotaReconnect(eventClass, sessionID) {
+function spawnNetworkRecovery(eventClass, sessionID, showResult) {
   try {
-    // Detached: a TUI pode fechar antes do fim; o túnel não pode ficar parado.
-    const bin = process.env.OPENCODE_QUOTA_RECONNECT_BIN || "/usr/local/bin/opencode-quota-reconnect"
-    const child = spawn(bin, ["--event", eventClass, "--session", sessionID || "unknown", "--quiet"], {
-      detached: true,
-      stdio: "ignore",
+    const bin = process.env.OPENCODE_NETWORK_RECOVER_BIN || "/usr/local/bin/opencode-network-recover"
+    const child = spawn(bin, ["--event", eventClass, "--session", sessionID || "unknown"], {
+      stdio: ["ignore", "pipe", "ignore"],
       env: process.env,
     })
-    child.on("error", () => {})
-    child.unref()
+    let output = ""
+    child.stdout.setEncoding("utf8")
+    child.stdout.on("data", (chunk) => { output += chunk })
+    child.on("error", () => showResult({ status: "failed", reason: "helper_unavailable" }))
+    child.on("close", () => {
+      try { showResult(JSON.parse(output)) }
+      catch { showResult({ status: "failed", reason: "invalid_helper_response" }) }
+    })
   } catch {
-    // A notificação de quota nunca depende do sucesso do helper.
+    showResult({ status: "failed", reason: "helper_unavailable" })
   }
 }
 
-function notification(eventClass, retryAfterSeconds, reconnecting) {
+function notification(eventClass, retryAfterSeconds) {
   const tail = retryAfterSeconds === undefined
     ? ""
     : " Tente novamente após ~" + humanizeSeconds(retryAfterSeconds) + "."
-  if (reconnecting) {
-    switch (eventClass) {
-      case "free_tier_limit":
-        return `Limite gratuito do Zen detectado; solicitando tentativa de rotação da VPN. O turno não será repetido automaticamente.${tail}`
-      case "rate_limit":
-        return `Limite de requisições detectado; solicitando tentativa de rotação da VPN. O turno não será repetido automaticamente.${tail}`
-      case "account_limit":
-        return `Limite da conta detectado; solicitando tentativa de rotação da VPN.`
-      case "credit_limit":
-        return `Limite de crédito detectado; solicitando tentativa de rotação da VPN.`
-      default:
-        return `Limite do provider detectado; solicitando tentativa de rotação da VPN.`
-    }
-  }
   switch (eventClass) {
     case "free_tier_limit":
       return retryAfterSeconds === undefined
-        ? "Limite gratuito do Zen detectado; a VPN não foi alterada nem haverá repetição automática. Consulte o status do provider."
-        : "Limite gratuito do Zen detectado; a VPN não foi alterada nem haverá repetição automática." + tail
+        ? "Limite gratuito do Zen detectado; verificando o túnel VPN. O turno não será repetido automaticamente. Consulte o status do provider."
+        : "Limite gratuito do Zen detectado; verificando o túnel VPN. O turno não será repetido automaticamente." + tail
     case "rate_limit": {
-      const message = "Limite de requisições detectado; a VPN não foi alterada e o turno não será repetido automaticamente."
+      const message = "Limite de requisições detectado; verificando o túnel VPN. O turno não será repetido automaticamente."
       return retryAfterSeconds === undefined ? message : message + tail
     }
-    case "account_limit": return "Limite da conta detectado; a VPN não foi alterada."
-    case "credit_limit": return "Limite de crédito detectado; a VPN não foi alterada."
-    default: return "Limite do provider detectado; a VPN não foi alterada."
+    case "account_limit": return "Limite da conta detectado; verificando o túnel VPN."
+    case "credit_limit": return "Limite de crédito detectado; verificando o túnel VPN."
+    default: return "Limite do provider detectado; verificando o túnel VPN."
   }
+}
+
+function recoveryMessage(result) {
+  if (result.status === "healthy") return "Túnel VPN confirmado saudável. O limite do provider permanece ativo."
+  if (result.status === "reconnected") {
+    return result.ip
+      ? `Túnel VPN estava parado e foi reconectado. IP atual: ${result.ip}. O limite do provider pode continuar ativo.`
+      : "Túnel VPN estava parado e foi reconectado. O limite do provider pode continuar ativo."
+  }
+  if (result.status === "lock_busy") return "O túnel VPN já está sendo alterado. Consulte vpn-status antes de tentar novamente."
+  if (result.reason === "tunnel_state_unknown") return "Não foi possível confirmar o estado do túnel VPN; nenhuma alteração foi feita."
+  return "Não foi possível verificar ou reconectar o túnel VPN. Consulte vpn-check."
 }
 
 function suggestedModels(catalog, current) {
@@ -101,7 +97,6 @@ export function setupTuiPlugin(ctx) {
   // poder notificar de novo. TTL default 300s.
   const handled = new Map()
   const ttlMs = Math.max(0, Number(process.env.OPENCODE_QUOTA_NOTIFY_TTL_SECONDS ?? 300)) * 1000
-  const reconnecting = quotaReconnectEnabled()
   const listener = async (event) => {
     const data = event?.data
     const sessionID = data?.sessionID
@@ -122,7 +117,7 @@ export function setupTuiPlugin(ctx) {
       await ctx.ui.toast.show({
         sessionID,
         title: "VPN recovery",
-        message: notification(eventClass, extractRetryAfterSeconds(data.error), reconnecting) + modelHint(ctx, data),
+        message: notification(eventClass, extractRetryAfterSeconds(data.error)) + modelHint(ctx, data),
         variant: "info",
         duration: 8000,
       })
@@ -131,7 +126,15 @@ export function setupTuiPlugin(ctx) {
       // A notification failure never starts another recovery.
     }
     // TUI only: o gatilho existe junto com a notificação.
-    if (shown && reconnecting) spawnQuotaReconnect(eventClass, sessionID)
+    if (shown) spawnNetworkRecovery(eventClass, sessionID, (result) => {
+      void ctx.ui.toast.show({
+        sessionID,
+        title: "VPN status",
+        message: recoveryMessage(result),
+        variant: result.status === "failed" ? "error" : "info",
+        duration: 8000,
+      }).catch(() => {})
+    })
   }
   const unsubscribe = ctx.data.on("session.execution.failed", listener)
   return () => {

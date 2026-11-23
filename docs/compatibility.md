@@ -1,6 +1,6 @@
 # OpenCode compatibility and regression status
 
-Last checked: 2026-11-22. This document separates CLI version checks, native
+Last checked: 2026-11-23. This document separates CLI version checks, native
 session-transfer coverage, plugin unit tests, and platform runtime coverage.
 
 | Client | Current tested version | Evidence | Status |
@@ -11,10 +11,13 @@ session-transfer coverage, plugin unit tests, and platform runtime coverage.
 | Windows Docker Desktop | Compose Windows override | PowerShell tests simulate Compose; staging failure is checked | Windows runtime requires Windows CI/host |
 
 The installer requires v1 1.19.6 and accepts v2 >= 2.2.6; v2.3.2 is its
-tested baseline. `opencode2-service --check` reports the installed version and
-baseline. `opencode-compat --json` compares binary versions and plugin source
-hashes, but static compatibility is not proof that a plugin registered at
-runtime or that a provider accepts a request.
+tested baseline. Managed `serve`, `web`, and `supervise` services require the
+exact tested version unless `OPENCODE_V2_ALLOW_UNVERIFIED=true` is explicitly
+set for an isolated canary. `opencode2-service --check` reports the installed
+version, tested version, and homologation state. `opencode-compat --json`
+compares binary versions and plugin source hashes, but static compatibility is
+not proof that a plugin registered at runtime or that a provider accepts a
+request.
 
 The v2 plugin package pins `@opencode/plugin` 2.3.2. The provider-status policy
 is notification-only: no quota event changes the VPN or model or replays a

@@ -1,18 +1,49 @@
 # Active Handoff
 
-A reintegração Linux está implementada e validada; esta árvore consolida a entrega para a release 1.2.0. O E2E local do Docker está registrado abaixo.
+A release 1.2.0 está publicada; as correções descritas abaixo preparam a
+entrega 1.3.0. O estado da instalação local e as evidências de E2E estão
+registrados neste handoff e em `VERIFY.md`.
 
-## Trabalho local após a release 1.2.0
+## Correções locais após a release 1.2.0 — 2026-11-23
 
-Há alterações locais para recuperação VPN iniciada por eventos de quota na TUI.
-O diff ainda não está versionado nem incluído na release. O helper foi
-endurecido e testado com rotação simulada no terminal Docker, sem alteração do
-túnel. Ver [VERIFY.md](VERIFY.md). A validação restante é recriar o terminal quando a feature for aprovada para
-uso, pois o container ativo não recebeu os mounts/env novos. Não foi feita
-chamada real ao provider nem rotação real. O staging SQLite real no Docker
-Desktop também permanece pendente em Windows.
+Implementados: comparação canônica dos bancos v1/v2 antes de importar,
+recuperação de rede apenas diante de túnel explicitamente parado, verificação
+local centralizada com a CI e bloqueio dos managed services v2 fora do baseline
+testado 2.3.2 (canário isolado é opt-in). Recovery detém o lock compartilhado
+de mutação VPN desde o diagnóstico até o reconnect. A validação CLI foi executada em
+container descartável sem rede nos dois sentidos v1↔v2, com verificação `after`.
+`make verify` passou; evidências detalhadas estão em `VERIFY.md`.
 
-Updated: 2026-11-22
+O container Docker de uso continua ativo e saudável (VPN 6/6) e não foi
+recriado, pois há processos OpenCode do usuário. As alterações de mount do
+helper só entram em runtime após um recreate em janela de manutenção.
+PRs #7/#8 foram comparadas: não são seguras para merge como estão; #7 está com
+`validate` vermelho, e #8 inclui rotação VPN em limite de provider HTTP 429,
+contrária à política atual. Ambas continuam abertas no GitHub.
+
+Pendências de ambiente: conexão real do Desktop App, staging SQLite com Docker
+Desktop em Windows, e teste `read_only+tmpfs` nos serviços que gravam estado.
+O timer local de atualização automática também pode instalar v2 além do baseline
+testado; é preciso coordenar pin/validação antes de atualizar serviços gerenciados.
+Ainda falta publicar a release depois da CI hospedada.
+
+## Release plan 1.3.0
+
+- Version: minor `1.3.0`; no database schema migration. The new recovery state is
+  a separate JSON timestamp and rollback ignores it.
+- Compatibility: managed OpenCode services require v2 **2.3.2**. Version
+  exceptions are only for an isolated canary with `OPENCODE_V2_ALLOW_UNVERIFIED`.
+- Secrets: no new secret or credential is required. No provider request was
+  made during verification.
+- Order: local `make verify` → push `master` → require hosted Linux/Windows and
+  security CI success → tag and publish 1.3.0. Keep the running Compose stack
+  on its existing image until a maintenance window with OpenCode closed.
+- Smoke/rollback: after a later recreate, run `vpn-check --json` (6 checks),
+  `opencode1/2 --version`, session-sync status and managed service `--check`.
+  Keep release 1.2.0 images/tags available for rollback. Owner: project
+  maintainer.
+
+Updated: 2026-11-23
 
 ## E2E local Docker — 2026-11-22
 

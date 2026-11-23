@@ -24,7 +24,16 @@ manuais de modelo e mounts do observador. E2E local da VPN e endpoint
 Desktop/Web está em `DEV/VERIFY.md`. Validação real do SQLite no Docker
 Desktop continua pendente em Windows.
 
-## Current delivery state (2026-11-22)
+## Current delivery state (2026-11-23)
+
+### Correções locais (2026-11-23)
+
+- Bancos SQLite v1/v2 são comparados por caminho canônico (incluindo links simbólicos) antes de qualquer import; launchers preservam os caminhos XDG customizados do v2.
+- Após evento de provider, a recuperação segura o lock VPN compartilhado e só reconecta o perfil atual se Gluetun declarar `status=stopped`; quota/429 não muda IP/modelo e nenhuma chamada é repetida.
+- Managed `serve`/`web`/`supervise` exigem OpenCode v2 **2.3.2**; versões diferentes só podem ser usadas com canário explicitamente habilitado e isolado.
+- `make verify` é o gate comum local/CI. Linux, Node, Compose, docs, sintaxe/ShellCheck e builds precisam passar antes da release.
+- PRs #7/#8 foram comparadas e não devem ser integradas sem rebase seletivo: PR #7 falha `validate`; PR #8 conflita com a política segura de provider.
+- A stack ativa continua na imagem anterior e saudável; recreate aguarda janela de manutenção devido a processos OpenCode ativos. Desktop App real, Windows Docker Desktop/SQLite e `read_only+tmpfs` para serviços graváveis permanecem pendentes.
 
 - Release candidate 1.1.0: commit `3671a78506ee826ba84dbd72d98b697e3ce81862`
   on `master`, published as Git tag and GitHub Release `1.1.0`, with all four
@@ -46,13 +55,13 @@ Desktop continua pendente em Windows.
 - Acesso opcional à rede interna do host: `FIREWALL_SUBNETS` (sub-rede da LAN detectada pelo `vpn-switch` + extras), `INTERNAL_DNS`/`INTERNAL_DNS_EXEMPT_HOSTNAMES` para nomes internos e `INTERNAL_TEST_HOST` no `vpn-check`.
 - Paridade de home: `HOST_UID`/`HOST_GID` na imagem e mounts opcionais de `SSH_AUTH_SOCK` e `RUN_USER_DIR` no terminal.
 - GUI do OpenCode pela VPN: `scripts/vpn-opencode` mantém `web`/`serve` e adiciona `supervise`; o processo roda no namespace VPN, sem Docker socket. Queda simples reinicia só o app; apenas desconexão confirmada ou túnel unhealthy dispara recuperação de rede e confirmação de saúde antes do restart. O supervisor verifica a sessão exata e informa retomada manual; não repete a requisição interrompida.
-- Provider policy: plugins reconhecem apenas eventos estruturados e **nunca** alteram o modelo nem iniciam retry, replay de prompt ou replay de ferramenta; `Retry-After` serve somente para exibir o countdown. Para VPN, a recuperação é opt-out (`OPENCODE_QUOTA_RECONNECT`, default ligado) e roda **somente na TUI**: ao exibir o toast, os plugins chamam `opencode-quota-reconnect`, que executa `vpn-server-rotate --random` sob allowlist de classes, cooldown, limite por janela, timeout e o lock compartilhado. `OPENCODE_QUOTA_RECONNECT=false` restaura status-only puro.
+- Provider policy: plugins recognize structured events, never replay prompts or tools, and preserve numeric Retry-After guidance. The TUI checks authenticated Gluetun tunnel status after the notification. It reconnects the configured VPN profile only when Gluetun explicitly reports status=stopped; healthy or inconclusive diagnostics do not mutate the tunnel. Cooldown, timeout and result reporting are covered by the network recovery helper.
 - Session sync v1/v2: baseline v1 1.19.6 e v2 2.3.2. Launchers TUI sincronizam as cinco sessões recentes por workspace com native JSON export/import e IDs mapeados. `--session <id>` inclui uma sessão antiga explicitamente. Textos, raciocínio e resultados de ferramentas concluídas são convertidos; anexos, ferramentas ativas e conteúdo não suportado ficam pendentes sem conversão lossiva. Bancos não são copiados entre versões.
 - Windows: staging do SQLite v2 host/container permanece separado da conversão cross-version. Falha de push retorna status não-zero e impede aplicar snapshot antigo.
 - Como as configurações globais dos plugins podem ser compartilhadas com o host, v1/v2 só registram recuperação/notificações quando `VPN_WORKSPACE_CONTAINER=1`; fora do container são inertes.
 - Launchers do host devem delegar para launchers dentro do container e herdar `HOME`/XDG do Compose; o `service.json` do container fica separado do serviço iniciado diretamente no host, mesmo quando o shell do host usa home de perfil.
 - Caminho do host: a API de controle do Gluetun é publicada no host em `127.0.0.1:${VPN_CONTROL_PORT:-18000}` (dentro dos containers continua `127.0.0.1:8000`); os scripts de host (`vpn-check/status/top/server-rotate/reconnect`) usam esse default via `vpn-control-api.sh` (`VPN_CONTROL_FORCE_HOST=1` força o modo host em testes), com fallback de segredo em `<repo>/.secrets/gluetun_api_key`. Publicar a porta exige recreate da stack via `vpn-switch`.
-- Lock/estado unificados: o lock usa candidatos graváveis (`VPN_CONTROL_LOCK_FILE` explícito → `VPN_CONTROL_LOCK_DIR` → `<repo>/.vpn-control-lock`, que é o mesmo bind mount do container `/run/vpn-control-lock` → `/run/vpn-control-lock` → `/var/lib/vpn-control` → `$HOME`); estados (`vpn-rotate.index`, `opencode-limit-recovery.json`, `opencode-quota-reconnect.json`) preferem `/var/lib/vpn-control` no container e caem para `<repo>/.vpn-control-state/` no host.
+- Lock/estado unificados: o lock usa candidatos graváveis (`VPN_CONTROL_LOCK_FILE` explícito → `VPN_CONTROL_LOCK_DIR` → `<repo>/.vpn-control-lock`, que é o mesmo bind mount do container `/run/vpn-control-lock` → `/run/vpn-control-lock` → `/var/lib/vpn-control` → `$HOME`); estados (`vpn-rotate.index`, `opencode-limit-recovery.json`, `opencode-network-recovery.json`) preferem `/var/lib/vpn-control` no container e caem para `<repo>/.vpn-control-state/` no host.
 - Rotação robusta: `vpn-server-rotate` faz snapshot da seleção anterior e reverte (PUT de restauração + reconnect best-effort) quando o PUT falha, a reconexão falha ou o túnel fica insaudável ao final; `--random` escolhe dentro de `VPN_SERVER_HOSTNAMES` (preserva a lista no runtime em vez de limpá-la até o próximo recreate).
 - `vpn-opencode check` é observacional; `opencode-supervisor` recupera somente queda de processo ou desconexão/túnel unhealthy reais. `OPENCODE_AUTOCHECK` permanece apenas observacional.
 - Robustez dos scripts: timeouts em todo I/O de rede (`--connect-timeout/--max-time`, `timeout 5` no TCP), checagem explícita de dependências (`need()`), sem aborts crípticos de `set -e`, `trap` em loops/sleeps longos, validações de porta/intervalo.
@@ -71,7 +80,7 @@ Desktop continua pendente em Windows.
 ## Acceptance
 
 - OpenCode baseline is v1 1.19.6 and v2 2.3.2; recent sessions sync between clients through native JSON conversion with verified detached target IDs. Unsafe or unsupported transcript content is reported pending without loss.
-- Provider quota/auth/account/credit/rate-limit events never change the model or trigger automatic retry/replay. Confirmed network recovery remains separate and returns a manual resume command for the verified session. VPN recovery from a quota notification is TUI-only, opt-out (`OPENCODE_QUOTA_RECONNECT=true` by default), and only fires after the toast is actually shown; `serve`/Desktop without the TUI never triggers it.
+- Provider limits never change the model or trigger request replay. TUI diagnostics reconnect only after Gluetun confirms a stopped tunnel and return the observed IP and result.
 - Windows same-version SQLite staging reports push failures and never applies
   stale snapshots; cross-version session sync remains native JSON inside the
   Linux terminal. Real Docker Desktop staging validation is deferred to a
@@ -84,8 +93,7 @@ Desktop continua pendente em Windows.
 - O terminal herda UID/GID do host; com `SSH_AUTH_SOCK` definido, `ssh-add -l` dentro do terminal lista as chaves da sessão do host. Validado: chave `gitlab-ci-lightsaber-deploy` listada.
 - `vpn-opencode web` abre o painel em `http://127.0.0.1:${OPENCODE_GUI_PORT}` com o tráfego saindo pela VPN; `vpn-opencode serve` expõe a ponta para o Desktop App. Validado: `401` sem senha / `200` com basic auth (`web`) e `200` servindo o app (`serve`); conexão real do Desktop App pendente.
 - `vpn-opencode check` distingue `ok|down|quota` (`--json` com `{status,port,detail}`); `watch` inicia o `opencode-supervisor`. O check é observacional e não dispara recovery. O supervisor recupera somente queda de processo ou desconexão/túnel unhealthy reais; não classifica limites de provider por texto/logs.
-- Todos os eventos estruturados de limite do provider abortam retry/replay e nunca trocam de modelo. A recuperação de VPN é separada: só a TUI, só após exibir a notificação, só com `OPENCODE_QUOTA_RECONNECT=true` e sempre pelos guardas do helper (allowlist, cooldown, máximo por janela, timeout, lock, sem retry em falha). `Retry-After` é apresentado como dado informativo.
-- `opencode-quota-reconnect` emite JSON com `status` ∈ `ok|skipped|failed|timeout|lock_busy`, exit `75` quando outra mutação VPN está em andamento, e grava `opencode-quota-reconnect.json` em `/var/lib/vpn-control` para auditoria de tentativas.
+- Structured provider events cancel supported retries, preserve Retry-After, diagnose tunnel health from the TUI, and reconnect the current profile only after Gluetun confirms status=stopped. The helper applies a shared cooldown and reports its result.
 - Launchers v1/v2 copiam sessões suportadas por JSON nativo em vez de copiar arquivos de banco entre versões. Conversões são verificadas por re-exportação do alvo e protegidas por ledger/lock.
 - Os plugins VPN compartilhados são inertes quando o OpenCode roda fora do container (`VPN_WORKSPACE_CONTAINER` ausente ou diferente de `1`).
 - Em v1, o plugin tenta cancelar retries estruturados quando a API confirma o abort e notifica; v2 define `retry: false` no hook do servidor e a TUI notifica. Nenhum caminho envia uma nova requisição.

@@ -172,15 +172,9 @@ services:
       OPENCODE_ACCOUNT_LIMIT_PATTERNS: ${OPENCODE_ACCOUNT_LIMIT_PATTERNS:-}
       OPENCODE_CREDIT_LIMIT_PATTERNS: ${OPENCODE_CREDIT_LIMIT_PATTERNS:-}
       OPENCODE_CHECK_LOG_LINES: ${OPENCODE_CHECK_LOG_LINES:-200}
-      # Recuperação de VPN ao notificar quota na TUI (default ligado; 2026-11-22).
-      # false mantém o comportamento antigo estritamente status-only.
-      OPENCODE_QUOTA_RECONNECT: ${OPENCODE_QUOTA_RECONNECT:-true}
-      OPENCODE_QUOTA_RECONNECT_ACTION: ${OPENCODE_QUOTA_RECONNECT_ACTION:-rotate}
-      OPENCODE_QUOTA_RECONNECT_CLASSES: ${OPENCODE_QUOTA_RECONNECT_CLASSES:-free_tier_limit,rate_limit,account_limit,credit_limit,auth_limit}
-      OPENCODE_QUOTA_RECONNECT_COOLDOWN_SECONDS: ${OPENCODE_QUOTA_RECONNECT_COOLDOWN_SECONDS:-300}
-      OPENCODE_QUOTA_RECONNECT_WINDOW_SECONDS: ${OPENCODE_QUOTA_RECONNECT_WINDOW_SECONDS:-900}
-      OPENCODE_QUOTA_RECONNECT_MAX: ${OPENCODE_QUOTA_RECONNECT_MAX:-3}
-      OPENCODE_QUOTA_RECONNECT_TIMEOUT_SECONDS: ${OPENCODE_QUOTA_RECONNECT_TIMEOUT_SECONDS:-300}
+      # Provider events only reconnect when Gluetun confirms a stopped tunnel.
+      OPENCODE_NETWORK_RECOVERY_COOLDOWN_SECONDS: ${OPENCODE_NETWORK_RECOVERY_COOLDOWN_SECONDS:-300}
+      OPENCODE_NETWORK_RECOVERY_TIMEOUT_SECONDS: ${OPENCODE_NETWORK_RECOVERY_TIMEOUT_SECONDS:-300}
       OPENCODE_QUOTA_NOTIFY_TTL_SECONDS: ${OPENCODE_QUOTA_NOTIFY_TTL_SECONDS:-300}
       # Sessão SSH do host, quando existir (senão /dev/null, inofensivo).
       SSH_AUTH_SOCK: /run/vpn-ssh-agent.sock
@@ -201,7 +195,7 @@ services:
       - ./scripts/vpn-provider-probe:/usr/local/bin/vpn-provider-probe:ro
       - ./scripts/vpn-status:/usr/local/bin/vpn-status:ro
       - ./scripts/vpn-reconnect:/usr/local/bin/vpn-reconnect:ro
-      - ./scripts/opencode-quota-reconnect:/usr/local/bin/opencode-quota-reconnect:ro
+      - ./scripts/opencode-network-recover:/usr/local/bin/opencode-network-recover:ro
       - ./scripts/vpn-check:/usr/local/bin/vpn-check:ro
       - ./scripts/vpn-top:/usr/local/bin/vpn-top:ro
       - ./scripts/vpn-server-rotate:/usr/local/bin/vpn-server-rotate:ro

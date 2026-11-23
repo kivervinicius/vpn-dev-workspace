@@ -313,7 +313,7 @@ O helper `vpn-opencode` roda o OpenCode dentro do container (tráfego de LLM 100
 - Supervisor persistente (recomendado): `vpn-opencode supervise --mode serve` inicia o serviço `opencode-supervisor`. Ele roda no mesmo namespace da VPN, usa a mesma home/workspace e **não** recebe o socket Docker.
 - Recuperação automática: queda do processo com VPN saudável reinicia apenas o OpenCode; somente desconexão real ou túnel unhealthy acionam recuperação VPN pelo supervisor. O `vpn-opencode check` é observacional e não inicia rotação; limites de provider não são falhas de túnel.
 - Plugins v1/v2 classificam somente eventos e campos estruturados. Provider quota, autenticação e rate-limit **não alteram o modelo e não repetem** automaticamente o turno ou chamadas de ferramenta. O v1 cancela retries reconhecidos quando possível; o hook de servidor v2 define `retry: false`; a TUI pode mostrar a contagem regressiva numérica de `Retry-After`. Texto arbitrário e logs não acionam ações. Para executar no host fora do túnel, use `OPENCODE_ALLOW_HOST=1 opencode1|opencode2`.
-- **Recuperação de VPN na TUI (default ligado, 2026-11-22):** ao exibir o toast de limite, os plugins v1/v2 chamam `opencode-quota-reconnect`, que executa `vpn-server-rotate --random` (troca de servidor, espera o IP público e valida o túnel) dentro do container. Proteções: allowlist de classes (`OPENCODE_QUOTA_RECONNECT_CLASSES`, default as cinco), cooldown (`300s`), máximo de tentativas por janela (`3` em `900s`), timeout (`300s`), lock compartilhado de mutação VPN (exit `75` quando ocupado) e **nunca** retry automático em falha. Só a TUI dispara: `serve`/Desktop sem TUI notifica apenas. Desligue com `OPENCODE_QUOTA_RECONNECT=false` para voltar ao comportamento estritamente status-only. Detalhes em `DEV/RUNBOOKS/opencode-v1-v2.md`.
+- **Diagnóstico após evento do provider:** a TUI consulta o estado do túnel no Gluetun e só chama `vpn-reconnect` quando o Gluetun confirma `status=stopped`. Um túnel saudável ou estado inconclusivo não altera a conexão. O helper aplica cooldown e timeout, compartilha o lock de mutação VPN, e informa o estado e o IP observado após reconexão. Limites de provider continuam sujeitos ao `Retry-After`; nenhum evento troca modelo ou repete prompt/ferramenta. Detalhes em `DEV/RUNBOOKS/opencode-v1-v2.md`.
 - Falhas confirmadas de conectividade continuam separadas dos limites do provider. O `opencode-supervisor` recupera apenas desconexão de rede ou túnel unhealthy. Ele salva o ID da sessão mais recente, verifica que a sessão exata ainda pode ser exportada e informa `opencode2 --session <id>` para retomada manual; prompts e ferramentas nunca são repetidos automaticamente.
 - Proteção anti-loop do supervisor (`OPENCODE_RECOVERY_MAX_ROTATIONS`, `OPENCODE_RECOVERY_WINDOW_SECONDS` e `OPENCODE_RECOVERY_COOLDOWN_SECONDS`) limita recuperação de conectividade, separada dos limites do plugin.
 - `vpn-opencode watch` permanece como compatibilidade: inicia o supervisor persistente e acompanha seus logs.
@@ -584,10 +584,10 @@ Referências oficiais:
 - https://opencode.ai/changelog/v2.3.2
 - https://opencode.ai/docs/plugins/
 
-O serviço `opencode2-service` valida que o executável pertence à linha v2 e
-recusa versões abaixo do mínimo 2.2.6, a menos que a opção de canário seja
-explicitamente habilitada. Versões diferentes do baseline 2.3.2 emitem aviso;
-isso não é prova de compatibilidade dos plugins.
+O serviço `opencode2-service` exige exatamente o baseline testado 2.3.2 para
+`serve`, `web` e `supervise`. Outra versão falha fechada; `OPENCODE_V2_ALLOW_UNVERIFIED=true`
+é uma exceção explícita para canário isolado. `opencode2-service --check`
+informa a versão instalada, a versão testada e o estado de homologação.
 
 ```bash
 opencode2-service --check

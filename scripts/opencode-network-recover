@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+source "$(dirname "${BASH_SOURCE[0]}")/vpn-control-lock.sh"
+
+usage() {
+  echo "Uso: opencode-network-recover --event <classe> [--session <id>] [--quiet]" >&2
+  exit "${1:-0}"
+}
+
+event=""
+session_id=""
+quiet=false
+while (($#)); do
+  case "$1" in
+    --event) (($# >= 2)) || usage 2; event="$2"; shift 2 ;;
+    --session) (($# >= 2)) || usage 2; session_id="$2"; shift 2 ;;
+    --quiet) quiet=true; shift ;;
+    -h|--help) usage 0 ;;
+    *) echo "Argumento desconhecido: $1" >&2; usage 2 ;;
+  esac
+done
+
+case "$event" in
+  free_tier_limit|rate_limit|account_limit|credit_limit|auth_limit) ;;
+  *) echo "Evento de provider inválido." >&2; exit 2 ;;
+esac
+
+emit() {
+  local status="$1" reason="$2" ip="${3:-}"
+  jq -cn --arg status "$status" --arg reason "$reason" --arg event "$event" \
+    --arg session "$session_id" --arg ip "$ip" \
+    '{status:$status,reason:$reason,event:$event,session:$session,ip:$ip}'
+}
+
+say() { $quiet || echo "$*" >&2; }
+
+if [[ "${VPN_WORKSPACE_CONTAINER:-}" != "1" ]]; then
+  emit skipped not_in_vpn_container
+  exit 0
+fi
+
+# Serialize provider-triggered recoveries before they inspect or mutate the
+# shared cooldown state.
+state_file="${OPENCODE_NETWORK_RECOVERY_STATE_FILE:-$(vpn_control_state_file opencode-network-recovery.json)}"
+state_dir="$(dirname "$state_file")"
+mkdir -p "$state_dir" || { emit failed state_unavailable; exit 1; }
+lock_file="${state_file}.lock"
+exec 8>"$lock_file"
+chmod 600 "$lock_file" 2>/dev/null || true
+if ! flock -n 8; then
+  emit lock_busy recovery_in_progress
+  exit 0
+fi
+
+# Hold the shared lock used by all VPN mutators from diagnosis through recovery.
+# vpn-reconnect can reuse the inherited descriptor instead of deadlocking.
+if vpn_control_lock_acquire; then
+  :
+else
+  lock_status=$?
+  if (( lock_status == 75 )); then
+    emit lock_busy mutation_in_progress
+    exit 0
+  fi
+  emit failed control_lock_unavailable
+  exit 1
+fi
+
+diagnostic="$(vpn-check --json --only tunnel 2>/dev/null || true)"
+if ! jq -e '.checks | type == "array"' <<<"$diagnostic" >/dev/null 2>&1; then
+  say "Não foi possível ler o diagnóstico do túnel VPN."
+  emit skipped tunnel_state_unknown
+  exit 0
+fi
+
+tunnel_detail="$(jq -r '.checks[] | select(.name == "túnel VPN ativo") | .detail' <<<"$diagnostic")"
+ip_ok="$(jq -r '.checks[] | select(.name | startswith("IP público obtido")) | .ok' <<<"$diagnostic")"
+if [[ "$(jq -r '.checks[] | select(.name == "túnel VPN ativo") | .ok' <<<"$diagnostic")" == "true" && "$ip_ok" == "true" ]]; then
+  emit healthy tunnel_healthy
+  exit 0
+fi
+
+if [[ ! "$tunnel_detail" =~ ^status=stopped([[:space:]]|$) ]]; then
+  say "O diagnóstico não confirmou que o túnel VPN está parado."
+  emit skipped tunnel_state_unknown
+  exit 0
+fi
+
+cooldown="${OPENCODE_NETWORK_RECOVERY_COOLDOWN_SECONDS:-300}"
+timeout_seconds="${OPENCODE_NETWORK_RECOVERY_TIMEOUT_SECONDS:-300}"
+[[ "$cooldown" =~ ^[0-9]+$ ]] || { echo "Cooldown inválido." >&2; emit failed invalid_cooldown; exit 2; }
+[[ "$timeout_seconds" =~ ^[1-9][0-9]*$ ]] || { echo "Timeout inválido." >&2; emit failed invalid_timeout; exit 2; }
+
+now="$(date +%s)"
+last_attempt="$(cat "$state_file" 2>/dev/null || echo 0)"
+if [[ "$last_attempt" =~ ^[0-9]+$ ]] && (( last_attempt > 0 && now - last_attempt < cooldown )); then
+  emit skipped cooldown_active
+  exit 0
+fi
+
+temporary="${state_file}.${BASHPID}.tmp"
+printf '%s\n' "$now" >"$temporary"
+chmod 600 "$temporary"
+mv -f -- "$temporary" "$state_file"
+
+say "Túnel parado confirmado; reconectando o perfil VPN atual."
+output=""
+if output="$(timeout "$timeout_seconds" vpn-reconnect 2>&1)"; then
+  ip="$(sed -nE 's/.*IP público: ([0-9A-Fa-f:.]+).*/\1/p' <<<"$output" | tail -n 1)"
+  emit reconnected tunnel_reconnected "$ip"
+else
+  status=$?
+  if (( status == 124 )); then emit failed recovery_timeout
+  else emit failed reconnect_failed
+  fi
+  exit 1
+fi

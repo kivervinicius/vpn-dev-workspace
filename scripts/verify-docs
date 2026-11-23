@@ -101,8 +101,8 @@ grep -Fq 'curl --config -' "$ROOT_DIR/scripts/vpn-control-api.sh" || {
   echo "Erro: autenticação da API não é fornecida pelo stdin do curl." >&2
   fails=$((fails + 1))
 }
-grep -Fq 'docker build --pull=true ./gluetun' "$ROOT_DIR/.github/workflows/validate.yml" || {
-  echo "Erro: CI não constrói a imagem local do Gluetun." >&2
+grep -Fq 'docker build --pull=true ./gluetun' "$ROOT_DIR/Makefile" || {
+  echo "Erro: make verify não constrói a imagem local do Gluetun." >&2
   fails=$((fails + 1))
 }
 

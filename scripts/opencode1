@@ -56,6 +56,10 @@ run_with_session_sync() {
 }
 
 if [[ "${VPN_WORKSPACE_CONTAINER:-}" == "1" ]]; then
+  readonly V2_HOME="${OPENCODE_V2_HOME:-${HOME:?HOME must be set}}"
+  readonly V2_XDG_DATA_HOME="${OPENCODE_V2_XDG_DATA_HOME:-${XDG_DATA_HOME:-${V2_HOME}/.local/share}}"
+  readonly V2_XDG_CONFIG_HOME="${OPENCODE_V2_XDG_CONFIG_HOME:-${XDG_CONFIG_HOME:-${V2_HOME}/.config}}"
+  readonly V2_XDG_STATE_HOME="${OPENCODE_V2_XDG_STATE_HOME:-${XDG_STATE_HOME:-${V2_HOME}/.local/state}}"
   readonly V1_HOME="${OPENCODE_V1_HOME:-${HOME:?HOME must be set}/.opencode-v1}"
   readonly HOST_HOME="${OPENCODE_HOST_HOME:-${HOME:?HOME must be set}}"
   readonly V1_BIN="${V1_HOME}/bin/opencode"
@@ -79,6 +83,10 @@ if [[ "${VPN_WORKSPACE_CONTAINER:-}" == "1" ]]; then
   export XDG_STATE_HOME="$V1_HOME/.local/state"
   export OPENCODE_HOST_HOME="$HOST_HOME"
   export OPENCODE_V1_HOME="$V1_HOME"
+  export OPENCODE_V2_HOME="$V2_HOME"
+  export OPENCODE_V2_XDG_DATA_HOME="$V2_XDG_DATA_HOME"
+  export OPENCODE_V2_XDG_CONFIG_HOME="$V2_XDG_CONFIG_HOME"
+  export OPENCODE_V2_XDG_STATE_HOME="$V2_XDG_STATE_HOME"
   if should_sync_session "$@"; then
     run_with_session_sync v1 "$V1_BIN" "$@"
     exit $?
@@ -89,6 +97,10 @@ fi
 # Escape explícito: executar no host, fora do túnel VPN. Opt-in porque o
 # free tier do Zen é por conta e o host não tem os plugins de recuperação VPN.
 if [[ "${OPENCODE_ALLOW_HOST:-0}" == "1" ]]; then
+  host_v2_home="${OPENCODE_V2_HOME:-${HOME:?HOME must be set}}"
+  host_v2_xdg_data_home="${OPENCODE_V2_XDG_DATA_HOME:-${XDG_DATA_HOME:-${host_v2_home}/.local/share}}"
+  host_v2_xdg_config_home="${OPENCODE_V2_XDG_CONFIG_HOME:-${XDG_CONFIG_HOME:-${host_v2_home}/.config}}"
+  host_v2_xdg_state_home="${OPENCODE_V2_XDG_STATE_HOME:-${XDG_STATE_HOME:-${host_v2_home}/.local/state}}"
   host_v1_home="${OPENCODE_V1_HOME:-${HOME:?HOME must be set}/.opencode-v1}"
   host_bin="${OPENCODE_HOST_V1_BIN:-${host_v1_home}/bin/opencode}"
   if [[ ! -x "$host_bin" ]]; then
@@ -98,6 +110,10 @@ if [[ "${OPENCODE_ALLOW_HOST:-0}" == "1" ]]; then
   echo 'opencode1: EXECUTANDO NO HOST, FORA DO TÚNEL VPN (OPENCODE_ALLOW_HOST=1); recuperação VPN fica inativa.' >&2
   export OPENCODE_HOST_HOME="$HOME"
   export OPENCODE_V1_HOME="$host_v1_home"
+  export OPENCODE_V2_HOME="$host_v2_home"
+  export OPENCODE_V2_XDG_DATA_HOME="$host_v2_xdg_data_home"
+  export OPENCODE_V2_XDG_CONFIG_HOME="$host_v2_xdg_config_home"
+  export OPENCODE_V2_XDG_STATE_HOME="$host_v2_xdg_state_home"
   export HOME="$host_v1_home"
   export XDG_DATA_HOME="$host_v1_home/.local/share"
   export XDG_CONFIG_HOME="$host_v1_home/.config"

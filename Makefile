@@ -36,7 +36,10 @@ test: ## Executa a suíte de testes automatizados (Linux)
 	@./tests/linux/test-scripts.sh
 
 verify: ## Executa todas as verificações do repositório (compose, docs e testes)
+	@./scripts/verify-syntax
 	@./scripts/verify-compose
 	@./scripts/verify-docs
 	@./tests/linux/test-scripts.sh
-	@node --test tests/opencode/*.test.mjs
+	@node --test tests/opencode/*.test.mjs tests/control/*.test.cjs
+	@docker build --pull=true .
+	@docker build --pull=true ./gluetun

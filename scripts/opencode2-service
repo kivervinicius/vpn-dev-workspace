@@ -2,15 +2,10 @@
 # Strict v2 OpenCode entrypoint for GUI/serve/supervisor.
 set -Eeuo pipefail
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-  echo "Uso: opencode2-service [--check] | <args OpenCode>; requires v2 >= ${OPENCODE_V2_MIN_VERSION:-2.2.6} (tested baseline ${OPENCODE_V2_EXPECTED_VERSION:-2.3.2}). Canary: OPENCODE_V2_ALLOW_UNVERIFIED=true." >&2
+  echo "Uso: opencode2-service [--check] | <args OpenCode>; requires tested v2 ${OPENCODE_V2_EXPECTED_VERSION:-2.3.2}. Canary: OPENCODE_V2_ALLOW_UNVERIFIED=true." >&2
   exit 0
 fi
 readonly BIN="${OPENCODE_V2_BIN:-${HOME:?HOME must be set}/.opencode/bin/opencode}"
-# Baseline mínimo homologado: o launcher aceita qualquer v2 >= MIN e falha
-# fechado abaixo dele (o --archived do probe só existe a partir de 2.2.6).
-# O pin recomendado continua em OPENCODE_V2_EXPECTED_VERSION: versão acima do
-# pin não é mais rejeitada, só marked como não homologada.
-readonly MIN_VERSION="${OPENCODE_V2_MIN_VERSION:-2.2.6}"
 readonly EXPECTED="${OPENCODE_V2_EXPECTED_VERSION:-2.3.2}"
 readonly VPN_CHECK="${VPN_CHECK_BIN:-/usr/local/bin/vpn-check}"
 [[ "$BIN" == /* && -x "$BIN" ]] || { echo "opencode2-service: v2 binary not available: $BIN" >&2; exit 127; }
@@ -21,34 +16,15 @@ else
   echo "opencode2-service: unknown OpenCode version" >&2; exit 1
 fi
 [[ "$version" == 2.* ]] || { echo "opencode2-service: expected OpenCode v2; installed $version" >&2; exit 1; }
-# Comparação semver (major.minor.patch) sem depender de `sort -V`.
-version_cmp() {
-  local a="$1" b="$2" i
-  local -a pa pb
-  IFS='.' read -r -a pa <<<"$1"
-  IFS='.' read -r -a pb <<<"$2"
-  for i in 0 1 2; do
-    local na="${pa[$i]:-0}" nb="${pb[$i]:-0}"
-    ((10#$na > 10#$nb)) && { echo 1; return 0; }
-    ((10#$na < 10#$nb)) && { echo -1; return 0; }
-  done
-  echo 0
-}
-cmp_min="$(version_cmp "$version" "$MIN_VERSION")"
-if ((cmp_min < 0)); then
-  # Falha fechada abaixo do baseline mínimo homologado.
+if [[ "$version" != "$EXPECTED" ]]; then
+  # Managed services only use the tested version; canary is an explicit opt-in.
   case "${OPENCODE_V2_ALLOW_UNVERIFIED:-false}" in
-    true|1|yes) echo "opencode2-service: WARNING unverified v2=$version below minimum baseline=$MIN_VERSION" >&2 ;;
-    *) echo "opencode2-service: v2=$version is below the minimum baseline=$MIN_VERSION; upgrade or use isolated canary" >&2; exit 1 ;;
+    true|1|yes) echo "opencode2-service: WARNING unverified v2=$version, tested baseline=$EXPECTED" >&2 ;;
+    *) echo "opencode2-service: v2=$version has not been tested (tested: $EXPECTED); use an isolated canary" >&2; exit 1 ;;
   esac
 fi
-if [[ "$version" != "$EXPECTED" ]]; then
-  # Acima ou entre baselines: aviso apenas, o serviço continua (o auto-update
-  # diário instalaria "latest" e derrubaria o serviço se isso fosse fatal).
-  echo "opencode2-service: WARNING v2=$version is not the tested baseline=$EXPECTED" >&2
-fi
 if [[ "${1:-}" == "--check" ]]; then
-  printf '{"version":"%s","min":"%s","tested":"%s","homologated":%s}\n' "$version" "$MIN_VERSION" "$EXPECTED" "$([[ "$version" == "$EXPECTED" ]] && echo true || echo false)"
+  printf '{"version":"%s","tested":"%s","homologated":%s}\n' "$version" "$EXPECTED" "$([[ "$version" == "$EXPECTED" ]] && echo true || echo false)"
   exit 0
 fi
 [[ -x "$VPN_CHECK" ]] || { echo "opencode2-service: vpn-check missing" >&2; exit 1; }

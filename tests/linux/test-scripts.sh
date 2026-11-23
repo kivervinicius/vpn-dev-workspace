@@ -47,7 +47,7 @@ expect_code() {
 echo "=== Iniciando Suíte de Testes Linux ==="
 
 # 1. Checagem de --help em todos os scripts
-for s in vpn-switch vpn-check vpn-status vpn-top vpn-server-rotate vpn-auto-reconnect vpn-opencode vpn-hosts-import vpn-hosts-apply vpn-hosts-gen opencode-supervisor opencode-vpn-install opencode-limit-recover opencode-session-sync opencode-session-sync.mjs vpn-doctor vpn-setup vpn-shell verify-compose verify-docs; do
+for s in vpn-switch vpn-check vpn-status vpn-top vpn-server-rotate vpn-auto-reconnect vpn-opencode vpn-hosts-import vpn-hosts-apply vpn-hosts-gen opencode-supervisor opencode-vpn-install opencode-limit-recover opencode-network-recover opencode-session-sync opencode-session-sync.mjs vpn-doctor vpn-setup vpn-shell verify-compose verify-docs verify-syntax; do
   if [[ -f "${SCRIPTS_DIR}/${s}" ]]; then
     if [[ "$s" == *.mjs ]]; then
       run_test "Script ${s} responde a --help com exit 0" node "${SCRIPTS_DIR}/${s}" --help
@@ -304,143 +304,154 @@ STUB
 }
 run_test "provider quota helper is status-only and never rotates or probes" test_opencode_limit_recover
 
-test_opencode_quota_reconnect() {
-  local tmp rc=0 out code
+test_supervisor_classification() {
+  local output
+  for pair in \
+    'connection lost while streaming|disconnect' \
+    'network connection lost; retrying|disconnect' \
+    'normal request completed|none' \
+    '429 Too Many Requests|none' \
+    'Provider rate limit exceeded|none' \
+    'FreeUsageLimitError: Free usage limit reached|none' \
+    'Go limit reached: usage limit reached|none' \
+    'CreditLimitExceeded: credit limit exceeded|none'; do
+    output="$(bash "$SCRIPTS_DIR/opencode-supervisor" --classify "${pair%%|*}")" || return 1
+    [[ "$output" == "${pair#*|}" ]] || return 1
+  done
+}
+run_test "supervisor classifies connectivity and ignores provider limits" test_supervisor_classification
+
+test_verify_syntax_checks_each_script() {
+  local fixture output rc=0
+  fixture="$(mktemp -d)"
+  mkdir -p "$fixture/bin" "$fixture/scripts" "$fixture/apps" "$fixture/opencode" "$fixture/tests"
+  # The host wrapper may run ShellCheck in Docker with a fixed repository
+  # mount. Stub lint here so this fixture specifically exercises per-file
+  # bash -n handling against its temporary tree.
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$fixture/bin/shellcheck"
+  chmod 755 "$fixture/bin/shellcheck"
+  printf '#!/usr/bin/env bash\ntrue\n' > "$fixture/scripts/01-good.sh"
+  printf '#!/usr/bin/env bash\nif then\n' > "$fixture/scripts/02-bad.sh"
+  printf '#!/bin/sh\ntrue\n' > "$fixture/scripts/vpn-entrypoint.sh"
+  for script in vpn-state vpn-events vpn-observer vpn-backup vpn-control-ui vpn-provider-probe opencode-compat; do
+    printf 'process.exitCode = 0\n' > "$fixture/scripts/$script"
+  done
+  chmod 755 "$fixture/scripts/01-good.sh" "$fixture/scripts/02-bad.sh" "$fixture/scripts/vpn-entrypoint.sh"
+
+  output="$(PATH="$fixture/bin:$PATH" VERIFY_SYNTAX_ROOT="$fixture" bash "$SCRIPTS_DIR/verify-syntax" 2>&1)" && rc=1
+  [[ "$rc" == 0 ]] || return 1
+  grep -Fq '02-bad.sh' <<<"$output" || return 1
+  rm -rf "$fixture"
+}
+run_test "verify-syntax catches a bad second script in a fixture" test_verify_syntax_checks_each_script
+
+test_opencode_network_recover() {
+  local tmp output rc=0
   tmp="$(mktemp -d)"
   mkdir -p "$tmp/bin"
   local -x PATH="$tmp/bin:$PATH"
   local -x ACTION_LOG="$tmp/action.log"
-  local -x VPN_CONTROL_LOCK_FILE="$tmp/operation.lock"
-  local -x OPENCODE_QUOTA_RECONNECT_STATE_FILE="$tmp/state.json"
+  local -x OPENCODE_NETWORK_RECOVERY_STATE_FILE="$tmp/recovery.state"
   local -x VPN_WORKSPACE_CONTAINER=1
+  local -x VPN_CONTROL_LOCK_FILE="$tmp/shared-operation.lock"
+  local -x VPN_CONTROL_LOCK_LIB="$SCRIPTS_DIR/vpn-control-lock.sh"
+  local -x OPENCODE_NETWORK_RECOVERY_COOLDOWN_SECONDS=300
+  local -x STUB_RELEASE_FILE=""
+  local -x VPN_CHECK_MODE=healthy
 
-  cat > "$tmp/bin/vpn-server-rotate" <<'STUB'
+  cat > "$tmp/bin/vpn-check" <<'STUB'
 #!/usr/bin/env bash
-printf 'rotate %s\n' "$*" >> "$ACTION_LOG"
-[[ "${STUB_FAIL:-}" == "1" ]] && exit 1
-[[ -n "${STUB_SLEEP:-}" ]] && sleep "$STUB_SLEEP"
-printf 'IP público após a troca: 203.0.113.7\n'
-exit 0
+case "$VPN_CHECK_MODE" in
+  healthy)
+    printf '%s\n' '{"healthy":true,"fails":0,"checks":[{"name":"túnel VPN ativo","ok":true,"detail":""},{"name":"IP público obtido (203.0.113.10)","ok":true,"detail":""}]}'
+    ;;
+  stopped)
+    printf '%s\n' '{"healthy":false,"fails":2,"checks":[{"name":"túnel VPN ativo","ok":false,"detail":"status=stopped"},{"name":"IP público obtido","ok":false,"detail":"vazio ou inacessível"}]}'
+    exit 1
+    ;;
+  unknown)
+    echo invalid-json
+    exit 1
+    ;;
+  failed|error)
+    printf '{"healthy":false,"fails":1,"checks":[{"name":"túnel VPN ativo","ok":false,"detail":"status=%s"},{"name":"IP público obtido","ok":false,"detail":"vazio ou inacessível"}]}\n' "$VPN_CHECK_MODE"
+    exit 1
+    ;;
+esac
 STUB
   cat > "$tmp/bin/vpn-reconnect" <<'STUB'
 #!/usr/bin/env bash
-{
-  if (($#)); then printf 'reconnect %s\n' "$*"; else printf 'reconnect\n'; fi
-} >> "$ACTION_LOG"
-printf '198.51.100.9\n'
+source "$VPN_CONTROL_LOCK_LIB"
+vpn_control_lock_acquire || exit $?
+printf 'reconnect\n' >> "$ACTION_LOG"
+if [[ -n "$STUB_RELEASE_FILE" ]]; then
+  while [[ ! -e "$STUB_RELEASE_FILE" ]]; do sleep 0.05; done
+fi
+echo 'VPN reconectada. IP público: 198.51.100.9'
 STUB
   chmod +x "$tmp/bin/"*
 
-  # Desligado: nada roda.
-  local -x OPENCODE_QUOTA_RECONNECT=false
-  out="$(bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --session s1 --quiet 2>"$tmp/stderr")" || rc=1
-  jq -e '.status == "skipped" and .reason == "disabled" and .action == "rotate"' <<<"$out" >/dev/null || rc=1
-  [[ ! -e "$ACTION_LOG" ]] || rc=1
-  out="$(OPENCODE_QUOTA_RECONNECT=false bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --session 's"1' --quiet 2>/dev/null)" || rc=1
-  jq -e '.session == "s\"1" and .status == "skipped"' <<<"$out" >/dev/null || rc=1
-  unset OPENCODE_QUOTA_RECONNECT
+  output="$(bash "$SCRIPTS_DIR/opencode-network-recover" --event rate_limit --session s1 --quiet)" || rc=1
+  jq -e '.status == "healthy" and .reason == "tunnel_healthy"' <<<"$output" >/dev/null || { echo "healthy tunnel response mismatch: $output" >&2; rc=1; }
+  [[ ! -e "$ACTION_LOG" ]] || { echo "healthy tunnel unexpectedly reconnected" >&2; rc=1; }
 
-  # Fora do container: nada roda.
-  local -x VPN_WORKSPACE_CONTAINER=0
-  out="$(bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --session s1 --quiet 2>"$tmp/stderr")" || rc=1
-  jq -e '.status == "skipped" and .reason == "not_in_container"' <<<"$out" >/dev/null || rc=1
-  [[ ! -e "$ACTION_LOG" ]] || rc=1
-  local -x VPN_WORKSPACE_CONTAINER=1
+  local -x VPN_CHECK_MODE=stopped
+  output="$(bash "$SCRIPTS_DIR/opencode-network-recover" --event rate_limit --session s2 --quiet)" || rc=1
+  jq -e '.status == "reconnected" and .ip == "198.51.100.9"' <<<"$output" >/dev/null || { echo "stopped tunnel response mismatch: $output" >&2; rc=1; }
+  [[ "$(wc -l < "$ACTION_LOG")" == 1 ]] || { echo "expected one reconnect after stopped tunnel" >&2; rc=1; }
 
-  # Classe inválida -> exit 2.
-  code=0
-  bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event bogus --quiet >/dev/null 2>&1 || code=$?
-  [[ "$code" == 2 ]] || rc=1
+  output="$(bash "$SCRIPTS_DIR/opencode-network-recover" --event rate_limit --session s3 --quiet)" || rc=1
+  jq -e '.status == "skipped" and .reason == "cooldown_active"' <<<"$output" >/dev/null || { echo "cooldown response mismatch: $output" >&2; rc=1; }
+  [[ "$(wc -l < "$ACTION_LOG")" == 1 ]] || { echo "cooldown allowed another reconnect" >&2; rc=1; }
 
-  # Allowlist: classe fora -> skipped.
-  local -x OPENCODE_QUOTA_RECONNECT_CLASSES=rate_limit
-  out="$(bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event account_limit --session s1 --quiet 2>/dev/null)" || rc=1
-  jq -e '.status == "skipped" and .reason == "class_not_allowed"' <<<"$out" >/dev/null || rc=1
-  [[ ! -e "$ACTION_LOG" ]] || rc=1
-  unset OPENCODE_QUOTA_RECONNECT_CLASSES
+  local -x VPN_CHECK_MODE=unknown
+  rm -f "$OPENCODE_NETWORK_RECOVERY_STATE_FILE"
+  output="$(bash "$SCRIPTS_DIR/opencode-network-recover" --event rate_limit --session s4 --quiet)" || rc=1
+  jq -e '.status == "skipped" and .reason == "tunnel_state_unknown"' <<<"$output" >/dev/null || { echo "unknown tunnel response mismatch: $output" >&2; rc=1; }
+  [[ "$(wc -l < "$ACTION_LOG")" == 1 ]] || { echo "unknown tunnel state triggered reconnect" >&2; rc=1; }
 
-  # Ação inválida -> exit 2.
-  code=0
-  OPENCODE_QUOTA_RECONNECT_ACTION=bogus bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --quiet >/dev/null 2>&1 || code=$?
-  [[ "$code" == 2 ]] || rc=1
+  for state in failed error; do
+    local -x VPN_CHECK_MODE="$state"
+    rm -f "$OPENCODE_NETWORK_RECOVERY_STATE_FILE"
+    output="$(bash "$SCRIPTS_DIR/opencode-network-recover" --event rate_limit --session "s-$state" --quiet)" || rc=1
+    jq -e '.status == "skipped" and .reason == "tunnel_state_unknown"' <<<"$output" >/dev/null || { echo "unconfirmed $state tunnel response mismatch: $output" >&2; rc=1; }
+    [[ "$(wc -l < "$ACTION_LOG")" == 1 ]] || { echo "unconfirmed $state tunnel triggered reconnect" >&2; rc=1; }
+  done
 
-  # Cooldown default: primeira executa, segunda é silenciada.
-  out="$(bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --session s1 --quiet 2>/dev/null)" || rc=1
-  jq -e '.status == "ok" and .action == "rotate" and .ip == "203.0.113.7"' <<<"$out" >/dev/null || rc=1
-  grep -q '^rotate --random$' "$ACTION_LOG" 2>/dev/null || rc=1
-  out="$(bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --session s1 --quiet 2>/dev/null)" || rc=1
-  jq -e '.status == "skipped" and .reason == "cooldown_active"' <<<"$out" >/dev/null || rc=1
-  [[ "$(wc -l < "$ACTION_LOG")" == 1 ]] || rc=1
+  local lock_ready="$tmp/shared-lock-ready" lock_release="$tmp/shared-lock-release"
+  flock "$VPN_CONTROL_LOCK_FILE" bash -c 'touch "$1"; while [[ ! -e "$2" ]]; do sleep 0.05; done' _ "$lock_ready" "$lock_release" &
+  local lock_holder=$!
+  for _ in {1..100}; do
+    [[ -e "$lock_ready" ]] && break
+    sleep 0.05
+  done
+  output="$(bash "$SCRIPTS_DIR/opencode-network-recover" --event rate_limit --session s-lock --quiet)" || rc=1
+  jq -e '.status == "lock_busy" and .reason == "mutation_in_progress"' <<<"$output" >/dev/null || { echo "shared mutation lock response mismatch: $output" >&2; rc=1; }
+  [[ "$(wc -l < "$ACTION_LOG")" == 1 ]] || { echo "recovery ran while the shared VPN mutation lock was held" >&2; rc=1; }
+  touch "$lock_release"
+  wait "$lock_holder" || { echo "shared mutation lock holder returned failure" >&2; rc=1; }
 
-  # Janela + máximo de tentativas (cooldown zerado).
-  local -x OPENCODE_QUOTA_RECONNECT_COOLDOWN_SECONDS=0
-  local -x OPENCODE_QUOTA_RECONNECT_MAX=2
-  out="$(bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --session s2 --quiet 2>/dev/null)" || rc=1
-  jq -e '.status == "ok"' <<<"$out" >/dev/null || rc=1
-  out="$(bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --session s3 --quiet 2>/dev/null)" || rc=1
-  jq -e '.status == "skipped" and .reason == "max_attempts"' <<<"$out" >/dev/null || rc=1
-  unset OPENCODE_QUOTA_RECONNECT_MAX
-  rm -f "$OPENCODE_QUOTA_RECONNECT_STATE_FILE"
-
-  # Configuração numérica inválida falha antes de qualquer mutação.
-  code=0
-  OPENCODE_QUOTA_RECONNECT_TIMEOUT_SECONDS='1+1' bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --quiet >/dev/null 2>&1 || code=$?
-  [[ "$code" == 2 ]] || rc=1
-  [[ $(wc -l < "$ACTION_LOG") -eq 2 ]] || rc=1
-
-  # Sem armazenamento durável, a ação VPN falha fechada.
-  code=0
-  out="$(OPENCODE_QUOTA_RECONNECT_STATE_FILE=/proc/opencode-quota-reconnect.json bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --session s-state --quiet 2>/dev/null)" || code=$?
-  [[ "$code" == 1 ]] || rc=1
-  jq -e '.status == "failed" and .reason == "state_unavailable"' <<<"$out" >/dev/null || rc=1
-  [[ $(wc -l < "$ACTION_LOG") -eq 2 ]] || rc=1
-
-  # Falha da ação: reporteda, sem retry automático.
-  local -x STUB_FAIL=1
-  code=0
-  out="$(bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --session s4 --quiet 2>/dev/null)" || code=$?
-  [[ "$code" == 1 ]] || rc=1
-  jq -e '.status == "failed" and .reason == "action_failed"' <<<"$out" >/dev/null || rc=1
-  unset STUB_FAIL
-  rm -f "$OPENCODE_QUOTA_RECONNECT_STATE_FILE"
-
-  # Lock ocupado por outra mutação VPN -> exit 75.
-  ( exec 9>"$VPN_CONTROL_LOCK_FILE" && flock 9 && sleep 8 ) &
-  local holder=$!
-  sleep 0.3
-  code=0
-  out="$(bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --session s5 --quiet 2>/dev/null)" || code=$?
-  [[ "$code" == 75 ]] || rc=1
-  jq -e '.status == "lock_busy" and .reason == "lock_busy"' <<<"$out" >/dev/null || rc=1
-  kill "$holder" >/dev/null 2>&1 || true
-  wait "$holder" 2>/dev/null || true
-
-  # Timeout: a ação não pode pendurar a TUI para sempre.
-  rm -f "$OPENCODE_QUOTA_RECONNECT_STATE_FILE"
-  local -x STUB_SLEEP=6
-  local -x OPENCODE_QUOTA_RECONNECT_TIMEOUT_SECONDS=1
-  code=0
-  out="$(bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --session s6 --quiet 2>/dev/null)" || code=$?
-  [[ "$code" == 1 ]] || rc=1
-  jq -e '.status == "timeout" and .reason == "timeout"' <<<"$out" >/dev/null || rc=1
-  unset STUB_SLEEP OPENCODE_QUOTA_RECONNECT_TIMEOUT_SECONDS
-  rm -f "$OPENCODE_QUOTA_RECONNECT_STATE_FILE"
-
-  # Action=reconnect usa vpn-reconnect sem --random.
-  local -x OPENCODE_QUOTA_RECONNECT_ACTION=reconnect
-  out="$(bash "${SCRIPTS_DIR}/opencode-quota-reconnect" --event rate_limit --session s7 --quiet 2>/dev/null)" || rc=1
-  jq -e '.status == "ok" and .action == "reconnect" and .ip == "198.51.100.9"' <<<"$out" >/dev/null || rc=1
-  grep -q '^reconnect$' "$ACTION_LOG" 2>/dev/null || rc=1
-  unset OPENCODE_QUOTA_RECONNECT_ACTION
-
-  # Estado persistido para auditoria.
-  jq -e '.attempts >= 1 and .last_event == "rate_limit" and .last_session == "s7"' \
-    "$OPENCODE_QUOTA_RECONNECT_STATE_FILE" >/dev/null || rc=1
+  local -x VPN_CHECK_MODE=stopped
+  rm -f "$OPENCODE_NETWORK_RECOVERY_STATE_FILE"
+  : > "$ACTION_LOG"
+  local -x STUB_RELEASE_FILE="$tmp/release-recovery"
+  bash "$SCRIPTS_DIR/opencode-network-recover" --event rate_limit --session s5 --quiet >"$tmp/first.json" &
+  local worker=$!
+  for _ in {1..100}; do
+    [[ -s "$ACTION_LOG" ]] && break
+    sleep 0.1
+  done
+  output="$(bash "$SCRIPTS_DIR/opencode-network-recover" --event rate_limit --session s6 --quiet)" || rc=1
+  jq -e '.status == "lock_busy" and .reason == "recovery_in_progress"' <<<"$output" >/dev/null || { echo "concurrent recovery response mismatch: $output" >&2; rc=1; }
+  touch "$STUB_RELEASE_FILE"
+  wait "$worker" || { echo "background recovery returned failure" >&2; rc=1; }
+  jq -e '.status == "reconnected"' "$tmp/first.json" >/dev/null || { echo "background recovery response mismatch: $(<"$tmp/first.json")" >&2; rc=1; }
+  [[ "$(wc -l < "$ACTION_LOG")" == 1 ]] || { echo "unexpected number of reconnect attempts after lock test" >&2; rc=1; }
 
   rm -rf "$tmp"
   return "$rc"
 }
-run_test "opencode-quota-reconnect: opt-out, allowlist, cooldown, lock, timeout" test_opencode_quota_reconnect
+run_test "opencode-network-recover: confirmed tunnel failure, lock and cooldown" test_opencode_network_recover
 
 test_dotenv_parser() {
   local tmp result rc=0

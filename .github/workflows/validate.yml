@@ -18,36 +18,8 @@ jobs:
         # classificação do `vpn-opencode check`; zsh valida o hook de título
         # (`.zsh` não é suportado pelo ShellCheck e não é bash).
         run: sudo apt-get update && sudo apt-get install --yes shellcheck socat zsh
-      - name: Validate shell scripts
-        run: find scripts -maxdepth 1 -type f ! -name '*.ps1' ! -name '*.zsh' ! -name '*.mjs' ! -name 'vpn-state' ! -name 'vpn-events' ! -name 'vpn-observer' ! -name 'vpn-backup' ! -name 'vpn-control-ui' ! -name 'vpn-provider-probe' ! -name 'opencode-compat' -print0 | xargs -0 shellcheck -S error && find scripts -maxdepth 1 -type f ! -name '*.ps1' ! -name '*.zsh' ! -name '*.mjs' ! -name 'vpn-state' ! -name 'vpn-events' ! -name 'vpn-observer' ! -name 'vpn-backup' ! -name 'vpn-control-ui' ! -name 'vpn-provider-probe' ! -name 'opencode-compat' -exec bash -n {} + && sh -n scripts/vpn-entrypoint.sh && find scripts -maxdepth 1 -type f -name '*.zsh' -exec zsh -n {} + && for script in scripts/vpn-state scripts/vpn-events scripts/vpn-observer scripts/vpn-backup scripts/vpn-control-ui scripts/vpn-provider-probe scripts/opencode-compat scripts/opencode-session-sync.mjs; do node --check "$script"; done && find apps/control-plane -type f -name '*.cjs' -exec node --check {} \; && git diff --check
-      - name: Run Linux scripts test suite
-        run: ./tests/linux/test-scripts.sh
-      - name: Test supervisor log classifier
-        # Limites de provider nunca são classificados pelo texto dos logs:
-        # free-tier/429 estruturados pertencem aos plugins vpn-recovery.
-        run: |
-          test "$(bash ./scripts/opencode-supervisor --classify 'connection lost while streaming')" = "disconnect"
-          test "$(bash ./scripts/opencode-supervisor --classify 'network connection lost; retrying')" = "disconnect"
-          test "$(bash ./scripts/opencode-supervisor --classify 'normal request completed')" = "none"
-          test "$(bash ./scripts/opencode-supervisor --classify '429 Too Many Requests')" = "none"
-          test "$(bash ./scripts/opencode-supervisor --classify 'Provider rate limit exceeded')" = "none"
-          test "$(bash ./scripts/opencode-supervisor --classify 'FreeUsageLimitError: Free usage limit reached')" = "none"
-          test "$(bash ./scripts/opencode-supervisor --classify 'Go limit reached: usage limit reached')" = "none"
-          test "$(bash ./scripts/opencode-supervisor --classify 'CreditLimitExceeded: credit limit exceeded')" = "none"
-      - name: Compatibility contracts (tested v2 2.3.2 and newer unverified releases)
-        run: node --test tests/control/compat.test.cjs tests/control/launcher.test.cjs tests/control/probe.test.cjs
-      - name: Test OpenCode recovery plugins
-        run: node --test tests/opencode/*.test.mjs
-      - name: Test control-plane contracts, event journal, UI and backups
-        run: node --test tests/control/*.test.cjs
-      - name: Validate documentation
-        run: ./scripts/verify-docs
-      - name: Validate Compose profiles
-        run: ./scripts/verify-compose
-      - name: Build terminal image
-        run: docker build --pull=true .
-      - name: Build local Gluetun image
-        run: docker build --pull=true ./gluetun
+      - name: Run the complete local verification gate
+        run: make verify
 
   secret-scan:
     runs-on: ubuntu-24.04

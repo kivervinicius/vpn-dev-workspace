@@ -8,6 +8,20 @@ foram usadas; nenhum provider real foi chamado.
 
 # Worklog
 
+## 2026-11-23 — Correções pós-1.2.0 e preparação 1.3.0
+
+- Corrigidos caminhos XDG/collision de DB v1-v2, recovery só após túnel
+  confirmado parado, baseline v2 estrito para serviços gerenciados e gate local
+  unificado com CI. Removida a rotação de IP acionada por quota.
+- `make verify` passou: Linux **65/65**, Node **45/45**, 8 perfis Compose,
+  ShellCheck/sintaxe, docs e builds Docker. E2E nativo v1↔v2 passou isolado em
+  container sem rede; VPN ativa 6/6. A suíte Linux anterior passou 64/64 em três
+  execuções; o gate final também cobre disputa pelo lock VPN compartilhado.
+- PRs #7/#8 comparadas, sem merge: #7 conflita e falha `validate`; #8 conflita
+  com a política de provider. Desktop App real, Windows Docker Desktop e
+  `read_only+tmpfs` continuam pendentes. CI hospedada ainda precisa rodar após
+  push; release 1.3.0 está preparada, não publicada.
+
 ## 2026-11-22 – Release 1.2.0
 
 Versioned and published the Linux reintegration as tag/release 1.2.0 at

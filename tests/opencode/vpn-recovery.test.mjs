@@ -6,22 +6,18 @@ import { join } from "node:path"
 import { VpnRecovery as createV1Plugin } from "../../opencode/v1/vpn-recovery.js"
 import { setupServerPlugin } from "../../opencode/v2/vpn-recovery/server-core.js"
 import { classifyV2Error, extractRetryAfterSeconds } from "../../opencode/v2/vpn-recovery/classify.js"
-import { decideAction, ACTION_NOTIFY, quotaReconnectEnabled } from "../../opencode/v2/vpn-recovery/policy.js"
+import { decideAction, ACTION_NOTIFY, QUOTA_CLASSES } from "../../opencode/v2/vpn-recovery/policy.js"
 import { setupTuiPlugin } from "../../opencode/v2/vpn-recovery/tui-core.js"
 
 const previousContainerValue = process.env.VPN_WORKSPACE_CONTAINER
-const previousQuotaReconnectValue = process.env.OPENCODE_QUOTA_RECONNECT
-const previousQuotaTtlValue = process.env.OPENCODE_QUOTA_NOTIFY_TTL_SECONDS
+const previousTtlValue = process.env.OPENCODE_QUOTA_NOTIFY_TTL_SECONDS
 process.env.VPN_WORKSPACE_CONTAINER = "1"
-delete process.env.OPENCODE_QUOTA_RECONNECT
 delete process.env.OPENCODE_QUOTA_NOTIFY_TTL_SECONDS
 test.after(() => {
   if (previousContainerValue === undefined) delete process.env.VPN_WORKSPACE_CONTAINER
   else process.env.VPN_WORKSPACE_CONTAINER = previousContainerValue
-  if (previousQuotaReconnectValue === undefined) delete process.env.OPENCODE_QUOTA_RECONNECT
-  else process.env.OPENCODE_QUOTA_RECONNECT = previousQuotaReconnectValue
-  if (previousQuotaTtlValue === undefined) delete process.env.OPENCODE_QUOTA_NOTIFY_TTL_SECONDS
-  else process.env.OPENCODE_QUOTA_NOTIFY_TTL_SECONDS = previousQuotaTtlValue
+  if (previousTtlValue === undefined) delete process.env.OPENCODE_QUOTA_NOTIFY_TTL_SECONDS
+  else process.env.OPENCODE_QUOTA_NOTIFY_TTL_SECONDS = previousTtlValue
 })
 
 async function until(predicate, timeout = 2000) {
@@ -33,34 +29,23 @@ async function until(predicate, timeout = 2000) {
   throw new Error("condition not reached")
 }
 
-// Helper falso: registra a invocação sem tocar em VPN nenhuma.
-function fakeQuotaReconnect() {
-  const dir = mkdtempSync(join(tmpdir(), "quota-reconnect-"))
-  const log = join(dir, "calls.log")
-  const bin = join(dir, "opencode-quota-reconnect")
-  writeFileSync(bin, `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> "${log}"\n`, { mode: 0o755 })
-  const previous = process.env.OPENCODE_QUOTA_RECONNECT_BIN
-  process.env.OPENCODE_QUOTA_RECONNECT_BIN = bin
+function fakeNetworkRecovery(result = { status: "healthy", reason: "tunnel_healthy" }) {
+  const directory = mkdtempSync(join(tmpdir(), "network-recovery-"))
+  const log = join(directory, "calls.log")
+  const bin = join(directory, "opencode-network-recover")
+  writeFileSync(bin, `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> "${log}"\nprintf '%s\\n' "$OPENCODE_NETWORK_RECOVERY_RESULT"\n`, { mode: 0o755 })
+  const previousBin = process.env.OPENCODE_NETWORK_RECOVER_BIN
+  const previousResult = process.env.OPENCODE_NETWORK_RECOVERY_RESULT
+  process.env.OPENCODE_NETWORK_RECOVER_BIN = bin
+  process.env.OPENCODE_NETWORK_RECOVERY_RESULT = JSON.stringify(result)
   return {
-    log,
-    read: () => (existsSync(log) ? readFileSync(log, "utf8").trim() : ""),
     calls: () => (existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").filter(Boolean) : []),
     restore: () => {
-      if (previous === undefined) delete process.env.OPENCODE_QUOTA_RECONNECT_BIN
-      else process.env.OPENCODE_QUOTA_RECONNECT_BIN = previous
+      if (previousBin === undefined) delete process.env.OPENCODE_NETWORK_RECOVER_BIN
+      else process.env.OPENCODE_NETWORK_RECOVER_BIN = previousBin
+      if (previousResult === undefined) delete process.env.OPENCODE_NETWORK_RECOVERY_RESULT
+      else process.env.OPENCODE_NETWORK_RECOVERY_RESULT = previousResult
     },
-  }
-}
-
-async function withQuotaReconnect(value, fn) {
-  const previous = process.env.OPENCODE_QUOTA_RECONNECT
-  if (value === undefined) delete process.env.OPENCODE_QUOTA_RECONNECT
-  else process.env.OPENCODE_QUOTA_RECONNECT = value
-  try {
-    return await fn()
-  } finally {
-    if (previous === undefined) delete process.env.OPENCODE_QUOTA_RECONNECT
-    else process.env.OPENCODE_QUOTA_RECONNECT = previous
   }
 }
 
@@ -77,7 +62,6 @@ test("plugins do not register outside the VPN container", async () => {
   delete process.env.VPN_WORKSPACE_CONTAINER
   try {
     assert.deepEqual(await createV1Plugin({ client: {}, directory: "/work" }), {})
-
     let registrations = 0
     const disposeServer = await setupServerPlugin({
       get session() { registrations++; throw new Error("unexpected server registration") },
@@ -94,11 +78,11 @@ test("plugins do not register outside the VPN container", async () => {
   }
 })
 
-test("v1 quota notifications cancel recognized retries and never replay a turn", async () => {
+test("v1 cancels provider retries, checks the tunnel, and never replays a turn", async () => {
   const toasts = []
   const aborts = []
   let promptCalls = 0
-  const fake = fakeQuotaReconnect()
+  const helper = fakeNetworkRecovery()
   try {
     const plugin = await createV1Plugin({
       client: {
@@ -111,76 +95,51 @@ test("v1 quota notifications cancel recognized retries and never replay a turn",
       directory: "/work",
     })
 
-    const retryEvent = {
+    const event = {
       event: {
         type: "session.status",
         properties: { sessionID: "s-free", status: { type: "retry", action: { reason: "free_tier_limit" } } },
       },
     }
-    plugin.event(retryEvent)
-    plugin.event(retryEvent)
-    await until(() => toasts.length === 1)
+    plugin.event(event)
+    plugin.event(event)
+    await until(() => helper.calls().length === 1 && toasts.length === 2)
     assert.equal(aborts.length, 1)
     assert.equal(aborts[0].path.id, "s-free")
-    // Default on: a mensagem informa a recuperação em andamento.
-    assert.match(toasts[0].body.message, /solicitando tentativa de rotação da VPN/)
-    assert.match(toasts[0].body.message, /não será repetido automaticamente/)
-    assert.doesNotMatch(toasts[0].body.message, /a VPN não foi alterada/)
+    assert.match(toasts[0].body.message, /verificando o túnel VPN/)
+    assert.match(toasts[1].body.message, /Túnel VPN confirmado saudável/)
+    assert.doesNotMatch(toasts[0].body.message, /rotação|troca de IP/)
     assert.equal(promptCalls, 0)
 
-    plugin.event({
-      event: {
-        type: "session.status",
-        properties: { sessionID: "s-rate", status: { type: "retry", action: { reason: "rate_limit" } } },
-      },
-    })
-    await until(() => toasts.length === 2)
-    assert.equal(aborts.length, 2)
-    assert.match(toasts[1].body.message, /solicitando tentativa de rotação da VPN/)
-    assert.equal(promptCalls, 0)
-
-    // TUI only: o helper é chamado uma vez por sessão+classe, com a classe certa.
-    await until(() => fake.calls().length >= 1)
-    await new Promise((resolve) => setTimeout(resolve, 100))
-    assert.equal(fake.calls().length, 2)
-    assert.ok(fake.read().includes("--event free_tier_limit --session s-free"))
-    assert.ok(fake.read().includes("--event rate_limit --session s-rate"))
+    helper.restore()
   } finally {
-    fake.restore()
+    helper.restore()
   }
 })
 
-test("v1 skips the helper when OPENCODE_QUOTA_RECONNECT=false", async () => {
+test("v1 reports a confirmed tunnel reconnect and its resulting IP", async () => {
   const toasts = []
-  const fake = fakeQuotaReconnect()
+  const helper = fakeNetworkRecovery({ status: "reconnected", reason: "tunnel_reconnected", ip: "203.0.113.7" })
   try {
-    await withQuotaReconnect("false", async () => {
-      const plugin = await createV1Plugin({
-        client: {
-          session: { abort: async () => ({ data: true }) },
-          tui: { showToast: async (toast) => toasts.push(toast) },
-        },
-        directory: "/work",
-      })
-      plugin.event({
-        event: {
-          type: "session.status",
-          properties: { sessionID: "s-off", status: { type: "retry", action: { reason: "rate_limit" } } },
-        },
-      })
-      await until(() => toasts.length === 1)
-      assert.match(toasts[0].body.message, /a VPN não foi alterada/)
-      await new Promise((resolve) => setTimeout(resolve, 150))
-      assert.equal(fake.calls().length, 0)
+    const plugin = await createV1Plugin({
+      client: {
+        session: { abort: async () => ({ data: true }) },
+        tui: { showToast: async (toast) => toasts.push(toast) },
+      },
+      directory: "/work",
     })
+    plugin.event({ event: { type: "session.error", properties: { sessionID: "s-rate", error: { name: "APIError", data: { statusCode: 429 } } } } })
+    await until(() => toasts.length === 2)
+    assert.match(toasts[1].body.message, /IP atual: 203\.0\.113\.7/)
+    assert.match(toasts[1].body.message, /limite do provider pode continuar ativo/)
   } finally {
-    fake.restore()
+    helper.restore()
   }
 })
 
-test("v1 ignores provider prose and only notifies structured terminal errors", async () => {
+test("v1 ignores provider prose and only handles structured terminal errors", async () => {
   const toasts = []
-  const fake = fakeQuotaReconnect()
+  const helper = fakeNetworkRecovery()
   try {
     const plugin = await createV1Plugin({
       client: {
@@ -191,19 +150,16 @@ test("v1 ignores provider prose and only notifies structured terminal errors", a
     })
     plugin.event({ event: { type: "session.error", properties: { sessionID: "prose", error: { name: "APIError", data: { responseBody: '{"message":"free tier rate limit"}' } } } } })
     plugin.event({ event: { type: "session.error", properties: { sessionID: "structured", error: { name: "APIError", data: { statusCode: 429 } } } } })
-    await until(() => toasts.length === 1)
+    await until(() => helper.calls().length === 1 && toasts.length === 2)
     assert.match(toasts[0].body.message, /Limite de requisições/)
-    assert.match(toasts[0].body.message, /solicitando tentativa de rotação da VPN/)
   } finally {
-    fake.restore()
+    helper.restore()
   }
 })
 
-test("v1 dedupe expires so a reset quota can notify again", async () => {
+test("v1 deduplicates the same session and provider event for its TTL", async () => {
   const toasts = []
-  const fake = fakeQuotaReconnect()
-  const previousTtl = process.env.OPENCODE_QUOTA_NOTIFY_TTL_SECONDS
-  process.env.OPENCODE_QUOTA_NOTIFY_TTL_SECONDS = "0"
+  const helper = fakeNetworkRecovery()
   try {
     const plugin = await createV1Plugin({
       client: {
@@ -212,42 +168,28 @@ test("v1 dedupe expires so a reset quota can notify again", async () => {
       },
       directory: "/work",
     })
-    const event = {
-      event: {
-        type: "session.status",
-        properties: { sessionID: "s-ttl", status: { type: "retry", action: { reason: "rate_limit" } } },
-      },
-    }
+    const event = { event: { type: "session.error", properties: { sessionID: "s1", error: { name: "APIError", data: { statusCode: 429 } } } } }
     plugin.event(event)
-    await until(() => toasts.length === 1)
     plugin.event(event)
-    await until(() => toasts.length === 2)
-    assert.equal(toasts.length, 2)
-    await until(() => fake.calls().length >= 2)
+    await until(() => helper.calls().length === 1 && toasts.length === 2)
+    assert.equal(helper.calls().length, 1)
   } finally {
-    if (previousTtl === undefined) delete process.env.OPENCODE_QUOTA_NOTIFY_TTL_SECONDS
-    else process.env.OPENCODE_QUOTA_NOTIFY_TTL_SECONDS = previousTtl
-    fake.restore()
+    helper.restore()
   }
 })
 
 test("v2 server hook disables automatic retries for every recognized provider limit", async () => {
   let handler
   let disposeCalls = 0
-  const ctx = {
-    session: {
-      hook: async (name, callback) => {
-        assert.equal(name, "retry")
-        handler = callback
-        return { dispose: async () => { disposeCalls++ } }
-      },
-    },
-    model: { list: async () => { throw new Error("provider models must not be queried") } },
-    switchModel: async () => { throw new Error("model must not be changed") },
-  }
-  const dispose = await setupServerPlugin(ctx)
-  for (const { ...error } of PROVIDER_ERRORS) {
-    const event = { error }
+  const dispose = await setupServerPlugin({
+    session: { hook: async (name, callback) => {
+      assert.equal(name, "retry")
+      handler = callback
+      return () => { disposeCalls++ }
+    } },
+  })
+  for (const { expected, ...providerError } of PROVIDER_ERRORS) {
+    const event = { error: providerError }
     await handler(event)
     assert.deepEqual(event.decision, { retry: false })
   }
@@ -258,11 +200,11 @@ test("v2 server hook disables automatic retries for every recognized provider li
   assert.equal(disposeCalls, 1)
 })
 
-test("v2 TUI reports quota status, Retry-After, and triggers the reconnect helper", async () => {
+test("v2 TUI reports Retry-After, checks tunnel health, and does not replay provider requests", async () => {
   let listener
   let unsubscribeCalls = 0
   const toasts = []
-  const fake = fakeQuotaReconnect()
+  const helper = fakeNetworkRecovery()
   try {
     const dispose = setupTuiPlugin({
       data: { on: (name, callback) => {
@@ -278,52 +220,38 @@ test("v2 TUI reports quota status, Retry-After, and triggers the reconnect helpe
     await listener(free)
     assert.equal(toasts.length, 1)
     assert.match(toasts[0].message, /~6h50m/)
-    assert.match(toasts[0].message, /solicitando tentativa de rotação da VPN/)
     assert.match(toasts[0].message, /O turno não será repetido automaticamente/)
+    assert.doesNotMatch(toasts[0].message, /rotação|troca de IP/)
     for (const { ...error } of PROVIDER_ERRORS.slice(1)) await listener({ data: { sessionID: JSON.stringify(error), error } })
-    assert.equal(toasts.length, PROVIDER_ERRORS.length)
+    await until(() => helper.calls().length === PROVIDER_ERRORS.length && toasts.length === PROVIDER_ERRORS.length * 2)
     assert.ok(toasts.every((toast) => toast.variant === "info"))
-
-    await until(() => fake.calls().length >= PROVIDER_ERRORS.length)
-    await new Promise((resolve) => setTimeout(resolve, 100))
-    assert.equal(fake.calls().length, PROVIDER_ERRORS.length)
     for (const { expected } of PROVIDER_ERRORS) {
-      assert.ok(fake.read().includes(`--event ${expected}`), `missing helper call for ${expected}`)
+      assert.ok(helper.calls().some((call) => call.includes(`--event ${expected}`)))
     }
     dispose()
     assert.equal(unsubscribeCalls, 1)
   } finally {
-    fake.restore()
+    helper.restore()
   }
 })
 
-test("v2 TUI does not trigger the helper when OPENCODE_QUOTA_RECONNECT=false", async () => {
+test("v2 does not start a diagnostic when the provider notification fails", async () => {
   let listener
-  const toasts = []
-  const fake = fakeQuotaReconnect()
+  const helper = fakeNetworkRecovery()
   try {
-    const previous = process.env.OPENCODE_QUOTA_RECONNECT
-    process.env.OPENCODE_QUOTA_RECONNECT = "false"
-    try {
-      setupTuiPlugin({
-        data: { on: (_, callback) => { listener = callback } },
-        ui: { toast: { show: async (toast) => toasts.push(toast) } },
-      })
-      await listener({ data: { sessionID: "s-off", error: { type: "provider.rate-limit" } } })
-      assert.equal(toasts.length, 1)
-      assert.match(toasts[0].message, /a VPN não foi alterada/)
-      await new Promise((resolve) => setTimeout(resolve, 150))
-      assert.equal(fake.calls().length, 0)
-    } finally {
-      if (previous === undefined) delete process.env.OPENCODE_QUOTA_RECONNECT
-      else process.env.OPENCODE_QUOTA_RECONNECT = previous
-    }
+    setupTuiPlugin({
+      data: { on: (_, callback) => { listener = callback } },
+      ui: { toast: { show: async () => { throw new Error("TUI unavailable") } } },
+    })
+    await listener({ data: { sessionID: "s1", error: { type: "provider.rate-limit" } } })
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    assert.equal(helper.calls().length, 0)
   } finally {
-    fake.restore()
+    helper.restore()
   }
 })
 
-test("classifyV2Error recognizes structured provider classes and ignores prose", () => {
+test("classifiers recognize structured provider classes and ignore prose", () => {
   assert.equal(classifyV2Error({ type: "provider.free-limit" }), "free_tier_limit")
   assert.equal(classifyV2Error({ type: "provider.rate-limit" }), "rate_limit")
   assert.equal(classifyV2Error({ type: "provider.quota" }), "account_limit")
@@ -345,41 +273,28 @@ test("Retry-After extraction handles runtime milliseconds and numeric headers", 
   assert.equal(extractRetryAfterSeconds({ headers: {} }), undefined)
 })
 
-test("the policy is opt-out reconnect for provider quota classes", async () => {
-  await withQuotaReconnect(undefined, async () => {
-    assert.equal(quotaReconnectEnabled(), true)
-    for (const { expected } of PROVIDER_ERRORS) {
-      assert.deepEqual(decideAction({ eventClass: expected }), {
-        action: ACTION_NOTIFY,
-        rotate: true,
-        reason: "quota_tui_reconnect",
-      })
-    }
-    assert.deepEqual(decideAction({ eventClass: undefined }), {
+test("provider-limit policy never rotates the VPN and only requests diagnosis", () => {
+  for (const eventClass of QUOTA_CLASSES) {
+    assert.deepEqual(decideAction({ eventClass }), {
       action: ACTION_NOTIFY,
       rotate: false,
-      reason: "unclassified",
+      reason: "provider_limit_diagnosis",
     })
-  })
-  await withQuotaReconnect("false", async () => {
-    assert.equal(quotaReconnectEnabled(), false)
-    for (const { expected } of PROVIDER_ERRORS) {
-      assert.deepEqual(decideAction({ eventClass: expected }), {
-        action: ACTION_NOTIFY,
-        rotate: false,
-        reason: "quota_status_only",
-      })
-    }
+  }
+  assert.deepEqual(decideAction({ eventClass: undefined }), {
+    action: ACTION_NOTIFY,
+    rotate: false,
+    reason: "unclassified",
   })
 })
 
 test("v2 TUI suggests available alternatives and gives a manual command on catalog failure", async () => {
   let listener
   const toasts = []
+  const helper = fakeNetworkRecovery()
   const current = { providerID: "local", id: "current" }
   const alternate = { providerID: "local", modelID: "alternate", id: "local/alternate" }
   let unavailable = false
-  const fake = fakeQuotaReconnect()
   try {
     setupTuiPlugin({
       location: "test-location",
@@ -388,20 +303,17 @@ test("v2 TUI suggests available alternatives and gives a manual command on catal
         location: { model: { list: (location) => {
           assert.equal(location, "test-location")
           if (unavailable) throw new Error("catalog unavailable")
-          return [{ ...current, modelID: current.id }, alternate, alternate,
-            { providerID: "local", modelID: "disabled", enabled: false }]
+          return [current, alternate]
         } } },
       },
       ui: { toast: { show: async (toast) => toasts.push(toast) } },
     })
-    await listener({ data: { sessionID: "suggest", model: current, error: { type: "provider.rate-limit", retryAfterMs: 120_000 } } })
-    assert.match(toasts[0].message, /~2min/)
-    assert.match(toasts[0].message, /local\/alternate\.$/)
-    assert.doesNotMatch(toasts[0].message, /local\/(current|disabled)/)
+    await listener({ data: { sessionID: "s-model", model: current, error: { type: "provider.rate-limit" } } })
+    assert.match(toasts[0].message, /local\/alternate/)
     unavailable = true
-    await listener({ data: { sessionID: "fallback", model: current, error: { type: "provider.rate-limit" } } })
+    await listener({ data: { sessionID: "s-model-2", model: current, error: { type: "provider.rate-limit" } } })
     assert.match(toasts[1].message, /opencode2 models/)
   } finally {
-    fake.restore()
+    helper.restore()
   }
 })

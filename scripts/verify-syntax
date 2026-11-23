@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  echo "Uso: verify-syntax [--help]"
+  echo "Valida Bash, sh, zsh, Node e ShellCheck nos scripts e fontes aplicáveis."
+  exit 0
+fi
+if (($#)); then
+  echo "Argumento desconhecido: $1" >&2
+  exit 2
+fi
+if [[ -n "${VERIFY_SYNTAX_ROOT:-}" ]]; then
+  ROOT_DIR="$VERIFY_SYNTAX_ROOT"
+  cd "$ROOT_DIR"
+fi
+
+for command in bash sh zsh node; do
+  command -v "$command" >/dev/null 2>&1 || {
+    echo "Verificador ausente: $command" >&2
+    exit 2
+  }
+done
+
+if ! command -v shellcheck >/dev/null 2>&1; then
+  echo "ShellCheck ausente. Instale-o para completar o gate de lint." >&2
+  exit 2
+fi
+
+for script in scripts/*; do
+  [[ -f "$script" ]] || continue
+  case "$script" in
+    *.ps1|*.zsh|*.mjs|scripts/vpn-state|scripts/vpn-events|scripts/vpn-observer|scripts/vpn-backup|scripts/vpn-control-ui|scripts/vpn-provider-probe|scripts/opencode-compat) continue ;;
+  esac
+  shellcheck -S error "$script"
+  bash -n "$script"
+done
+
+sh -n scripts/vpn-entrypoint.sh
+
+for script in scripts/*.zsh; do
+  [[ -f "$script" ]] || continue
+  zsh -n "$script"
+done
+
+for script in scripts/vpn-state scripts/vpn-events scripts/vpn-observer scripts/vpn-backup \
+  scripts/vpn-control-ui scripts/vpn-provider-probe scripts/opencode-compat; do
+  node --check "$script"
+done
+
+while IFS= read -r -d '' script; do
+  node --check "$script"
+done < <(find apps opencode tests -type f \( -name '*.js' -o -name '*.mjs' -o -name '*.cjs' \) -print0)
+
+echo "Sintaxe e ShellCheck válidos em todos os scripts aplicáveis."

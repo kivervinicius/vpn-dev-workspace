@@ -364,18 +364,43 @@ function normalizePath(value) {
   return path.resolve(value.replaceAll("\\\\", path.sep))
 }
 
-function homeConfig(client) {
+export function canonicalPath(value) {
+  let current = path.resolve(value)
+  const remainder = []
+  while (true) {
+    try {
+      const resolved = fs.realpathSync.native(current)
+      return path.join(resolved, ...remainder.reverse())
+    } catch (error) {
+      if (error.code !== "ENOENT" && error.code !== "ENOTDIR") throw error
+      const parent = path.dirname(current)
+      if (parent === current) throw error
+      remainder.push(path.basename(current))
+      current = parent
+    }
+  }
+}
+
+function ensureSeparateDatabases() {
+  const v1Database = canonicalPath(homeConfig("v1").db)
+  const v2Database = canonicalPath(homeConfig("v2").db)
+  if (v1Database === v2Database) {
+    throw new Error("v1 and v2 resolve to the same OpenCode database; session sync stopped before import")
+  }
+}
+
+export function homeConfig(client) {
   const hostHome = process.env.OPENCODE_HOST_HOME || process.env.HOME || os.homedir()
   const v1Home = process.env.OPENCODE_V1_HOME || path.join(hostHome, ".opencode-v1")
   const v2Home = process.env.OPENCODE_V2_HOME || hostHome
   const v1Bin = process.env.OPENCODE_V1_BIN || path.join(v1Home, "bin", "opencode")
   const v2Bin = process.env.OPENCODE_V2_BIN || path.join(v2Home, ".opencode", "bin", "opencode")
   const v1Data = path.join(v1Home, ".local", "share")
-  const v2Data = process.env.XDG_DATA_HOME || path.join(v2Home, ".local", "share")
+  const v2Data = process.env.OPENCODE_V2_XDG_DATA_HOME || process.env.XDG_DATA_HOME || path.join(v2Home, ".local", "share")
   const v1Config = path.join(v1Home, ".config")
-  const v2Config = process.env.XDG_CONFIG_HOME || path.join(v2Home, ".config")
+  const v2Config = process.env.OPENCODE_V2_XDG_CONFIG_HOME || process.env.XDG_CONFIG_HOME || path.join(v2Home, ".config")
   const v1State = path.join(v1Home, ".local", "state")
-  const v2State = process.env.XDG_STATE_HOME || path.join(v2Home, ".local", "state")
+  const v2State = process.env.OPENCODE_V2_XDG_STATE_HOME || process.env.XDG_STATE_HOME || path.join(v2Home, ".local", "state")
   return {
     hostHome, v1Home, v2Home, v1Bin, v2Bin, v1Data, v2Data, v1Config, v2Config, v1State, v2State,
     db: path.join(client === "v1" ? v1Data : v2Data, "opencode", "opencode.db"),
@@ -740,6 +765,7 @@ function emit(value) {
 }
 
 async function before(client, workspace, args) {
+  ensureSeparateDatabases()
   const sourceClient = client === "v1" ? "v2" : "v1"
   const config = homeConfig(client)
   const stateDir = stateDirectory(config)
@@ -813,6 +839,7 @@ async function before(client, workspace, args) {
 }
 
 async function after(client, workspace, token) {
+  ensureSeparateDatabases()
   const config = homeConfig(client)
   const stateDir = stateDirectory(config)
   const manifestFile = path.join(stateDir, "runs", token + ".json")
