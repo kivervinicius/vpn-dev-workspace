@@ -19,7 +19,13 @@ function newId() {
  const stamp=new Date().toISOString().replace(/\D/g,"").slice(0,14);
  return "b-"+stamp+"-"+crypto.randomBytes(6).toString("hex");
 }
-function hash(file){return crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex")}
+// Hash em fluxo com buffer fixo: DB de vários GB não pode ir inteiro para a RAM.
+function hash(file){
+ const h=crypto.createHash("sha256"),fd=fs.openSync(file,"r"),buf=Buffer.alloc(1024*1024);
+ try{let n;while((n=fs.readSync(fd,buf,0,buf.length,null))>0)h.update(buf.subarray(0,n));}
+ finally{fs.closeSync(fd)}
+ return h.digest("hex");
+}
 function safeEntries(directory){
  if(!fs.existsSync(directory))return [];
  const st=fs.lstatSync(directory);

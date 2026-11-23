@@ -62,8 +62,12 @@ async function collectState(options={}) {
     check:process.env.VPN_STATE_CHECK_BIN || "vpn-check",
     opencode:process.env.VPN_STATE_OPENCODE_BIN || "vpn-opencode"
   };
+  // vpn-check no pior caso leva ~40s (3×curl 10s + 2×getent 5s); o default de
+  // 8s do runJson matava o check no meio e mascarava o diagnóstico real.
   const [status,check,opencode] = await Promise.all([
-    runner(cmds.status,["--json"]),runner(cmds.check,["--json"]),runner(cmds.opencode,["check","--json"])
+    runner(cmds.status,["--json"],{timeoutMs:20000}),
+    runner(cmds.check,["--json"],{timeoutMs:45000}),
+    runner(cmds.opencode,["check","--json"],{timeoutMs:15000})
   ]);
   return collectFrom({status,check,opencode},options.now);
 }

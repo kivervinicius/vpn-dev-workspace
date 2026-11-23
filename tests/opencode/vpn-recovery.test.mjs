@@ -316,6 +316,48 @@ test("v2 restarts the VPN on HTTP 429 even when its first toast fails", async ()
   }
 })
 
+test("v1 emits exactly one failure toast when the helper cannot spawn", async () => {
+  const toasts = []
+  const previousBin = process.env.OPENCODE_NETWORK_RECOVER_BIN
+  process.env.OPENCODE_NETWORK_RECOVER_BIN = "/nonexistent-vpn-helper-xyz"
+  try {
+    const plugin = await createV1Plugin({
+      client: { tui: { showToast: async (toast) => { toasts.push(toast) } } },
+      directory: "/work",
+    })
+    plugin.event({ event: { type: "session.error", properties: { sessionID: "s-v1-spawn-fail", error: { name: "APIError", data: { statusCode: 429 } } } } })
+    await until(() => toasts.length >= 2)
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    // error+close disparam juntos em spawn falho: sem trava, vinha um 3º toast.
+    assert.equal(toasts.length, 2)
+    assert.match(toasts[1].body.message, /Não foi possível confirmar ou reconectar/)
+  } finally {
+    if (previousBin === undefined) delete process.env.OPENCODE_NETWORK_RECOVER_BIN
+    else process.env.OPENCODE_NETWORK_RECOVER_BIN = previousBin
+  }
+})
+
+test("v2 emits exactly one failure toast when the helper cannot spawn", async () => {
+  let listener
+  const toasts = []
+  const previousBin = process.env.OPENCODE_NETWORK_RECOVER_BIN
+  process.env.OPENCODE_NETWORK_RECOVER_BIN = "/nonexistent-vpn-helper-xyz"
+  try {
+    setupTuiPlugin({
+      data: { on: (_, callback) => { listener = callback } },
+      ui: { toast: { show: async (toast) => { toasts.push(toast) } } },
+    })
+    await listener({ data: { sessionID: "s-v2-spawn-fail", error: { type: "provider.rate-limit" } } })
+    await until(() => toasts.length >= 2)
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    assert.equal(toasts.length, 2)
+    assert.match(toasts[1].message, /Não foi possível verificar ou reconectar/)
+  } finally {
+    if (previousBin === undefined) delete process.env.OPENCODE_NETWORK_RECOVER_BIN
+    else process.env.OPENCODE_NETWORK_RECOVER_BIN = previousBin
+  }
+})
+
 test("classifiers recognize structured provider classes and ignore prose", () => {
   assert.equal(classifyV2Error({ type: "provider.free-limit" }), "free_tier_limit")
   assert.equal(classifyV2Error({ type: "provider.rate-limit" }), "rate_limit")

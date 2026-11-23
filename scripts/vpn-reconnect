@@ -7,11 +7,14 @@ readonly API_URL="${GLUETUN_API_URL:-$(vpn_control_default_url)}"
 readonly API_KEY_FILE="${GLUETUN_API_KEY_FILE:-$(vpn_control_default_key_file "$(dirname "${BASH_SOURCE[0]}")")}"
 readonly IP_ATTEMPTS="${VPN_IP_ATTEMPTS:-30}"
 readonly IP_DELAY_SECONDS="${VPN_IP_DELAY_SECONDS:-5}"
+readonly STOP_ATTEMPTS="${VPN_STOP_ATTEMPTS:-15}"
+readonly STOP_DELAY_SECONDS="${VPN_STOP_DELAY_SECONDS:-1}"
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   echo "Uso: vpn-reconnect [--help]" >&2
   echo "Reconecta o perfil atual (stopped→running) e aguarda o IP público." >&2
   echo "Ajustes: VPN_IP_ATTEMPTS (default 30), VPN_IP_DELAY_SECONDS (default 5)." >&2
+  echo "          VPN_STOP_ATTEMPTS (default 15), VPN_STOP_DELAY_SECONDS (default 1)." >&2
   exit 0
 fi
 readonly CURL_TIMEOUT_ARGS=(--connect-timeout 5 --max-time 10)
@@ -39,6 +42,14 @@ vpn_control_lock_acquire || {
 }
 [[ "$IP_DELAY_SECONDS" =~ ^[0-9]+$ ]] || {
   echo "Erro: VPN_IP_DELAY_SECONDS deve ser um número inteiro não negativo." >&2
+  exit 2
+}
+[[ "$STOP_ATTEMPTS" =~ ^[1-9][0-9]*$ ]] || {
+  echo "Erro: VPN_STOP_ATTEMPTS deve ser um número inteiro positivo." >&2
+  exit 2
+}
+[[ "$STOP_DELAY_SECONDS" =~ ^[0-9]+$ ]] || {
+  echo "Erro: VPN_STOP_DELAY_SECONDS deve ser um número inteiro não negativo." >&2
   exit 2
 }
 
@@ -69,15 +80,44 @@ wait_for_public_ip() {
   return 1
 }
 
+# O Gluetun aplica stopped de forma assíncrona; um sleep fixo pode emitir o
+# running antes do stop ser processado em hosts lentos.
+wait_for_tunnel_stopped() {
+  local attempt status
+  for ((attempt = 1; attempt <= STOP_ATTEMPTS; attempt++)); do
+    status="$(api_request "${API_URL}/v1/vpn/status" 2>/dev/null | jq -r '.status // empty' || true)"
+    [[ "$status" == "stopped" ]] && return 0
+    if ((attempt < STOP_ATTEMPTS)); then
+      echo "Aguardando o túnel parar (tentativa ${attempt}/${STOP_ATTEMPTS})..." >&2
+      sleep "$STOP_DELAY_SECONDS"
+    fi
+  done
+  return 1
+}
+
 echo "Reconectando o perfil VPN atual..."
 api_request -X PUT -H "Content-Type: application/json" \
   -d '{"status":"stopped"}' "${API_URL}/v1/vpn/status" >/dev/null || {
   echo "Erro: falha ao parar o túnel (API Gluetun inacessível/não autorizada)." >&2
   exit 1
 }
-sleep 3
-api_request -X PUT -H "Content-Type: application/json" \
-  -d '{"status":"running"}' "${API_URL}/v1/vpn/status" >/dev/null
+if ! wait_for_tunnel_stopped; then
+  echo "Erro: Gluetun não confirmou status=stopped; abortando a reconexão." >&2
+  api_request -X PUT -H "Content-Type: application/json" \
+    -d '{"status":"running"}' "${API_URL}/v1/vpn/status" >/dev/null 2>&1 || true
+  exit 1
+fi
+if ! api_request -X PUT -H "Content-Type: application/json" \
+  -d '{"status":"running"}' "${API_URL}/v1/vpn/status" >/dev/null; then
+  # Túnel já parado: uma falha transitória no religamento não pode deixá-lo
+  # stopped sem aviso até o próximo ciclo (hora) do auto-reconnect.
+  sleep 2
+  api_request -X PUT -H "Content-Type: application/json" \
+    -d '{"status":"running"}' "${API_URL}/v1/vpn/status" >/dev/null || {
+    echo "Erro: falha ao religar o túnel após a parada; túnel pode estar stopped até o próximo ciclo de recuperação." >&2
+    exit 1
+  }
+fi
 
 if ip="$(wait_for_public_ip)"; then
   echo "VPN reconectada. IP público: ${ip}"

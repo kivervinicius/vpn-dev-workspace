@@ -17,6 +17,7 @@ usage() {
   echo "              limpa os hostnames e deixa o Gluetun escolher em qualquer um deles" >&2
   echo "  --list      mostra a lista e o índice atual" >&2
   echo "Falha na troca ou túnel insaudável após a troca restaura o servidor anterior." >&2
+  echo "Exit 3 = lista sem alternativa; exit 4 = revert falhou (exige intervenção)." >&2
   exit 0
 }
 
@@ -158,9 +159,17 @@ restore_selection() {
   local restore_patch
   restore_patch="$(jq -nc --argjson sel "$before_selection" '{provider:{server_selection:$sel}}')" || return 1
   echo "Revertendo para o servidor anterior..." >&2
-  api_request -X PUT -H "Content-Type: application/json" -d "$restore_patch" "${api_url}/v1/vpn/settings" >/dev/null 2>&1 || true
+  if ! api_request -X PUT -H "Content-Type: application/json" -d "$restore_patch" "${api_url}/v1/vpn/settings" >/dev/null 2>&1; then
+    echo "Erro: revert falhou; restaure manualmente ${before_selection}." >&2
+    exit 4
+  fi
+  echo "Servidor anterior restaurado na configuração." >&2
   if helper="$(resolve_helper vpn-reconnect)"; then
-    GLUETUN_API_URL="$api_url" "$helper" >/dev/null 2>&1 || true
+    if ! GLUETUN_API_URL="$api_url" "$helper" >/dev/null 2>&1; then
+      echo "Erro: reconexão após o revert falhou; restaure e verifique ${before_selection}." >&2
+      exit 4
+    fi
+    echo "Túnel reconectado após o revert." >&2
   fi
 }
 
@@ -173,8 +182,10 @@ if ((${#countries_req[@]} > 0)); then
 elif ((${#hostnames_env[@]} > 0)); then
   total="${#hostnames_env[@]}"
   if ((total == 1)) && [[ -z "$want_to" ]] && ! $want_random; then
+    # rc 3 = no-op: o túnel NÃO foi alterado. rc 0 significaria "rotacionado e
+    # saudável" e faria o auto-reconnect declarar saúde falsa (túnel morto).
     echo "Aviso: lista com 1 servidor (${hostnames_env[0]}); nada a rotacionar." >&2
-    exit 0
+    exit 3
   fi
   if [[ -n "$want_to" ]]; then
     to_index=-1
@@ -227,10 +238,6 @@ if ! outcome="$(api_request -X PUT -H "Content-Type: application/json" -d "$patc
 fi
 echo "Resposta do Gluetun: ${outcome}"
 
-if [[ -n "$next_index" ]]; then
-  write_state_index "$next_index" || true
-fi
-
 # O Gluetun reinicia o túnel ao aplicar as configurações; aguarda o IP novo.
 echo "Aguardando IP público após a troca..."
 reconnect_bin="$(resolve_helper vpn-reconnect)" || {
@@ -255,4 +262,13 @@ if check_bin="$(resolve_helper vpn-check)"; then
   echo "Túnel saudável no novo servidor."
 else
   echo "Aviso: vpn-check indisponível; saúde do túnel não foi verificada." >&2
+fi
+
+# Índice só após sucesso: rotação falha/revertida não pode avançar o round-robin.
+if [[ -n "$next_index" ]]; then
+  if ! write_state_index "$next_index"; then
+    echo "Erro: índice da rotação não foi gravado; revertendo seleção." >&2
+    restore_selection
+    exit 1
+  fi
 fi

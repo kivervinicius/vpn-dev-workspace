@@ -53,4 +53,18 @@ if [ -n "${HTTPPROXY_PASSWORD_FILE:-}" ] && [ -r "$HTTPPROXY_PASSWORD_FILE" ] &&
   export HTTPPROXY_PASSWORD="$(read_secret "$HTTPPROXY_PASSWORD_FILE")"
 fi
 
+# Fail-closed no entrypoint (não só no vpn-switch): proxy publicado em bind LAN
+# sem usuário/senha seria um proxy aberto para a rede local.
+if [ "${HTTPPROXY:-off}" = "on" ]; then
+  case "${HOST_BIND_ADDRESS:-127.0.0.1}" in
+    127.*|localhost|::1) ;;
+    *)
+      if [ -z "${HTTPPROXY_USER:-}" ] || [ -z "${HTTPPROXY_PASSWORD:-}" ]; then
+        echo "Erro: HTTPPROXY=on com HOST_BIND_ADDRESS=${HOST_BIND_ADDRESS} exige VPN_HTTP_PROXY_USER e VPN_HTTP_PROXY_PASSWORD_FILE não vazio." >&2
+        exit 1
+      fi
+      ;;
+  esac
+fi
+
 exec /gluetun-entrypoint "$@"

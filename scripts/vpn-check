@@ -138,7 +138,10 @@ if [[ -n "$internal_test_host" ]] && run_group internal; then
   elif getent hosts "$internal_test_host" >/dev/null 2>&1; then
     resolved="$(getent hosts "$internal_test_host" | awk '{print $1; exit}')"
   fi
-  if [[ -n "$resolved" && -n "${INTERNAL_TEST_PORT:-}" ]]; then
+  # Nunca interpolar resposta do resolver em bash -c sem validar que é IP.
+  if [[ -n "$resolved" && ! "$resolved" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ && ! "$resolved" =~ ^[0-9a-fA-F:]+$ ]]; then
+    report "alcance à rede interna (${internal_test_host})" "resposta inválida do resolver (não é IP)"
+  elif [[ -n "$resolved" && -n "${INTERNAL_TEST_PORT:-}" ]]; then
     if [[ ! "${INTERNAL_TEST_PORT}" =~ ^[1-9][0-9]{0,4}$ || "${INTERNAL_TEST_PORT}" -gt 65535 ]]; then
       report "alcance à rede interna (${internal_test_host}:${INTERNAL_TEST_PORT})" "INTERNAL_TEST_PORT inválida (1-65535)"
     else

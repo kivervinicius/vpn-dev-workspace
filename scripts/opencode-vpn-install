@@ -67,7 +67,7 @@ read_version() {
 # Aceita qualquer v2 >= baseline mínimo. O instalador não pode quebrar só
 # porque o auto-update diário instalou uma versão mais nova.
 read_v2_version() {
-  local path="$1" result major minor patch
+  local path="$1" result major minor patch base_minor base_patch exp_minor exp_patch
   [[ -x "$path" ]] || fail "v2 binary is missing or not executable: $path"
   result="$("$path" --version 2>&1)" || fail "v2 --version failed; no files were changed."
   if [[ "$result" =~ (^|[^0-9])([0-9]+)[.]([0-9]+)[.]([0-9]+)([^0-9]|$) ]]; then
@@ -76,10 +76,16 @@ read_v2_version() {
     fail "v2 version could not be parsed; no files were changed."
   fi
   [[ "$major" == "2" ]] || fail "v2 major mismatch (installed $major.$minor.$patch); no files were changed."
-  if ((10#$minor < 10#${MIN_V2_VERSION%.*} || (10#$minor == 10#${MIN_V2_VERSION%.*} && 10#$patch < 10#${MIN_V2_VERSION#*.}))); then
+  # Semver de 3 partes: minor = componente do meio, patch = último.
+  # `${v%.*}` sozinho deixaria "2.2" (inválido em aritmética) e matava a guarda.
+  base_minor="${MIN_V2_VERSION#*.}"; base_minor="${base_minor%.*}"
+  base_patch="${MIN_V2_VERSION##*.}"
+  exp_minor="${EXPECTED_V2_VERSION#*.}"; exp_minor="${exp_minor%.*}"
+  exp_patch="${EXPECTED_V2_VERSION##*.}"
+  if ((10#$minor < 10#$base_minor || (10#$minor == 10#$base_minor && 10#$patch < 10#$base_patch))); then
     fail "v2=$major.$minor.$patch is below the minimum baseline=$MIN_V2_VERSION; no files were changed."
   fi
-  if ((10#$minor != 10#${EXPECTED_V2_VERSION%.*} || 10#$patch != 10#${EXPECTED_V2_VERSION#*.})); then
+  if ((10#$minor != 10#$exp_minor || 10#$patch != 10#$exp_patch)); then
     printf 'opencode-vpn-install: WARNING v2=%s.%s.%s differs from the tested baseline=%s\n' \
       "$major" "$minor" "$patch" "$EXPECTED_V2_VERSION" >&2
   fi

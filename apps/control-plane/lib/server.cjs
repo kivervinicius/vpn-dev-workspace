@@ -68,7 +68,15 @@ function createServer(options={}){
   if(url.pathname==="/"||url.pathname==="/index.html"||url.pathname==="/app.js"||url.pathname==="/app.css"){
    const file=url.pathname==="/app.js"?"app.js":url.pathname==="/app.css"?"app.css":"index.html";
    const ct=file.endsWith(".js")?"text/javascript; charset=utf-8":file.endsWith(".css")?"text/css; charset=utf-8":"text/html; charset=utf-8";
-   try{res.writeHead(200,{...headers,"Content-Type":ct});if(req.method==="HEAD"){res.end();return}fs.createReadStream(path.join(__dirname,"../public",file)).pipe(res);return}
+   try{
+    res.writeHead(200,{...headers,"Content-Type":ct});
+    if(req.method==="HEAD"){res.end();return}
+    const stream=fs.createReadStream(path.join(__dirname,"../public",file));
+    // Erro de leitura é assíncrono: sem handler, derruba o processo (unhandled "error").
+    stream.on("error",()=>{if(!res.headersSent){res.writeHead(500,{...headers,"Content-Type":"application/json; charset=utf-8"});res.end(JSON.stringify({error:"static_unavailable"}))}else{res.destroy()}});
+    res.on("error",()=>stream.destroy());
+    stream.pipe(res);return;
+   }
    catch{return send(500,{error:"static_unavailable"})}
   }
   return send(404,{error:"not_found"});

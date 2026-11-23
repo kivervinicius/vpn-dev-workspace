@@ -90,6 +90,7 @@ services:
       WINDOWS_SSH_BRIDGE_HOST: ${WINDOWS_SSH_BRIDGE_HOST:-host.docker.internal}
       WINDOWS_SSH_BRIDGE_PORT: ${WINDOWS_SSH_BRIDGE_PORT:?WINDOWS_SSH_BRIDGE_PORT is required}
       WINDOWS_SSH_BRIDGE_TOKEN: ${WINDOWS_SSH_BRIDGE_TOKEN:?WINDOWS_SSH_BRIDGE_TOKEN is required}
+      HOST_BIND_ADDRESS: ${HOST_BIND_ADDRESS:-127.0.0.1}
     volumes: !override
       - vpn_windows_home:/home/developer
       - type: bind

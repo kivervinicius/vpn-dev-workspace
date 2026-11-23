@@ -66,9 +66,9 @@ valid_ipv4() {
 valid_ipv6() {
   local ip="$1"
   [[ "$ip" == *:* ]] || return 1
-  [[ "$ip" =~ ^[0-9a-fA-F:.]+$ ]] || return 1
-  [[ "$ip" != *":::"* ]] || return 1
-  return 0
+  # Validação real via getent: charset frouxo aceitava lixo (ex: 9 grupos).
+  command -v getent >/dev/null 2>&1 || return 1
+  getent ahosts "$ip" >/dev/null 2>&1
 }
 
 local_hosts="$(read_compose_value LOCAL_HOSTS "")"

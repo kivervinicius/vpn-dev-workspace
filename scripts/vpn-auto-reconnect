@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-readonly STATE_FILE=/tmp/vpn-auto-reconnect.state
-readonly COUNT_FILE=/tmp/vpn-auto-reconnect.count
-readonly ROTATE_LAST_FILE=/tmp/vpn-rotate.last
+readonly STATE_DIR="${VPN_AUTO_RECONNECT_STATE_DIR:-${XDG_STATE_HOME:-${HOME:-/tmp}/.local/state}/vpn-dev-workspace}"
+readonly STATE_FILE="${VPN_AUTO_RECONNECT_STATE_FILE:-${STATE_DIR}/vpn-auto-reconnect.state}"
+readonly COUNT_FILE="${VPN_AUTO_RECONNECT_COUNT_FILE:-${STATE_DIR}/vpn-auto-reconnect.count}"
+readonly ROTATE_LAST_FILE="${VPN_AUTO_RECONNECT_ROTATE_LAST_FILE:-${STATE_DIR}/vpn-rotate.last}"
 readonly RECONNECT_INTERVAL_SECONDS="${VPN_RECONNECT_INTERVAL_SECONDS:-3600}"
 readonly RETRY_SECONDS="${VPN_RECONNECT_RETRY_SECONDS:-30}"
 readonly ROTATE_ENABLED_RAW="${VPN_ROTATE_SERVERS:-false}"
@@ -31,6 +32,11 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   exit 0
 fi
 
+# Migração única do legado em /tmp; nunca segue symlink plantado por outro usuário.
+if [[ ! -e "$STATE_FILE" && ! -L "$STATE_FILE" && -f /tmp/vpn-auto-reconnect.state && ! -L /tmp/vpn-auto-reconnect.state ]]; then
+  mkdir -p -- "$STATE_DIR" 2>/dev/null && cp -- /tmp/vpn-auto-reconnect.state "$STATE_FILE" 2>/dev/null || true
+fi
+
 trap 'echo "vpn-auto-reconnect: encerrando (sinal recebido)."; exit 0' TERM INT
 
 validate_interval() {
@@ -41,12 +47,22 @@ validate_interval() {
   }
 }
 
+# Escrita atômica via mktemp+rename: rename substitui um symlink plantado no
+# diretório de estado em vez de seguir o alvo (sem sobrescrita por usuário local).
+atomic_write() {
+  local target="$1" content="$2" tmp
+  mkdir -p -- "$(dirname -- "$target")" || return 1
+  tmp="$(mktemp "${target}.XXXXXX")" || return 1
+  printf '%s\n' "$content" > "$tmp"
+  mv -f -- "$tmp" "$target"
+}
+
 set_state() {
-  printf '%s\n' "$1" > "$STATE_FILE"
+  atomic_write "$STATE_FILE" "$1"
 }
 
 write_count() {
-  printf '%s %s\n' "$(date +%s)" "$consecutive_failures" > "$COUNT_FILE"
+  atomic_write "$COUNT_FILE" "$(date +%s) $consecutive_failures"
 }
 
 resolve_helper() {
@@ -143,15 +159,25 @@ recover_until_healthy() {
         sleep "$RETRY_SECONDS"
         continue
       fi
-      if ((rotate_rc == 0)); then
-        set_state healthy
-        consecutive_failures=0
-        write_count
-        date +%s > "$ROTATE_LAST_FILE"
-        echo "VPN saudável após a troca de servidor: IP público confirmado."
-        return 0
+      if ((rotate_rc == 3)); then
+        echo "Lista sem alternativa de rotação (no-op); mantendo o servidor atual." >&2
+      elif ((rotate_rc == 4)); then
+        echo "Erro: rotação falhou e o revert também falhou; verifique o servidor ativo." >&2
+      elif ((rotate_rc == 0)); then
+        # rc 0 do rotate promete túnel saudável; revalida antes de declarar
+        # saúde para nunca abortar a recuperação com o túnel ainda morto.
+        if is_critical_healthy; then
+          set_state healthy
+          consecutive_failures=0
+          write_count
+          atomic_write "$ROTATE_LAST_FILE" "$(date +%s)"
+          echo "VPN saudável após a troca de servidor: IP público confirmado."
+          return 0
+        fi
+        echo "Rotação retornou sucesso, mas o túnel segue insaudável; continuando recuperação." >&2
+      else
+        echo "Falha ao trocar de servidor; mantendo o atual." >&2
       fi
-      echo "Falha ao trocar de servidor; mantendo o atual." >&2
     fi
 
     backoff_sleep
@@ -168,9 +194,14 @@ maybe_periodic_rotate() {
   fi
   if ((now - last >= ROTATE_INTERVAL_SECONDS)); then
     echo "Rotação periódica (a cada ${ROTATE_INTERVAL_SECONDS}s)..." >&2
-    if "$(resolve_helper vpn-server-rotate)" >/dev/null 2>&1; then
-      date +%s > "$ROTATE_LAST_FILE"
+    local periodic_rc=0
+    "$(resolve_helper vpn-server-rotate)" >/dev/null 2>&1 || periodic_rc=$?
+    if ((periodic_rc == 0)); then
+      atomic_write "$ROTATE_LAST_FILE" "$(date +%s)"
       echo "Rotação periódica concluída."
+    elif ((periodic_rc == 3)); then
+      atomic_write "$ROTATE_LAST_FILE" "$(date +%s)"
+      echo "Rotação periódica: lista com 1 servidor, nada a rotacionar." >&2
     else
       echo "Aviso: rotação periódica falhou; tentando no próximo ciclo." >&2
     fi
@@ -180,6 +211,12 @@ maybe_periodic_rotate() {
 validate_interval VPN_RECONNECT_INTERVAL_SECONDS "$RECONNECT_INTERVAL_SECONDS"
 validate_interval VPN_RECONNECT_RETRY_SECONDS "$RETRY_SECONDS"
 validate_interval VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE "$ATTEMPTS_BEFORE_ROTATE"
+# Regex antes de qualquer (( )): valor não numérico em aritmética sob set -u
+# derruba o daemon com erro obscuro ("abc: unbound variable").
+[[ "$ROTATE_INTERVAL_SECONDS" =~ ^[0-9]+$ ]] || {
+  echo "Erro: VPN_ROTATE_INTERVAL_SECONDS deve ser inteiro >= 0 (recebido: ${ROTATE_INTERVAL_SECONDS})." >&2
+  exit 2
+}
 if ((ROTATE_INTERVAL_SECONDS > 0)); then
   validate_interval VPN_ROTATE_INTERVAL_SECONDS "$ROTATE_INTERVAL_SECONDS"
 fi

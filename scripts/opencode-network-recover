@@ -4,7 +4,7 @@ set -Eeuo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/vpn-control-lock.sh"
 
 usage() {
-  echo "Uso: opencode-network-recover --event <classe> [--session <id>] [--quiet]" >&2
+  echo "Uso: opencode-network-recover --event <classe> [--session <id>] [--quiet] [--force-restart]" >&2
   exit "${1:-0}"
 }
 
@@ -96,10 +96,12 @@ fi
 
 cooldown="${OPENCODE_NETWORK_RECOVERY_COOLDOWN_SECONDS:-300}"
 timeout_seconds="${OPENCODE_NETWORK_RECOVERY_TIMEOUT_SECONDS:-300}"
+force_min_interval="${OPENCODE_NETWORK_RECOVERY_FORCE_MIN_INTERVAL_SECONDS:-60}"
 if ! $force_restart; then
   [[ "$cooldown" =~ ^[0-9]+$ ]] || { echo "Cooldown inválido." >&2; emit failed invalid_cooldown; exit 2; }
 fi
 [[ "$timeout_seconds" =~ ^[1-9][0-9]*$ ]] || { echo "Timeout inválido." >&2; emit failed invalid_timeout; exit 2; }
+[[ "$force_min_interval" =~ ^[0-9]+$ ]] || { echo "Intervalo mínimo de force inválido." >&2; emit failed invalid_force_interval; exit 2; }
 
 now="$(date +%s)"
 last_attempt="$(cat "$state_file" 2>/dev/null || echo 0)"
@@ -107,11 +109,12 @@ if [[ "$force_restart" != true && "$last_attempt" =~ ^[0-9]+$ ]] && (( last_atte
   emit skipped cooldown_active
   exit 0
 fi
-
-temporary="${state_file}.${BASHPID}.tmp"
-printf '%s\n' "$now" >"$temporary"
-chmod 600 "$temporary"
-mv -f -- "$temporary" "$state_file"
+# Force ignora o cooldown normal, mas tem piso próprio: 429 sustentado em
+# várias sessões não pode virar loop de restarts sem intervalo mínimo.
+if [[ "$force_restart" == true && "$last_attempt" =~ ^[0-9]+$ ]] && (( last_attempt > 0 && now - last_attempt < force_min_interval )); then
+  emit skipped force_cooldown_active
+  exit 0
+fi
 
 if $force_restart; then
   say "HTTP 429 estruturado; reiniciando o túnel VPN no perfil atual."
@@ -120,6 +123,12 @@ else
 fi
 output=""
 if output="$(timeout "$timeout_seconds" vpn-reconnect 2>&1)"; then
+  # Estado só após sucesso: tentativa falha não pode bloquear a recuperação
+  # normal seguinte (cooldown gravado antes do intento era veneno).
+  temporary="${state_file}.${BASHPID}.tmp"
+  printf '%s\n' "$now" >"$temporary"
+  chmod 600 "$temporary"
+  mv -f -- "$temporary" "$state_file"
   ip="$(sed -nE 's/.*IP público: ([0-9A-Fa-f:.]+).*/\1/p' <<<"$output" | tail -n 1)"
   if $force_restart; then emit reconnected http_429_tunnel_restarted "$ip"
   else emit reconnected tunnel_reconnected "$ip"

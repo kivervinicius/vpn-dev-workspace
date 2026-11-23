@@ -69,45 +69,48 @@ valid_hostname() {
 valid_ip() {
   local ip="$1"
   [[ "$ip" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]] && (( 10#${BASH_REMATCH[1]} <= 255 && 10#${BASH_REMATCH[2]} <= 255 && 10#${BASH_REMATCH[3]} <= 255 && 10#${BASH_REMATCH[4]} <= 255 )) && return 0
-  [[ "$ip" == *:* && "$ip" =~ ^[0-9a-fA-F:.]+$ && "$ip" != *":::"* ]] && return 0
+  # IPv6: validação real via getent (charset frouxo aceitava lixo como 9 grupos).
+  if [[ "$ip" == *:* ]]; then
+    command -v getent >/dev/null 2>&1 || return 1
+    getent ahosts "$ip" >/dev/null 2>&1 && return 0
+  fi
   return 1
 }
 
-for svc in "${REQUIRED_SERVICES[@]}"; do
+# Remove mapeamentos antigos do nome (qualquer IP): append-only deixava a linha
+# velha vencer no glibc (primeira casa) e o IP novo nunca tinha efeito.
+remove_name_entries() {
+  local cid="$1" name="$2"
+  docker exec -u 0 "$cid" sh -c 'awk -v n="$1" "{keep=1; for(i=2;i<=NF;i++) if(\$i==n){keep=0;break} if(keep) print}" /etc/hosts > /etc/hosts.vpn-tmp && cat /etc/hosts.vpn-tmp > /etc/hosts && rm -f /etc/hosts.vpn-tmp' sh "$name"
+}
+
+apply_entry() {
+  local svc="$1" cid="$2" ip="$3" name="$4" esc_ip esc_name
+  esc_ip="${ip//./\\.}"
+  esc_name="${name//./\\.}"
+  if docker exec -u 0 "$cid" sh -c "grep -Eq '^${esc_ip}[[:space:]]+${esc_name}([[:space:]]|\$)' /etc/hosts" 2>/dev/null; then
+    echo "[${svc}] ${name} já mapeado; pulando."
+  else
+    remove_name_entries "$cid" "$name"
+    docker exec -u 0 "$cid" sh -c 'printf "%s %s\n" "$1" "$2" >> /etc/hosts' sh "$ip" "$name"
+    echo "[${svc}] ${ip} ${name} aplicado."
+  fi
+}
+
+for svc in "${REQUIRED_SERVICES[@]}" "${OPTIONAL_SERVICES[@]}"; do
   cid="$("${compose[@]}" ps -q "$svc" 2>/dev/null || true)"
-  [[ -n "$cid" ]] || { echo "Erro: contêiner '${svc}' não está rodando; aplique após o vpn-switch." >&2; exit 1; }
+  if [[ -z "$cid" ]]; then
+    if [[ " ${REQUIRED_SERVICES[*]} " == *" ${svc} "* ]]; then
+      echo "Erro: contêiner '${svc}' não está rodando; aplique após o vpn-switch." >&2
+      exit 1
+    fi
+    continue
+  fi
   for i in "${!names[@]}"; do
     ip="${ips[$i]}"
     name="${names[$i]}"
     valid_ip "$ip" || { echo "Erro: IP inválido no snippet: '${ip}'." >&2; exit 2; }
     valid_hostname "$name" || { echo "Erro: hostname inválido no snippet: '${name}'." >&2; exit 2; }
-    esc_ip="${ip//./\\.}"
-    esc_name="${name//./\\.}"
-    if docker exec -u 0 "$cid" sh -c "grep -Eq '^${esc_ip}[[:space:]]+${esc_name}([[:space:]]|\$)' /etc/hosts" 2>/dev/null; then
-      echo "[${svc}] ${name} já mapeado; pulando."
-    else
-      docker exec -u 0 "$cid" sh -c 'printf "%s %s\n" "$1" "$2" >> /etc/hosts' sh "$ip" "$name"
-      echo "[${svc}] ${ip} ${name} aplicado."
-    fi
-  done
-done
-
-
-for svc in "${OPTIONAL_SERVICES[@]}"; do
-  cid="$("${compose[@]}" ps -q "$svc" 2>/dev/null || true)"
-  [[ -n "$cid" ]] || continue
-  for i in "${!names[@]}"; do
-    ip="${ips[$i]}"
-    name="${names[$i]}"
-    valid_ip "$ip" || { echo "Erro: IP inválido no snippet: '${ip}'." >&2; exit 2; }
-    valid_hostname "$name" || { echo "Erro: hostname inválido no snippet: '${name}'." >&2; exit 2; }
-    esc_ip="${ip//./\\.}"
-    esc_name="${name//./\\.}"
-    if docker exec -u 0 "$cid" sh -c "grep -Eq '^${esc_ip}[[:space:]]+${esc_name}([[:space:]]|\$)' /etc/hosts" 2>/dev/null; then
-      echo "[${svc}] ${name} já mapeado; pulando."
-    else
-      docker exec -u 0 "$cid" sh -c 'printf "%s %s\n" "$1" "$2" >> /etc/hosts' sh "$ip" "$name"
-      echo "[${svc}] ${ip} ${name} aplicado."
-    fi
+    apply_entry "$svc" "$cid" "$ip" "$name"
   done
 done

@@ -72,6 +72,8 @@ services:
       HTTPPROXY_USER: ${VPN_HTTP_PROXY_USER:-}
       # A senha vem de arquivo montado; não é interpolada no ambiente do Compose.
       HTTPPROXY_PASSWORD_FILE: /run/secrets/http_proxy_password
+      # Consumido pelo entrypoint: proxy em bind LAN sem credenciais falha fechado.
+      HOST_BIND_ADDRESS: ${HOST_BIND_ADDRESS:-127.0.0.1}
     ports:
       # A faixa é publicada apenas no endereço configurado do host. O default
       # é estreito (11 portas); amplie só se precisar (ver .env.example).
@@ -251,6 +253,8 @@ services:
       VPN_CONTROL_LOCK_FILE: /run/vpn-control-lock/operation.lock
       VPN_IP_ATTEMPTS: ${VPN_IP_ATTEMPTS:-30}
       VPN_IP_DELAY_SECONDS: ${VPN_IP_DELAY_SECONDS:-5}
+      VPN_STOP_ATTEMPTS: ${VPN_STOP_ATTEMPTS:-15}
+      VPN_STOP_DELAY_SECONDS: ${VPN_STOP_DELAY_SECONDS:-1}
       VPN_RECONNECT_INTERVAL_SECONDS: ${VPN_RECONNECT_INTERVAL_SECONDS:-3600}
       VPN_RECONNECT_RETRY_SECONDS: ${VPN_RECONNECT_RETRY_SECONDS:-30}
       # Rotação automática de servidor (opt-in; ver .env.example).
@@ -260,6 +264,8 @@ services:
       # Rotação periódica (privacidade) + estado round-robin (ver .env.example).
       VPN_ROTATE_INTERVAL_SECONDS: ${VPN_ROTATE_INTERVAL_SECONDS:-0}
       VPN_ROTATE_STATE_FILE: /var/lib/vpn-control/vpn-rotate.index
+      # Estado do auto-reconnect no volume persistente (antes ficava em /tmp).
+      VPN_AUTO_RECONNECT_STATE_DIR: /var/lib/vpn-control/auto-reconnect
       # Hosts locais mapeados (opt-in): o vpn-check valida cada nome=ip.
       LOCAL_HOSTS: ${LOCAL_HOSTS:-}
       # Sonda do OpenCode (opt-in; alerta puro, sem reconnect do túnel).
@@ -287,7 +293,7 @@ services:
     secrets:
       - gluetun_api_key
     healthcheck:
-      test: ["CMD-SHELL", "test \"$$(cat /tmp/vpn-auto-reconnect.state 2>/dev/null)\" = healthy"]
+      test: ["CMD-SHELL", "test \"$$(cat /var/lib/vpn-control/auto-reconnect/vpn-auto-reconnect.state 2>/dev/null)\" = healthy"]
       interval: 30s
       timeout: 5s
       retries: 2
@@ -342,6 +348,8 @@ services:
       OPENCODE_GUI_PORT: ${OPENCODE_GUI_PORT:-10001}
       OPENCODE_SERVER_USER: ${OPENCODE_SERVER_USER:-opencode}
       OPENCODE_GUI_PASSWORD_FILE: /run/secrets/opencode_gui_password
+      # Fail-closed no supervisor: bind LAN sem senha do painel recusa subir.
+      HOST_BIND_ADDRESS: ${HOST_BIND_ADDRESS:-127.0.0.1}
       VPN_CONTROL_LOCK_FILE: /run/vpn-control-lock/operation.lock
       OPENCODE_SUPERVISOR_INTERVAL_SECONDS: ${OPENCODE_SUPERVISOR_INTERVAL_SECONDS:-10}
       OPENCODE_RECOVERY_COOLDOWN_SECONDS: ${OPENCODE_RECOVERY_COOLDOWN_SECONDS:-30}

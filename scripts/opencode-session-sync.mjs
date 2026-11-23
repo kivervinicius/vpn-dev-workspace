@@ -670,8 +670,8 @@ function exportRecent(client, workspace, limit, results) {
   }
 }
 
-function timeUpdated(client, data) {
-  return finite(client === "v1" ? data?.info?.time?.updated : data?.info?.time?.updated, 0)
+function timeUpdated(_client, data) {
+  return finite(data?.info?.time?.updated, 0)
 }
 
 async function withLock(file, action) {
@@ -699,8 +699,42 @@ async function withLock(file, action) {
       await new Promise((resolve) => setTimeout(resolve, 100))
     }
   }
+  // Heartbeat: sync longo (>10min) não pode ter o lock vivo roubado como obsoleto.
+  const heartbeat = setInterval(() => {
+    try { fs.writeFileSync(file, JSON.stringify({ pid: process.pid, startedAt: Date.now() })) } catch {}
+  }, 60000)
   try { return await action() }
-  finally { await handle.close(); fs.rmSync(file, { force: true }) }
+  finally { clearInterval(heartbeat); await handle.close(); fs.rmSync(file, { force: true }) }
+}
+
+const RUN_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+function purgeStaleRuns(stateDir, now = Date.now()) {
+  const runDir = path.join(stateDir, "runs")
+  let entries = []
+  try { entries = fs.readdirSync(runDir) } catch { return }
+  for (const name of entries) {
+    if (!name.endsWith(".json")) continue
+    const file = path.join(runDir, name)
+    try {
+      if (now - fs.statSync(file).mtimeMs <= RUN_MAX_AGE_MS) continue
+      try {
+        const manifest = JSON.parse(fs.readFileSync(file, "utf8"))
+        const argsFile = manifest.argsFile
+        if (typeof argsFile === "string" && path.dirname(argsFile) === stateDir &&
+          /^args-[0-9a-f-]{36}\.bin$/.test(path.basename(argsFile))) {
+          fs.rmSync(argsFile, { force: true })
+        }
+      } catch {}
+      fs.rmSync(file, { force: true })
+    } catch {}
+  }
+  try {
+    for (const name of fs.readdirSync(stateDir)) {
+      if (!name.startsWith("args-") || !name.endsWith(".bin")) continue
+      const file = path.join(stateDir, name)
+      try { if (now - fs.statSync(file).mtimeMs > RUN_MAX_AGE_MS) fs.rmSync(file, { force: true }) } catch {}
+    }
+  } catch {}
 }
 
 function summarize(results) {
@@ -770,6 +804,7 @@ async function before(client, workspace, args) {
   const config = homeConfig(client)
   const stateDir = stateDirectory(config)
   return withLock(path.join(stateDir, "sync.lock"), async () => {
+    purgeStaleRuns(stateDir)
     const ledger = readLedger(ledgerFile(config))
     const results = []
     const rawLimit = process.env.OPENCODE_SESSION_SYNC_LIMIT || String(DEFAULT_LIMIT)
@@ -850,6 +885,7 @@ async function after(client, workspace, token) {
   const targetClient = manifest.sourceClient
   const targetConfig = homeConfig(targetClient)
   return withLock(path.join(stateDir, "sync.lock"), async () => {
+    purgeStaleRuns(stateDir)
     const ledger = readLedger(ledgerFile(config))
     const results = []
     const rawLimit = process.env.OPENCODE_SESSION_SYNC_LIMIT || String(DEFAULT_LIMIT)

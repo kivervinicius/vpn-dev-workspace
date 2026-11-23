@@ -22,12 +22,20 @@ function spawnNetworkRecovery(eventClass, sessionID, showResult, forceRestart = 
       env: process.env,
     })
     let output = ""
+    // Spawn falho emite "error" E "close" (Node >=15): sem trava, o callback
+    // roda duas vezes e o usuário recebe dois toasts de falha conflitantes.
+    let settled = false
+    const once = (result) => {
+      if (settled) return
+      settled = true
+      showResult(result)
+    }
     child.stdout.setEncoding("utf8")
     child.stdout.on("data", (chunk) => { output += chunk })
-    child.on("error", () => showResult({ status: "failed", reason: "helper_unavailable" }))
+    child.on("error", () => once({ status: "failed", reason: "helper_unavailable" }))
     child.on("close", () => {
-      try { showResult(JSON.parse(output)) }
-      catch { showResult({ status: "failed", reason: "invalid_helper_response" }) }
+      try { once(JSON.parse(output)) }
+      catch { once({ status: "failed", reason: "invalid_helper_response" }) }
     })
   } catch {
     showResult({ status: "failed", reason: "helper_unavailable" })

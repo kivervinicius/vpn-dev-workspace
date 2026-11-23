@@ -53,7 +53,8 @@ async function diagnose(options={}) {
     })():null;
     const safeProbeByRelease=name==="v2" && installed && compareVersion(installed,MIN_SAFE_PROBE_V2)!==null &&
       compareVersion(installed,MIN_SAFE_PROBE_V2)>=0;
-    // O launcher aceita qualquer v2 >= baseline mínimo (ver scripts/opencode2-service).
+    // O instalador aceita qualquer v2 >= baseline mínimo; o launcher gerenciado
+    // (opencode2-service) exige a versão exata testada, salvo canary explícito.
     const acceptsByMinimum=name==="v2"&&installed&&compareVersion(installed,MIN_SAFE_PROBE_V2)!==null&&
       compareVersion(installed,MIN_SAFE_PROBE_V2)>=0;
     if(name==="v2"&&drift)warnings.push("v2_version_drift_revalidate_plugin_runtime");

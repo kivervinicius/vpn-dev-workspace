@@ -24,9 +24,14 @@ for command in bash sh zsh node; do
   }
 done
 
+shellcheck_available=true
 if ! command -v shellcheck >/dev/null 2>&1; then
-  echo "ShellCheck ausente. Instale-o para completar o gate de lint." >&2
-  exit 2
+  shellcheck_available=false
+  echo "Aviso: ShellCheck ausente; lint ignorado localmente (CI falha duro)." >&2
+  if [[ "${CI:-}" == "true" ]]; then
+    echo "ShellCheck é obrigatório no CI." >&2
+    exit 2
+  fi
 fi
 
 for script in scripts/*; do
@@ -34,7 +39,7 @@ for script in scripts/*; do
   case "$script" in
     *.ps1|*.zsh|*.mjs|scripts/vpn-state|scripts/vpn-events|scripts/vpn-observer|scripts/vpn-backup|scripts/vpn-control-ui|scripts/vpn-provider-probe|scripts/opencode-compat) continue ;;
   esac
-  shellcheck -S error "$script"
+  if $shellcheck_available; then shellcheck -S error "$script"; fi
   bash -n "$script"
 done
 
@@ -54,4 +59,8 @@ while IFS= read -r -d '' script; do
   node --check "$script"
 done < <(find apps opencode tests -type f \( -name '*.js' -o -name '*.mjs' -o -name '*.cjs' \) -print0)
 
-echo "Sintaxe e ShellCheck válidos em todos os scripts aplicáveis."
+if $shellcheck_available; then
+  echo "Sintaxe e ShellCheck válidos em todos os scripts aplicáveis."
+else
+  echo "Sintaxe válida em todos os scripts aplicáveis (ShellCheck ignorado localmente)."
+fi

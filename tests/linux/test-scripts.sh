@@ -119,6 +119,40 @@ STUB
   return "$rc"
 }
 run_test "installer deploys recovery plugins, backs up and removes legacy targets" test_opencode_vpn_install
+
+test_install_v2_baseline() {
+  local tmp home v1 version stub output rc=0
+  tmp="$(mktemp -d)"
+  home="${tmp}/home"
+  mkdir -p "$home/.opencode-v1/.config/opencode/plugins" "$home/.config/opencode/plugins/provider-limit-notify" "${tmp}/bin"
+  printf 'old-v1\n' > "$home/.opencode-v1/.config/opencode/plugins/provider-limit-notify.js"
+  printf '{}\n' > "$home/.config/opencode/plugins/provider-limit-notify/package.json"
+  v1="${tmp}/bin/opencode-v1"
+  printf '#!/usr/bin/env bash\necho "OpenCode 1.19.6"\n' > "$v1"
+  chmod +x "$v1"
+  for version in 2.2.5 2.2.6 2.4.0; do
+    stub="${tmp}/bin/opencode-v2-${version}"
+    printf '#!/usr/bin/env bash\necho "OpenCode %s"\n' "$version" > "$stub"
+    chmod +x "$stub"
+  done
+  # Abaixo do mínimo: falha sem criar arquivos (guarda de baseline viva).
+  if HOME="${tmp}/bad" OPENCODE_V1_HOME="${tmp}/bad/.opencode-v1" XDG_CONFIG_HOME="${tmp}/bad/.config" \
+    OPENCODE_V1_BIN="$v1" OPENCODE_V2_BIN="${tmp}/bin/opencode-v2-2.2.5" \
+    bash "${SCRIPTS_DIR}/opencode-vpn-install" >/dev/null 2>&1; then rc=1; fi
+  [[ ! -e "${tmp}/bad/.local/bin" ]] || rc=1
+  # No mínimo exato: instala sem warning.
+  HOME="$home" OPENCODE_V1_HOME="$home/.opencode-v1" XDG_CONFIG_HOME="$home/.config" \
+    OPENCODE_V1_BIN="$v1" OPENCODE_V2_BIN="${tmp}/bin/opencode-v2-2.2.6" \
+    bash "${SCRIPTS_DIR}/opencode-vpn-install" >/dev/null 2>&1 || rc=1
+  # Acima do mínimo: instala e emite warning de versão não testada.
+  output="$(HOME="$home" OPENCODE_V1_HOME="$home/.opencode-v1" XDG_CONFIG_HOME="$home/.config" \
+    OPENCODE_V1_BIN="$v1" OPENCODE_V2_BIN="${tmp}/bin/opencode-v2-2.4.0" \
+    bash "${SCRIPTS_DIR}/opencode-vpn-install" 2>&1)" || rc=1
+  grep -q "WARNING" <<<"$output" || rc=1
+  rm -rf "$tmp"
+  return "$rc"
+}
+run_test "installer v2 baseline: abaixo falha, no mínimo e acima instalam" test_install_v2_baseline
 test_opencode_launchers_require_vpn() {
   local tmp home profile_home v1_home call_log host_state container_state output rc=0
   tmp="$(mktemp -d)"
@@ -357,6 +391,7 @@ test_opencode_network_recover() {
   local -x VPN_CONTROL_LOCK_LIB="$SCRIPTS_DIR/vpn-control-lock.sh"
   local -x OPENCODE_NETWORK_RECOVERY_COOLDOWN_SECONDS=300
   local -x STUB_RELEASE_FILE=""
+  local -x STUB_RECONNECT_FAIL=""
   local -x VPN_CHECK_MODE=healthy
 
   cat > "$tmp/bin/vpn-check" <<'STUB'
@@ -383,6 +418,7 @@ STUB
 #!/usr/bin/env bash
 source "$VPN_CONTROL_LOCK_LIB"
 vpn_control_lock_acquire || exit $?
+[[ -z "$STUB_RECONNECT_FAIL" ]] || exit 1
 printf 'reconnect\n' >> "$ACTION_LOG"
 if [[ -n "$STUB_RELEASE_FILE" ]]; then
   while [[ ! -e "$STUB_RELEASE_FILE" ]]; do sleep 0.05; done
@@ -450,16 +486,38 @@ STUB
 
   # A structured 429 restarts the current profile even when the tunnel reports
   # healthy, the diagnostic is unavailable, or the ordinary cooldown is active.
+  # Estado envelhecido (> piso de 60s do force) para isolar o piso anti-loop.
   : > "$ACTION_LOG"
+  printf '%s\n' "$(( $(date +%s) - 120 ))" > "$OPENCODE_NETWORK_RECOVERY_STATE_FILE"
   local -x VPN_CHECK_MODE=healthy
   output="$(bash "$SCRIPTS_DIR/opencode-network-recover" --event rate_limit --session s429 --force-restart --quiet)" || rc=1
   jq -e '.status == "reconnected" and .reason == "http_429_tunnel_restarted" and .ip == "198.51.100.9"' <<<"$output" >/dev/null || { echo "healthy-tunnel 429 restart mismatch: $output" >&2; rc=1; }
   [[ "$(wc -l < "$ACTION_LOG")" == 1 ]] || { echo "HTTP 429 did not restart a healthy tunnel" >&2; rc=1; }
 
   local -x VPN_CHECK_MODE=unknown
+  printf '%s\n' "$(( $(date +%s) - 120 ))" > "$OPENCODE_NETWORK_RECOVERY_STATE_FILE"
   output="$(bash "$SCRIPTS_DIR/opencode-network-recover" --event account_limit --session s429-unknown --force-restart --quiet)" || rc=1
   jq -e '.status == "reconnected" and .reason == "http_429_tunnel_restarted"' <<<"$output" >/dev/null || { echo "undetected-tunnel 429 restart mismatch: $output" >&2; rc=1; }
   [[ "$(wc -l < "$ACTION_LOG")" == 2 ]] || { echo "HTTP 429 restart did not bypass unavailable tunnel diagnostics" >&2; rc=1; }
+
+  # Piso do force: restart recente bloqueia outro force (anti-loop entre sessões).
+  date +%s > "$OPENCODE_NETWORK_RECOVERY_STATE_FILE"
+  output="$(bash "$SCRIPTS_DIR/opencode-network-recover" --event rate_limit --session s429-floor --force-restart --quiet)" || rc=1
+  jq -e '.status == "skipped" and .reason == "force_cooldown_active"' <<<"$output" >/dev/null || { echo "force floor mismatch: $output" >&2; rc=1; }
+
+  # Mais velho que o piso (60s) e dentro do cooldown normal (300s): force passa.
+  printf '%s\n' "$(( $(date +%s) - 120 ))" > "$OPENCODE_NETWORK_RECOVERY_STATE_FILE"
+  output="$(bash "$SCRIPTS_DIR/opencode-network-recover" --event rate_limit --session s429-bypass --force-restart --quiet)" || rc=1
+  jq -e '.status == "reconnected" and .reason == "http_429_tunnel_restarted"' <<<"$output" >/dev/null || { echo "force normal-cooldown bypass mismatch: $output" >&2; rc=1; }
+
+  # Tentativa falha não grava estado: não envenena o cooldown da recuperação seguinte.
+  rm -f "$OPENCODE_NETWORK_RECOVERY_STATE_FILE"
+  local -x VPN_CHECK_MODE=stopped
+  local -x STUB_RECONNECT_FAIL=1
+  output="$(bash "$SCRIPTS_DIR/opencode-network-recover" --event rate_limit --session s429-fail --quiet)" || true
+  jq -e '.status == "failed" and .reason == "reconnect_failed"' <<<"$output" >/dev/null || { echo "failed attempt mismatch: $output" >&2; rc=1; }
+  [[ ! -e "$OPENCODE_NETWORK_RECOVERY_STATE_FILE" ]] || { echo "failed attempt wrote cooldown state" >&2; rc=1; }
+  local -x STUB_RECONNECT_FAIL=""
 
   rm -rf "$tmp"
   return "$rc"
@@ -682,6 +740,62 @@ STUB
 }
 run_test "rotate reverte o servidor quando o túnel fica insaudável" test_rotate_reverts_on_unhealthy_tunnel
 
+test_rotate_single_server_noop() {
+  local tmp rc=0
+  tmp="$(mktemp -d)"
+  printf 'chave-de-teste' > "${tmp}/api_key"
+  cat > "${tmp}/curl" <<'STUB'
+#!/usr/bin/env bash
+cat >/dev/null
+printf '{"provider":{"server_selection":{"hostnames":["br1.nordvpn.com"],"countries":[]}}}'
+exit 0
+STUB
+  chmod +x "${tmp}/curl"
+  PATH="${tmp}:${PATH}" GLUETUN_API_KEY_FILE="${tmp}/api_key" GLUETUN_API_URL="http://stub" \
+    VPN_CONTROL_LOCK_FILE="${tmp}/operation.lock" VPN_ROTATE_STATE_FILE="${tmp}/rotate.index" \
+    VPN_SERVER_HOSTNAMES="br1.nordvpn.com" \
+    bash "${SCRIPTS_DIR}/vpn-server-rotate" >/dev/null 2>&1
+  rc=$?
+  rm -rf "$tmp"
+  # rc 3 (no-op), nunca 0: o túnel não foi alterado e o auto-reconnect não
+  # pode declarar saúde falsa a partir deste retorno.
+  [[ "$rc" == 3 ]]
+}
+run_test "rotate com 1 servidor é no-op e retorna 3 (não 0)" test_rotate_single_server_noop
+
+test_auto_reconnect_noop_not_healthy() {
+  local tmp state rc=0
+  tmp="$(mktemp -d)"
+  mkdir -p "$tmp/bin"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$tmp/bin/vpn-check"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$tmp/bin/vpn-reconnect"
+  printf '#!/usr/bin/env bash\nexit 3\n' > "$tmp/bin/vpn-server-rotate"
+  chmod +x "$tmp/bin/"*
+  PATH="$tmp/bin:$PATH" \
+    VPN_AUTO_RECONNECT_STATE_FILE="$tmp/state" \
+    VPN_AUTO_RECONNECT_COUNT_FILE="$tmp/count" \
+    VPN_AUTO_RECONNECT_ROTATE_LAST_FILE="$tmp/rotate.last" \
+    VPN_RECONNECT_INTERVAL_SECONDS=1 VPN_RECONNECT_RETRY_SECONDS=1 \
+    VPN_ROTATE_SERVERS=true VPN_RECONNECT_ATTEMPTS_BEFORE_ROTATE=1 \
+    timeout 6 bash "${SCRIPTS_DIR}/vpn-auto-reconnect" >/dev/null 2>&1 || true
+  state="$(cat "$tmp/state" 2>/dev/null || echo missing)"
+  [[ "$state" != healthy ]] || { echo "auto-reconnect declarou healthy com rotate no-op e túnel morto: $state" >&2; rc=1; }
+  rm -rf "$tmp"
+  return "$rc"
+}
+run_test "auto-reconnect não declara healthy quando rotate é no-op" test_auto_reconnect_noop_not_healthy
+
+test_auto_reconnect_invalid_rotate_interval() {
+  local rc=0
+  VPN_AUTO_RECONNECT_STATE_FILE=/tmp/vpn-ar-invalid.state \
+    VPN_ROTATE_INTERVAL_SECONDS=abc \
+    bash "${SCRIPTS_DIR}/vpn-auto-reconnect" >/dev/null 2>&1
+  rc=$?
+  rm -f /tmp/vpn-ar-invalid.state
+  [[ "$rc" == 2 ]]
+}
+run_test "auto-reconnect rejeita VPN_ROTATE_INTERVAL_SECONDS não numérico" test_auto_reconnect_invalid_rotate_interval
+
 test_host_control_defaults() {
   local out url key
   out="$(VPN_WORKSPACE_CONTAINER= VPN_CONTROL_FORCE_HOST=1 bash -c "
@@ -706,7 +820,10 @@ run_test "defaults de API: host usa porta de controle publicada; container usa 8
 test_lock_dir_is_honored() {
   local tmp out rc=0
   tmp="$(mktemp -d)"
+  # unset interno: FILE ambiente (exportado no workspace) tem precedência
+  # documentada sobre DIR e tornava o teste não hermético (falha fora do CI).
   out="$(VPN_CONTROL_LOCK_DIR="${tmp}/lock" bash -c "
+    unset VPN_CONTROL_LOCK_FILE
     source '${SCRIPTS_DIR}/vpn-control-lock.sh'
     vpn_control_lock_acquire && printf acquired
   ")" || rc=1
@@ -1071,6 +1188,117 @@ test_switch_rejects_invalid_port_range() {
   return "$result"
 }
 run_test "vpn-switch: rejeita VPN_PORT_RANGE acima de 65535" test_switch_rejects_invalid_port_range
+
+test_rotate_revert_failure_exits_4() {
+  local tmp out code=0
+  tmp="$(mktemp -d)"
+  printf 'chave-de-teste' > "${tmp}/api_key"
+  cat > "${tmp}/curl" <<'STUB'
+#!/usr/bin/env bash
+cat >/dev/null
+if [[ "$*" == *"http://stub/v1/vpn/settings" && "$*" != *"-X PUT"* ]]; then
+  printf '%s' '{"provider":{"server_selection":{"hostnames":["a.example"],"countries":["brazil"]}}}'
+  exit 0
+fi
+if [[ "$*" == *"-X PUT"* ]]; then
+  n=0
+  [[ -f "${PUT_COUNT}" ]] && n="$(<"${PUT_COUNT}")"
+  n=$((n + 1))
+  printf '%s\n' "$n" > "${PUT_COUNT}"
+  if ((n == 1)); then printf '{}'; exit 0; fi
+  exit 22
+fi
+printf '{}'
+exit 0
+STUB
+  printf '#!/usr/bin/env bash\nexit 0\n' > "${tmp}/vpn-reconnect"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "${tmp}/vpn-check"
+  chmod +x "${tmp}/curl" "${tmp}/vpn-reconnect" "${tmp}/vpn-check"
+  printf '0\n' > "${tmp}/rotate.index"
+  out="$(PUT_COUNT="${tmp}/puts" PATH="${tmp}:${PATH}" \
+    GLUETUN_API_KEY_FILE="${tmp}/api_key" GLUETUN_API_URL="http://stub" \
+    VPN_CONTROL_LOCK_FILE="${tmp}/operation.lock" \
+    VPN_ROTATE_STATE_FILE="${tmp}/rotate.index" \
+    VPN_SERVER_HOSTNAMES="a.example,b.example" \
+    bash "${SCRIPTS_DIR}/vpn-server-rotate" 2>&1)" || code=$?
+  rm -rf "$tmp"
+  [[ "$code" -eq 4 ]] || { echo "revert falhou mas exit foi ${code}: ${out}" >&2; return 1; }
+  grep -q 'revert falhou' <<<"$out" && grep -q 'a.example' <<<"$out"
+}
+run_test "rotate: falha no revert retorna 4 e nomeia o servidor anterior" test_rotate_revert_failure_exits_4
+
+test_reconnect_waits_for_stopped() {
+  local tmp out code=0
+  tmp="$(mktemp -d)"
+  printf 'chave-de-teste' > "${tmp}/api_key"
+  cat > "${tmp}/curl" <<'STUB'
+#!/usr/bin/env bash
+cat >/dev/null
+case "$*" in
+  *'"status":"stopped"'*)
+    printf 'put:stopped\n' >> "${SEQ}"; printf '{}'; exit 0 ;;
+  *'"status":"running"'*)
+    printf 'put:running\n' >> "${SEQ}"; printf '{}'; exit 0 ;;
+esac
+if [[ "$*" == *"/v1/vpn/status" ]]; then
+  n=0
+  [[ -f "${STATUS_COUNT}" ]] && n="$(<"${STATUS_COUNT}")"
+  n=$((n + 1))
+  printf '%s\n' "$n" > "${STATUS_COUNT}"
+  if ((n == 1)); then
+    printf 'status:running\n' >> "${SEQ}"; printf '{"status":"running"}'
+  else
+    printf 'status:stopped\n' >> "${SEQ}"; printf '{"status":"stopped"}'
+  fi
+  exit 0
+fi
+if [[ "$*" == *"/v1/publicip/ip" ]]; then printf '{"public_ip":"198.51.100.10"}'; exit 0; fi
+printf '{}'
+exit 0
+STUB
+  chmod +x "${tmp}/curl"
+  out="$(SEQ="${tmp}/seq" STATUS_COUNT="${tmp}/status.count" PATH="${tmp}:${PATH}" \
+    GLUETUN_API_KEY_FILE="${tmp}/api_key" GLUETUN_API_URL="http://stub" \
+    VPN_CONTROL_LOCK_FILE="${tmp}/operation.lock" \
+    VPN_STOP_ATTEMPTS=3 VPN_STOP_DELAY_SECONDS=0 VPN_IP_ATTEMPTS=1 \
+    bash "${SCRIPTS_DIR}/vpn-reconnect" 2>&1)" || code=$?
+  local result=0
+  [[ "$code" -eq 0 ]] || { echo "vpn-reconnect falhou (${code}): ${out}" >&2; result=1; }
+  diff -u <(printf 'put:stopped\nstatus:running\nstatus:stopped\nput:running\n') "${tmp}/seq" >/dev/null 2>&1 || {
+    echo "sequência inesperada: $(tr '\n' ' ' < "${tmp}/seq" 2>/dev/null)" >&2; result=1;
+  }
+  rm -rf "$tmp"
+  return "$result"
+}
+run_test "reconnect aguarda Gluetun confirmar stopped antes de subir" test_reconnect_waits_for_stopped
+
+test_auto_reconnect_state_uses_xdg() {
+  local tmp state rc=0
+  tmp="$(mktemp -d)"
+  mkdir -p "$tmp/bin"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$tmp/bin/vpn-check"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$tmp/bin/vpn-reconnect"
+  printf '#!/usr/bin/env bash\nexit 3\n' > "$tmp/bin/vpn-server-rotate"
+  chmod +x "$tmp/bin/"*
+  PATH="$tmp/bin:$PATH" XDG_STATE_HOME="$tmp/state" \
+    /usr/bin/env -u VPN_AUTO_RECONNECT_STATE_FILE -u VPN_AUTO_RECONNECT_COUNT_FILE \
+      -u VPN_AUTO_RECONNECT_ROTATE_LAST_FILE -u VPN_AUTO_RECONNECT_STATE_DIR \
+    VPN_RECONNECT_INTERVAL_SECONDS=1 VPN_RECONNECT_RETRY_SECONDS=1 \
+    timeout 4 bash "${SCRIPTS_DIR}/vpn-auto-reconnect" >/dev/null 2>&1 || true
+  state="$tmp/state/vpn-dev-workspace/vpn-auto-reconnect.state"
+  [[ -f "$state" ]] || { echo "estado não criado em XDG_STATE_HOME: $state" >&2; rc=1; }
+  rm -rf "$tmp"
+  return "$rc"
+}
+run_test "auto-reconnect grava estado em XDG_STATE_HOME por padrão" test_auto_reconnect_state_uses_xdg
+
+test_compose_auto_reconnect_healthcheck_path() {
+  local compose="${ROOT_DIR}/docker-compose.yml"
+  grep -q 'VPN_AUTO_RECONNECT_STATE_DIR: /var/lib/vpn-control/auto-reconnect' "$compose" || return 1
+  grep -q '/var/lib/vpn-control/auto-reconnect/vpn-auto-reconnect.state' "$compose" || return 1
+  ! grep -q '/tmp/vpn-auto-reconnect.state' "$compose"
+}
+run_test "healthcheck do Compose lê o estado fora de /tmp" test_compose_auto_reconnect_healthcheck_path
 
 echo "======================================"
 printf "Resultado: %d testes executados, %d passaram, %d falharam.\n" "$total" "$passed" "$failed"

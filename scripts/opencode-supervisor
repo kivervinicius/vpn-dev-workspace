@@ -22,6 +22,7 @@ DISCONNECT_PATTERNS="${OPENCODE_DISCONNECT_PATTERNS:-network connection lost|con
 PASSWORD_FILE="${OPENCODE_GUI_PASSWORD_FILE:-/run/secrets/opencode_gui_password}"
 
 child_pid=""
+child_starttime=""
 log_offset=0
 NEW_LOGS=""
 rotations=0
@@ -37,6 +38,7 @@ Uso: opencode-supervisor [--help] [--classify <texto>]
 Executa e supervisiona OpenCode dentro da VPN.
 - queda do processo com VPN saudável: reinicia somente OpenCode;
 - desconexão de rede ou VPN unhealthy: serializa reconexão, confirma o túnel e reinicia o processo morto;
+  texto de desconexão com VPN+app saudáveis é tratado como prosa (sem rotação);
 - limites de provider são tratados pelos plugins TUI; o supervisor não classifica limites pelo texto dos logs.
 - limita recuperações de rede por janela/cooldown para evitar loops.
 
@@ -134,7 +136,17 @@ load_server_auth() {
     export OPENCODE_SERVER_USER="${OPENCODE_SERVER_USER:-opencode}"
     return
   fi
-  echo "Aviso: painel OpenCode sem senha (apenas local; defina OPENCODE_GUI_PASSWORD_FILE para LAN)." >&2
+  # Fail-closed no processo, não só no vpn-switch: `docker compose up` direto
+  # com bind LAN e sem senha exporia o serve (execução de comandos) na rede.
+  case "${HOST_BIND_ADDRESS:-127.0.0.1}" in
+    127.*|localhost|::1)
+      echo "Aviso: painel OpenCode sem senha (apenas local; defina OPENCODE_GUI_PASSWORD_FILE para LAN)." >&2
+      ;;
+    *)
+      echo "Erro: HOST_BIND_ADDRESS=${HOST_BIND_ADDRESS} expõe o painel OpenCode na LAN sem senha; defina OPENCODE_GUI_PASSWORD_FILE com arquivo não vazio." >&2
+      exit 2
+      ;;
+  esac
 }
 
 http_ready() {
@@ -147,30 +159,49 @@ http_ready() {
   fi
 }
 
+# starttime (campo 22 de /proc/<pid>/stat) identifica o processo além do PID:
+# PID reutilizado por outro processo não pode receber TERM/KILL nosso.
+proc_starttime() {
+  local stat
+  stat="$(cat "/proc/$1/stat" 2>/dev/null)" || return 1
+  printf '%s\n' "${stat##*) }" | awk '{print $20}'
+}
+
 start_opencode() {
   load_server_auth
   # Preserva linhas recentes para diagnosticar desconexões, sem classificar quotas.
   if [[ -s "$LOG_FILE" ]]; then
-    tail -n 2000 "$LOG_FILE" > "${LOG_FILE}.tmp" 2>/dev/null && mv "${LOG_FILE}.tmp" "$LOG_FILE" || : > "$LOG_FILE"
+    tail -n 2000 "$LOG_FILE" > "${LOG_FILE}.tmp" 2>/dev/null && mv "${LOG_FILE}.tmp" "$LOG_FILE" || {
+      rm -f "${LOG_FILE}.tmp"
+      echo "Aviso: não foi possível podar o log; mantendo o arquivo atual." >&2
+    }
   fi
   log_offset=0
   echo "Iniciando OpenCode ${MODE} em 127.0.0.1:${PORT}..."
   opencode2-service "$MODE" --port "$PORT" --hostname 0.0.0.0 >>"$LOG_FILE" 2>&1 &
   child_pid=$!
+  child_starttime="$(proc_starttime "$child_pid" 2>/dev/null || true)"
   printf '%s\n' "$child_pid" > "$PID_FILE"
 }
 
 stop_opencode() {
   if [[ -n "$child_pid" ]] && kill -0 "$child_pid" 2>/dev/null; then
-    kill -TERM "$child_pid" 2>/dev/null || true
-    for _ in {1..10}; do
-      kill -0 "$child_pid" 2>/dev/null || break
-      sleep 1
-    done
-    kill -KILL "$child_pid" 2>/dev/null || true
-    wait "$child_pid" 2>/dev/null || true
+    local current_starttime=""
+    current_starttime="$(proc_starttime "$child_pid" 2>/dev/null || true)"
+    if [[ -n "$child_starttime" && -n "$current_starttime" && "$current_starttime" != "$child_starttime" ]]; then
+      echo "Aviso: PID ${child_pid} foi reutilizado por outro processo; nenhum sinal enviado." >&2
+    else
+      kill -TERM "$child_pid" 2>/dev/null || true
+      for _ in {1..10}; do
+        kill -0 "$child_pid" 2>/dev/null || break
+        sleep 1
+      done
+      kill -KILL "$child_pid" 2>/dev/null || true
+      wait "$child_pid" 2>/dev/null || true
+    fi
   fi
   child_pid=""
+  child_starttime=""
   rm -f "$PID_FILE"
 }
 
@@ -406,7 +437,13 @@ while true; do
   event="$(classify_text "$NEW_LOGS")"
   case "$event" in
     disconnect)
-      recover_with_vpn "opencode-disconnect" || true
+      # Texto de desconexão no log pode ser prosa (código/docs/output citando
+      # "fetch failed"). Com VPN e app saudáveis, não rotaciona por texto.
+      if vpn_is_healthy && http_ready; then
+        echo "Texto de desconexão no log, mas VPN e app saudáveis; sem rotação (provável prosa)." >&2
+      else
+        recover_with_vpn "opencode-disconnect" || true
+      fi
       continue
       ;;
   esac
