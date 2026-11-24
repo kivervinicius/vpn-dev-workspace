@@ -10,6 +10,29 @@ Ambiente local de desenvolvimento em Docker que força o tráfego do terminal po
 
 > Use somente provedores, contas e redes para os quais você tem autorização. A manutenção automática existe para recuperar conectividade, não para ocultar atividade ou contornar políticas.
 
+## Sumário
+
+| Parte | Seção | Para quê |
+|---|---|---|
+| — | [Objetivo](#objetivo) | O que o projeto promete |
+| — | [TL;DR](#tldr--do-zero-ao-túnel-em-5-minutos) | Do zero ao túnel em 5 minutos |
+| — | [Requisitos](#requisitos) | O que precisa existir na máquina |
+| — | [Mapa da documentação](#mapa-da-documentação) | Onde está cada procedimento |
+| — | [Novidades](#novidades) | O que mudou nesta entrega |
+| A | [1. Configuração inicial](#1-configuração-inicial) | Segredos, `.env`, primeiro start |
+| A | [2. Perfis e credenciais](#2-perfis-e-credenciais) | Como cada provedor é carregado |
+| B | [3. Terminal, portas e proxy](#3-terminal-portas-e-proxy) | Faixa publicada e proxy HTTP |
+| B | [4. Manutenção da VPN](#4-manutenção-da-vpn) | Reconexão, rotação, histórico, diagnóstico |
+| C | [5. Rede interna do host](#5-acesso-à-rede-interna-do-host-opt-in) | `FIREWALL_SUBNETS`, DNS e hosts internos |
+| C | [6. Paridade com a home](#6-paridade-com-a-home-do-host) | UID/GID, agente SSH, sessão do usuário |
+| D | [7. OpenCode pela VPN](#7-painel-web-e-desktop-do-opencode-pela-vpn-opt-in) | Painel, Desktop, supervisor, fallback free→free |
+| D | [8. Windows](#8-windows) | PowerShell + Docker Desktop, WSL2 |
+| D | [9. Perfis disponíveis](#9-exemplos-de-provedores) | Tabela de provedores |
+| E | [10. Estrutura e verificação](#10-estrutura-verificação-e-encerramento) | Containers, gates, CI |
+| E | [11. Control Plane](#11-control-plane-opt-in) | Observabilidade read-only e gráfico de latência |
+| E | [12. Privacidade e segredos](#12-privacidade-segredos-e-dados-que-saem-da-máquina) | O que trafega, o que é gravado |
+| E | [13. Diagnóstico rápido](#13-diagnóstico-rápido) | Sintoma → comando |
+
 ## TL;DR — do zero ao túnel em 5 minutos
 
 ```bash
@@ -19,6 +42,15 @@ Ambiente local de desenvolvimento em Docker que força o tráfego do terminal po
 docker compose -f docker-compose.yml -f profiles/nordvpn-openvpn.yml exec terminal zsh
 ```
 
+Com o dispatcher instalado (`scripts/vpn` no `PATH`), o mesmo fluxo fica:
+
+```bash
+vpn up nordvpn-openvpn   # sobe (usa o último perfil ativo se omitir o perfil)
+vpn sh                  # abre o Zsh do container terminal no diretório atual
+vpn check               # túnel + DNS + leak básico
+vpn down                # encerra
+```
+
 Dentro do terminal:
 
 ```zsh
@@ -26,29 +58,70 @@ vpn-status   # perfil, servidor e IP público
 vpn-check    # túnel + DNS + leak básico
 ```
 
-Encerrar: `./scripts/vpn-switch stop`. Versão imprimível de 1 página: [docs/TLDR.md](docs/TLDR.md). Passo a passo comentado: [o exemplo de uso básico](examples/uso-basico.md).
+Encerrar: `./scripts/vpn-switch stop` (ou `vpn down`). Versão imprimível de 1
+página: [docs/TLDR.md](docs/TLDR.md). Passo a passo comentado: [o exemplo de uso
+básico](examples/uso-basico.md).
 
 | Quero… | Comando |
 |---|---|
-| Subir / trocar de VPN | `./scripts/vpn-switch <perfil>` |
-| Abrir o shell | `./scripts/vpn-shell` (ou `make shell`) |
+| Subir / trocar de VPN | `./scripts/vpn-switch <perfil>` ou `vpn up <perfil>` |
+| Abrir o shell | `./scripts/vpn-shell` (ou `make shell`, ou `vpn sh`) |
+| Executar algo pela VPN | `vpn run <comando>` |
 | Saúde rápida | `vpn-status`, `vpn-check`, `vpn-top` |
+| Checagem profunda (IPv6/DNS) | `vpn-check --deep` |
 | Reconectar / trocar servidor | `vpn-reconnect`, `vpn-server-rotate --list` |
 | Diagnosticar tudo | `./scripts/vpn-doctor` (ou `make doctor`) |
-| Diagnóstico para anexar em issue | `./scripts/vpn-doctor --bundle diag.tar.gz --redact-ips` |
+| Diagnosticar para anexar em issue | `./scripts/vpn-doctor --bundle diag.tar.gz --redact-ips` |
 | Histórico de IP/latência | `vpn-history --record`, `vpn-history --since 7d` |
-| OpenCode na VPN | `./scripts/vpn-opencode web\|serve\|supervise` |
+| Abrir o OpenCode na VPN | `./scripts/vpn-opencode web\|serve\|supervise` ou `vpn ai 2` |
 | Rede da casa/empresa | `FIREWALL_SUBNETS` + `INTERNAL_DNS` + `LOCAL_HOSTS` |
+
+## Requisitos
+
+| Onde | Precisa de |
+|---|---|
+| Linux / WSL2 | Docker Engine + Compose ≥ 2.24, `curl`, `jq`, `awk`, Bash; `zsh` e `socat` só para extras (veja `make lint`) |
+| Windows | Docker Desktop com backend WSL2, PowerShell 7+ (`pwsh`), Compose ≥ 2.24.4 |
+| Todo o ambiente | Um provedor VPN válido e credenciais próprias em `.secrets/` (modo `0600`) |
+| Desarrollo do repo | Node.js 18+ (testes), Go 1.26+ (patch do Gluetun), Pester 5+ (`make test-windows`) |
+
+Portas usadas por padrão: `10000-10010` (`VPN_PORT_RANGE`), `10001` painel do
+OpenCode, `10002` proxy HTTP, `10003` Control Plane. O bind é local
+(`127.0.0.1`) por padrão.
 
 ## Mapa da documentação
 
-- **Este README** — referência completa, segmentada por tema (seções 1–10 abaixo).
-- [docs/TLDR.md](docs/TLDR.md) — cola-rápida de 1 página.
-- [Exemplo de uso básico](examples/uso-basico.md) — NordVPN + OpenVPN passo a passo.
-- [Cenários avançados](examples/cenarios-avancados.md) — intranet, `LOCAL_HOSTS`, proxy, supervisor, home read-only, senhas via arquivo.
-- [Runbook OpenCode Desktop](DEV/RUNBOOKS/opencode-desktop-vpn.md) — Desktop/Web pela VPN.
-- [Runbook OpenCode v1/v2](DEV/RUNBOOKS/opencode-v1-v2.md) — launchers, versões, importação de histórico e recuperação por limite.
-- [Runbook de troubleshooting](DEV/RUNBOOKS/troubleshooting-vpn.md) — diagnóstico e resolução.
+| Documento | Conteúdo |
+|---|---|
+| **Este README** | Referência completa, em 13 seções |
+| [docs/TLDR.md](docs/TLDR.md) | Cola-rápida de 1 página (imprimir) |
+| [Exemplo de uso básico](examples/uso-basico.md) | NordVPN + OpenVPN passo a passo |
+| [Cenários avançados](examples/cenarios-avancados.md) | Intranet, `LOCAL_HOSTS`, proxy, supervisor, home read-only, senhas via arquivo |
+| [docs/compatibility.md](docs/compatibility.md) | Matriz de compatibilidade OpenCode v1/v2 |
+| [Runbook DX/diagnóstico](DEV/RUNBOOKS/dx-diagnostics-history.md) | Dispatcher, `--deep`, bundle, histórico, patches do Gluetun |
+| [Runbook OpenCode Desktop](DEV/RUNBOOKS/opencode-desktop-vpn.md) | Desktop/Web pela VPN |
+| [Runbook OpenCode v1/v2](DEV/RUNBOOKS/opencode-v1-v2.md) | Launchers, versões, importação de histórico e recuperação por limite |
+| [Runbook de troubleshooting](DEV/RUNBOOKS/troubleshooting-vpn.md) | Diagnóstico e resolução |
+| [DEV/SPECS/PLAN-GOAL-VPN-DX-SEGURANCA.md](DEV/SPECS/PLAN-GOAL-VPN-DX-SEGURANCA.md) | Plano do goal de DX/segurança (issue [#9](https://github.com/kivervinicius/vpn-dev-workspace/issues/9)) |
+
+## Novidades
+
+- **Dispatcher `vpn`** — um comando para o dia a dia: `up`, `down`, `sh`, `run`,
+  `ai`, `check`, `status`, `top`, `history`, `doctor`, `reconnect`, `rotate`,
+  `logs`, `hosts`, `opencode`, `profiles`. Completion zsh em `scripts/_vpn`.
+- **`vpn-check --deep`** — acrescenta egress IPv6 e detector de resolver DNS
+  exposto aos 6 checks padrão.
+- **`vpn-doctor --bundle`** — `.tar.gz` sanitizado por allowlist (sem
+  `.secrets/`, sem valores do `.env`), com `--redact-ips` para ocultar IPv4/IPv6.
+- **`vpn-history`** — série JSONL de IP/latência com `flock` e rotação; o
+  auto-reconnect grava ao recuperar; `vpn-top` mostra a sparkline e o Control
+  Plane mostra o gráfico (`/api/v1/history`).
+- **Windows** — `scripts/windows/bootstrap.ps1` (winget idempotente) e
+  completion PowerShell para `vpn.ps1`.
+- **CI** — `actions/checkout` por SHA, `actionlint` com checksum fixo e
+  `zizmor` pinado para análise estática dos workflows.
+- **Fallback free→free** — o OpenCode v2 só troca para modelos explicitamente
+  gratuitos (provider `opencode`, custo `0`); nunca sai de free para pago.
 
 ## Objetivo
 
@@ -190,22 +263,64 @@ vpn-top             # painel de status (serviços, túnel, DNS e auto-reconexão
 vpn-server-rotate   # troca de servidor pelo controle do Gluetun
 ```
 
-No host, os seguintes utilitários e assistentes estão disponíveis em `./scripts/`:
+No host, os utilitários e assistentes ficam em `./scripts/`; o dispatcher
+`scripts/vpn` (ou `make …`) é o atalho recomendado:
+
+| Tarefa | Host | Dentro do terminal |
+|---|---|---|
+| Diagnóstico completo | `./scripts/vpn-doctor` | `vpn-doctor` |
+| Assistente inicial (segredos) | `./scripts/vpn-setup --provider nordvpn` | — |
+| Subir / parar | `./scripts/vpn-switch <perfil>` / `stop` | `vpn up` / `vpn down` |
+| Shell na VPN | `./scripts/vpn-shell` | `vpn sh` |
+| Comando na VPN | `vpn run <cmd>` | `vpn run <cmd>` |
+| Estado / saúde | `./scripts/vpn-status`, `./scripts/vpn-check` | `vpn-status`, `vpn-check` |
+| Painel completo | `./scripts/vpn-top` | `vpn-top` |
+| Histórico de IP/latência | `./scripts/vpn-history` | `vpn-history` |
+| OpenCode | `./scripts/vpn-opencode …` | `vpn-opencode …` |
+
+Atalhos do `Makefile`: `make help`, `make setup`, `make doctor`, `make up`,
+`make down`, `make shell DIR=/caminho`, `make check`, `make status`, `make ai`,
+`make lint`, `make test`, `make test-windows`, `make gluetun-patch`,
+`make verify-fast` (sem build Docker) e `make verify` (gate completo).
+
+O `vpn-reconnect` aguarda o IP público do Gluetun após a reconexão (o endpoint só
+o publica segundos depois de o túnel subir) e imprime o IP quando disponível; se
+o IP não voltar, encerra com erro para o `vpn-auto-reconnect` retentar.
+
+O Gluetun usa `ifconfig.co` para obter o IP público. A imagem local é construída
+a partir da versão fixada do Gluetun (`v3.41.3`) com um patch que tenta a
+coleta até três vezes, com dois segundos entre tentativas; não reinicia o
+túnel para repetir a consulta. O `v3.41.4` stable ainda não existe upstream
+(só `rc1`/`rc2`): o patch do RC está preparado e testado
+(`gluetun/publicip-recovery-rc2.patch`, conferido por `make gluetun-patch`),
+sem cutover. A disponibilidade e os limites do serviço externo ainda podem
+afetar a verificação de saúde e a reconexão. O build exige acesso à fonte
+fixada e às dependências Go, e executa os testes do patch.
+
+### 4.1 Histórico de IP e latência
 
 ```bash
-./scripts/vpn-doctor   # diagnóstico completo (host, permissões .secrets, containers, túnel)
-./scripts/vpn-setup    # assistente inicial para criar .secrets/, API key e arquivos
+vpn-history --record            # grava uma amostra agora
+vpn-history --since 24h         # janela
+vpn-history --since 7d --json   # saída máquina
+vpn-history --limit 10          # últimas amostras
 ```
 
-O repositório também inclui um `Makefile` com atalhos práticos (`make help`, `make doctor`, `make up`, `make down`, `make shell`, `make check`, `make test`, `make verify`).
+- Arquivo JSONL: `.vpn-control-state/history.jsonl` no host e
+  `/var/lib/vpn-control/history/history.jsonl` no container — é o **mesmo**
+  arquivo (bind), então host e container enxergam a mesma série.
+- Escrita com `flock`; rotação em `VPN_HISTORY_MAX_LINES` (padrão 2000).
+- O `vpn-auto-reconnect` grava automaticamente quando a VPN volta a `healthy`;
+  falha ao gravar nunca derruba a recuperação.
+- `vpn-top` desenha a sparkline; `vpn-top --json` expõe `.history`; o Control
+  Plane mostra o gráfico (`/api/v1/history`).
+- Procedimento completo: [runbook DX/diagnóstico](DEV/RUNBOOKS/dx-diagnostics-history.md).
 
-O `vpn-reconnect` aguarda o IP público do Gluetun após a reconexão (o endpoint só o publica segundos depois de o túnel subir) e imprime o IP quando disponível; se o IP não voltar, encerra com erro para o `vpn-auto-reconnect` retentar.
-
-O Gluetun usa `ifconfig.co` para obter o IP público. A imagem local é construída a partir da versão fixada do Gluetun com um patch que tenta a coleta até três vezes, com dois segundos entre tentativas; não reinicia o túnel para repetir a consulta. A disponibilidade e os limites desse serviço externo ainda podem afetar a verificação de saúde e a reconexão. O build exige acesso à fonte fixada e às dependências Go, e executa os testes do patch.
+### 4.2 Automação e saída máquina
 
 Para automação: `vpn-status --json|-q`, `vpn-check --json|-q [--only tunnel|dns|internal|hosts] [--deep]`, `vpn-top --json|--no-color`, `vpn-history --json|--since 24h|--limit N`; todo script responde `--help`. O `vpn-check` sai `0` saudável / `1` com falha (a contagem vai na mensagem/JSON). O `--deep` acrescenta a checagem de egress IPv6 e de resolver DNS exposto, e o `vpn-doctor --bundle <arquivo> [--redact-ips]` gera um `.tar.gz` sanitizado por allowlist (sem `.secrets/`, `auth.json` nem valores do `.env`) para anexar em issues.
 
-### 4.1 Rotação automática de servidor (opt-in)
+### 4.3 Rotação automática de servidor (opt-in)
 
 Por padrão a rotação automática está desligada. Para ativá-la, configure em `.env` e reinicie o ambiente:
 
@@ -487,37 +602,64 @@ Esse mount concede ao terminal acesso de leitura e escrita a toda a home indicad
 ### Verificação local
 
 ```bash
-./scripts/verify-docs
-./scripts/verify-compose
-./tests/linux/test-scripts.sh
-node --test tests/opencode/*.test.mjs
-# ou execute tudo de uma vez com o Makefile:
-make verify
+make verify-fast   # sintaxe + ShellCheck + compose + docs + testes (sem build Docker)
+make verify        # verify-fast + build das imagens terminal e Gluetun
 ```
+
+Ou piece a peça:
+
+```bash
+./scripts/verify-syntax                 # bash -n, zsh -n, node --check, ShellCheck
+./scripts/verify-compose                # interpola os 8 perfis + compose.windows.yml
+./scripts/verify-docs                   # trava de drift README ↔ scripts ↔ Compose
+./tests/linux/test-scripts.sh           # suíte Linux (dispatcher, histórico, patches…)
+node --test tests/opencode/*.test.mjs tests/control/*.test.cjs
+node tests/opencode/model-fallback-e2e.mjs   # E2E do fallback (provider local)
+pwsh -File scripts/vpn.Tests.ps1        # ou: make test-windows (Pester)
+make gluetun-patch                      # patches do Gluetun aplicados por tag
+```
+
+| Gate | O que trava |
+|---|---|
+| `verify-syntax` | Erro de sintaxe/ShellCheck em qualquer script |
+| `verify-compose` | Perfil ou Compose quebrado (8 provedores + Windows) |
+| `verify-docs` | README/script/Compose dessincronizados |
+| `test-scripts.sh` | Regressão de comportamento no shell |
+| `node --test` | Regressão nos plugins e no control-plane |
+| `model-fallback-e2e` | Fallback free→free com provider local (sem chamada real) |
+| Pester | Interface Windows (`vpn.ps1`) e helpers `scripts/windows` |
+| `gluetun-patch` | Patch local não aplica no upstream da tag |
 
 ### CI (GitHub Actions)
 
-A pipeline `Validate` roda em cada push/PR: ShellCheck + `bash -n` + `git diff --check`,
-suítes Linux (incl. testes HTTP com socat) e Windows (Pester), testes dos
-plugins OpenCode (`node --test`), `verify-docs`, `verify-compose` e
-`docker build --pull`. O job `secret-scan` varre o histórico
-completo com gitleaks (imagem pinada por digest) e falha o build se encontrar
-segredos. Bumps das Actions e da imagem base são propostos automaticamente pelo
-Dependabot (`.github/dependabot.yml`, semanal); `NODE_VERSION`/`OPENCODE_VERSION`
-e os checksums do `Dockerfile` continuam sendo bumps manuais (ver runbook do
-OpenCode em `DEV/RUNBOOKS/`).
+A pipeline `Validate` roda em cada push/PR e está dividida em jobs:
+
+| Job | O que faz |
+|---|---|
+| `validate` | `make verify` completo (inclui build das imagens) |
+| `secret-scan` | gitleaks no histórico completo (imagem pinada por digest, `--redact`) |
+| `supply-chain` | Trivy (misconfig + secrets), falha só em `CRITICAL` |
+| `workflow-lint` | `actionlint` (binário com checksum fixo) e `zizmor` pinado |
+| `validate-windows-cli` | Pester no runner `windows-latest` |
+
+`actions/checkout` é usado por SHA (com a versão no comentário), o Trivy por
+SHA de tag e as demais imagens por digest. Bumps das Actions e da imagem base
+são propostos pelo Dependabot (`.github/dependabot.yml`, semanal);
+`NODE_VERSION`/`OPENCODE_VERSION` e os checksums do `Dockerfile` continuam
+sendo bumps manuais (ver runbook do OpenCode em `DEV/RUNBOOKS/`).
 
 ### Encerrar o ambiente
 
 ```bash
 ./scripts/vpn-switch stop
+# ou: vpn down
 ```
 
+## 11. Control Plane (opt-in)
 
-## Control Plane (opt-in, em desenvolvimento)
-
-A branch `feat/control-plane-observability-v1` introduz ferramentas read-only:
-`vpn-state --json`, `opencode-compat --json`, `vpn-events list` e `vpn-backup`.
+Ferramentas read-only de observabilidade: `vpn-state --json`,
+`opencode-compat --json`, `vpn-events list`, `vpn-backup` e o painel web
+local.
 
 - O painel é um serviço local sem acesso à home, workspace, Docker socket ou segredos do OpenCode.
 - O observer roda no namespace VPN, agrega sinais sem executar rotação e grava snapshots sanitizados no volume `vpn_control_state`.
@@ -598,3 +740,69 @@ informa a versão instalada, a versão testada e o estado de homologação.
 ```bash
 opencode2-service --check
 ```
+
+## 12. Privacidade, segredos e dados que saem da máquina
+
+**O que passa pela VPN:** todo o tráfego do `terminal`, do `opencode-supervisor`
+e dos clientes OpenCode (incluindo chamadas de modelo), porque os containers
+usam `network_mode: "service:vpn"`. Se o túnel cair, o kill switch do Gluetun
+bloqueia a saída em vez de vazar pela interface do host.
+
+**O que sai da máquina, por finalidade:**
+
+| Destino | Quando | Conteúdo |
+|---|---|---|
+| Servidor VPN do provedor | Sempre que o túnel está ativo | Tráfego do terminal (cifrado) |
+| `ifconfig.co` (via Gluetun) | Healthcheck e pós-reconexão | Requisição para ler o IP público do túnel |
+| `api6.ipify.org` | Apenas `vpn-check --deep` | Requisição para comparar egress IPv6 |
+| `1.1.1.1:443` | `vpn-history` ao gravar amostra | Handshake TCP para medir latência |
+| Provedor de IA | Ao usar o OpenCode | Prompts e contexto, pelo túnel |
+
+`VPN_IPV6_TEST_URL` e `VPN_LATENCY_TARGET` mudam os dois últimos destinos.
+
+**O que fica gravado no disco local:**
+
+| Caminho | Conteúdo | Sensível? |
+|---|---|---|
+| `.secrets/` (0700, arquivos 0600) | Credenciais do provedor, senha da UI, API keys | Sim — nunca versionar |
+| `.env` | Configuração, sem segredos por padrão | Sim — ignorado pelo Git |
+| `.vpn-control-state/` | Perfil ativo, locks, `history.jsonl` (IP público + latência) | Sim — contém seu IP |
+| `~/.local/share/opencode` | Sessões e histórico do OpenCode | Sim — não sai da máquina |
+
+`.secrets/`, `.env` e `.vpn-control-state/` estão no `.gitignore`. O hook
+opcional `.githooks/pre-commit` (ative com `git config core.hooksPath .githooks`)
+roda Gitleaks e `bash -n`/`node --check` antes de versionar. Nenhum script envia
+`.secrets/`, `auth.json` ou valores do `.env` para lugar algum.
+
+**Antes de compartilhar diagnóstico:** use `vpn-doctor --bundle` (allowlist
+estrita, sem segredos) e, se o IP importa, `--redact-ips`. O bundle contém
+apenas `manifest.txt`, `doctor.tsv|json`, `environment.txt`, `env-keys.txt`
+(nomes de variáveis, sem valores), `compose-ps.txt`, `vpn-check.json` e as
+últimas 100 linhas dos logs de `vpn`/`terminal`. Confira com `tar -tzf` antes de
+anexar.
+
+**Limites que o projeto não resolve:** o provedor VPN vê seu IP de origem; o
+provedor de IA vê o conteúdo dos prompts; `history.jsonl` guarda o IP público
+observado, então trate-o como dado pessoal. Trocar de IP não restaura franquia
+de provedor de IA — veja a limitação na seção 11.
+
+## 13. Diagnóstico rápido
+
+| Sintoma | Primeiro comando | Se persistir |
+|---|---|---|
+| Container não sobe | `docker compose ps` | `./scripts/vpn-doctor` |
+| "OpenVPN settings: user is empty" | `ls -l .secrets/` | `./scripts/vpn-setup --provider <nome>` |
+| Túnel unhealthy | `vpn-status` | `vpn-reconnect` |
+| Sem internet no terminal | `vpn-check` | `vpn-check --deep`, depois `vpn-reconnect` |
+| Suspeita de vazamento IPv6/DNS | `vpn-check --deep` | `vpn-doctor --bundle diag.tar.gz --redact-ips` |
+| DNS interno não resolve | `vpn-check --only dns` | revisar `INTERNAL_DNS` e `FIREWALL_SUBNETS` |
+| Host interno inacessível | `vpn-check --only internal` | revisar `FIREWALL_SUBNETS` e `LOCAL_HOSTS` |
+| Painel do OpenCode não abre | `vpn-opencode status` | `vpn-opencode logs`, depois `vpn-opencode supervise` |
+| OpenCode responde `quota` | `vpn-opencode check --json` | aguardar `Retry-After`; não é falha de túnel |
+| Control Plane sem dados | `curl -u control:… /api/v1/state` | conferir `--profile control` no `up` |
+| Script falha só na CI | `make verify-fast` local | `./scripts/vpn-lint`, `./scripts/verify-compose` |
+| Dúvida sobre o que mudou | `vpn-history --since 24h` | `git log`, `DEV/WORKLOG.md` |
+
+Regra de bolso: **mutação** (subir, parar, reconectar, rotacionar) passa por
+`vpn-switch`/`vpn`; **leitura** (`status`, `check`, `top`, `history`, `doctor`)
+nunca muda o túnel.
